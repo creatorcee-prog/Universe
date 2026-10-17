@@ -761,9 +761,11 @@ export class Renderer3D {
     this.qT = now;
     if (this.quality === undefined) this.quality = 1;
     const prevQ = this.quality, prevS = this.samples;
-    if (this.ft > 1 / 40) {
+    // Settings → Full resolution: never trade sharpness for frame rate.
+    if (this.settings.sharp) { this.quality = 1; if (this.samples === 0) this.samples = 4; }
+    else if (this.ft > 1 / 40) {
       if (this.samples > 0) this.samples = 0;
-      else this.quality = Math.max(0.55, this.quality - 0.15);
+      else this.quality = Math.max(0.7, this.quality - 0.15);
     } else if (this.ft < 1 / 56 && now - (this.qUp || 0) > 4000) {
       this.qUp = now;
       if (this.quality < 1) this.quality = Math.min(1, this.quality + 0.1);

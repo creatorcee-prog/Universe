@@ -395,6 +395,8 @@ void main() {
           col = mix(col, oc, smoothstep(1.25, 0.35, od + 0.25 * (sw - 0.5)) * 0.75);
           col *= 1.0 - 0.1 * exp(-pow((od - 1.2) / 0.25, 2.0));
         }
+      }
+      if (uProfile < 1.5) {
         // The polar regions: a mottled field of cyclones (Juno).
         float pc = smoothstep(62.0, 75.0, abs(latD)) * smoothstep(0.25, 0.45, crater(vObj * 22.0 + uSeed));
         col = mix(col, col * vec3(0.8, 0.82, 0.88), pc * 0.6);

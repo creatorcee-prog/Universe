@@ -186,7 +186,7 @@ export class UI {
       r.addEventListener('change', () => { if (r.checked) { app.setView(r.value); this.toast({ realistic: 'Realistic view', classic: 'Classic view', pixel: 'Pixel view' }[r.value]); } });
     }
     this.onView(app.settings.view);
-    for (const key of ['bloom', 'trails', 'labels', 'grid', 'stars', 'trailsRelative', 'collisions', 'orbits', 'trueSize', 'sound', 'music', 'uiSound', 'soundSilent', 'bassBoost', 'perf']) {
+    for (const key of ['bloom', 'trails', 'labels', 'grid', 'stars', 'trailsRelative', 'collisions', 'orbits', 'trueSize', 'sound', 'music', 'uiSound', 'soundSilent', 'bassBoost', 'sharp', 'perf']) {
       const el = $('set-' + key);
       el.checked = !!app.settings[key];
       el.addEventListener('change', () => this.toggleSetting(key, el.checked));
