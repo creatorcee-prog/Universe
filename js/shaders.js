@@ -109,7 +109,9 @@ uniform float uDayNight;
 uniform float uBandK;    // band contrast // day-night temperature swing: large for airless worlds, small where air and oceans store heat
 uniform float uTemp;      // surface temperature before day/night variation (K)
 uniform float uSnowLat;   // latitude (as sin) where ice caps begin
-uniform float uIce;       // 1 for worlds with water or other ices that can form caps
+uniform float uIce;       // 1 when the thermal model says there is surface ice
+uniform float uLatSpan;   // equator-to-pole temperature difference (K)
+uniform float uBoil;      // boiling point of water at this surface pressure (K)
 uniform float uHeat;      // global heating from impacts, 0..1.5
 uniform float uCrack;     // tidal stress near the Roche limit
 uniform float uTime;
@@ -188,7 +190,7 @@ void main() {
   float lat = abs(vObj.y);
   float day = max(dot(N, uL0), 0.0);
   // Local temperature: day side warmer, poles cooler, plus impact and global heat.
-  float T = uTemp * (1.0 + uDayNight * (sqrt(day) - 0.45)) * (1.0 - 0.1 * lat * lat);
+  float T = uTemp + uLatSpan * (0.33 - lat * lat) + uTemp * uDayNight * (sqrt(day) - 0.45);
   T += glow * 2600.0 + uHeat * 1700.0;
   vec3 col;
   float water = 0.0, frozen = 0.0, boiled = 0.0;
@@ -219,8 +221,8 @@ void main() {
       float l = 1.0 - smoothstep(0.0, 0.025, abs(vnoise(q * 5.0) - 0.5));
       land = mix(land, uColB * 0.7, l * uLineae);
     }
-    frozen = smoothstep(266.0, 248.0, T);
-    boiled = smoothstep(373.0, 430.0, T);
+    frozen = smoothstep(272.0, 260.0, T);
+    boiled = smoothstep(uBoil, uBoil + 30.0, T);
     vec3 ocean = mix(vec3(0.015, 0.06, 0.18), vec3(0.04, 0.2, 0.42), smoothstep(sea - 0.12, sea, h));
     vec3 seabed = mix(uColB * 0.55, uColA * 0.45, h);
     vec3 ice = vec3(0.86, 0.9, 0.96);
@@ -229,7 +231,7 @@ void main() {
     col = mix(seaCol, land, landMask);
     // Ice caps creep toward the equator as the planet cools.
     float snow = smoothstep(uSnowLat, uSnowLat + 0.07, lat + 0.12 * (fbm(q * 3.0, 3) - 0.5));
-    col = mix(col, ice, snow * smoothstep(300.0, 270.0, T) * uIce);
+    col = mix(col, ice, snow * smoothstep(290.0, 268.0, T) * uIce);
     if (uCraters > 0.0) {
       float c = crater(vObj * 4.0 + uSeed);
       float c2 = crater(vObj * 11.0 + uSeed * 2.0);

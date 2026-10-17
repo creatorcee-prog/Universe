@@ -1,6 +1,7 @@
 import { G } from './units.js';
 import { World, circularSpeed, captureRadius, PK } from './physics.js';
 import { makeBody, catalogItem, reclassify } from './bodies.js';
+import { thermalStep } from './thermal.js';
 import { PRESETS } from './presets.js';
 import { Camera } from './camera.js';
 import { Renderer } from './render.js';
@@ -72,6 +73,7 @@ class App {
     this.world.reset();
     this.world.collisions = this.settings.collisions;
     p.build(this.world);
+    thermalStep(this.world, 0); // every planet starts in climate equilibrium
     this.state.preset = p;
     this.state.selected = null;
     this.state.speed = p.speed;
@@ -179,10 +181,11 @@ class App {
       this.ui.toast('Released a dust cloud');
       return;
     }
-    const b = makeBody({ kind: item.kind, m: item.m, r: item.r, color: item.color, band: item.band, atmo: item.atmo, comet: item.comet });
+    const b = makeBody({ kind: item.kind, m: item.m, r: item.r, color: item.color, band: item.band, atmo: item.atmo, comet: item.comet, compKey: item.compKey });
     b.x = x; b.y = y; b.z = z; b.vx = vx; b.vy = vy; b.vz = vz;
     reclassify(b);
     this.world.addBody(b);
+    thermalStep(this.world, 0);
     const where = a.parent ? (a.bound ? ` orbiting ${a.parent.name}` : ` on an escape path from ${a.parent.name}`) : '';
     this.ui.toast(`Added ${b.name}${where}. Tap it for details.`);
   }

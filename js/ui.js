@@ -225,13 +225,9 @@ export class UI {
     let temp;
     if (b.kind === 'star' || b.kind === 'wd' || b.kind === 'ns') temp = b.temp;
     else if (b.kind === 'bh' || b.kind === 'core') temp = null;
-    else {
-      // Equilibrium temperature for Earth-like albedo, warmed by recent impacts.
-      const flux = w.totalLight(b.x, b.y, b.z);
-      temp = 278.6 * Math.pow(0.7, 0.25) * Math.pow(flux, 0.25) + b.heat * 1800;
-    }
+    else temp = b.th ? b.th.Ts : null;
     $('i-temp').textContent = temp == null ? '—' : formatTemp(temp);
-    $('i-temp-label').textContent = isLuminous(b) || temp == null ? 'Temperature' : 'Equilibrium temp.';
+    $('i-temp-label').textContent = isLuminous(b) || temp == null ? 'Temperature' : 'Surface temp.';
     const hier = w.hierarchy();
     const parent = hier.get(b)?.parent;
     if (parent) {

@@ -442,7 +442,8 @@ export class Renderer {
     const { ctx, dpr } = this;
     const c = b.color || [180, 180, 180];
     const light = this.lightFor(b);
-    const heat = Math.min(1, b.heat);
+    // Glow from the thermal model (molten surfaces) or a fresh impact flash.
+    const heat = Math.min(1, Math.max(b.heat, b.th ? (b.th.Ts - 800) / 1500 : 0));
     if (R < 1.6 * dpr) {
       // Too small to resolve: a dot, dimmed on the night side.
       const lit = light ? 0.35 + 0.65 * (0.5 - 0.5 * light.z) : 0.5;

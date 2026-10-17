@@ -227,9 +227,31 @@ export class Book {
     if (isLuminous(b)) {
       rows.push(['Surface temperature', formatTemp(b.temp)]);
       rows.push(['Luminosity', `${b.lum.toPrecision(3)} × the Sun`]);
-    } else if (b.kind !== 'bh' && b.kind !== 'core') {
-      const flux = w.totalLight(b.x, b.y, b.z);
-      rows.push(['Equilibrium temperature', formatTemp(278.6 * Math.pow(0.7, 0.25) * Math.pow(flux, 0.25) + b.heat * 1800)]);
+    } else if (b.th) {
+      const th = b.th, c = b.comp, atm = b.atm;
+      rows.push(['Surface temperature', `${formatTemp(th.Ts)} (${Math.round(th.Ts - 273.15)} °C)`]);
+      rows.push(['Sunlight received', `${th.flux < 0.01 ? th.flux.toExponential(1) : th.flux.toPrecision(3)} × Earth's`]);
+      rows.push(['Albedo (reflectivity)', `${Math.round(th.albedo * 100)}%`]);
+      const tot = c.iron + c.rock + c.water + c.ice + c.gas || 1;
+      const parts = [['hydrogen/helium', c.gas], ['rock', c.rock], ['iron', c.iron], ['water', c.water], ['other ices', c.ice]]
+        .filter(([, f]) => f > 0).sort((a, z) => z[1] - a[1])
+        .map(([n, f]) => { const p = (f / tot) * 100; return `${p >= 1 ? Math.round(p) : p >= 0.01 ? p.toPrecision(2) : p.toExponential(0)}% ${n}`; });
+      rows.push(['Composition', parts.join(', ')]);
+      if (b.kind === 'rocky') {
+        const p = atm.p + th.steam;
+        rows.push(['Atmosphere', p < 1e-4 ? 'None to speak of' : `${p < 0.01 ? p.toExponential(1) : p.toPrecision(3)} bar${atm.co2 > 0.5 ? ', mostly CO₂' : ''}${th.steam > 1 ? `, ${Math.round(th.steam)} bar of steam` : ''}`]);
+        if (th.tau > 0.01) rows.push(['Greenhouse optical depth', th.tau.toPrecision(3)]);
+        if (c.water > 0) {
+          const state = th.steam > 1 && th.liquid < 0.01 ? 'Boiled off into the atmosphere'
+            : th.ocean === 0 ? (th.ice < 0.3 ? 'None; its water is locked in polar ice' : 'Frozen over')
+            : `${Math.round(th.liquid * 100)}% of surface liquid`;
+          rows.push(['Oceans', state]);
+          rows.push(['Ice cover', `${Math.round(th.ice * 100)}% of surface`]);
+          rows.push(['Water boils at', formatTemp(th.boil)]);
+        }
+        const dT = th.Eint / (b.m * 1.98847e30 * 900);
+        if (dT > 5) rows.push(['Stored impact heat', `≈ ${Math.round(dT).toLocaleString('en-US')} K above normal (cooling)`]);
+      }
     }
     const hier = w.hierarchy();
     const parent = hier.get(b)?.parent;
@@ -247,7 +269,7 @@ export class Book {
     const kids = [];
     for (const [c, info] of hier) if (info.parent === b) kids.push(c);
     if (kids.length) rows.push(['Orbited by', kids.length <= 4 ? kids.map((c) => c.name).join(', ') : `${kids.length} bodies`]);
-    if (rows.some(([k]) => k === 'Equilibrium temperature')) lede += ' Equilibrium temperature assumes no greenhouse effect; Earth\'s, for example, is about 255 K against a real average of 288 K.';
+    if (b.th && b.kind === 'rocky') lede += ' Its temperature, ice and oceans come from its distance to its star, its composition and atmosphere, and the heat left by impacts.';
     if (b.heat > 0.05) rows.push(['Impact heating', `${Math.round(b.heat * 100)}% (cooling)`]);
     const entry = ENTRIES[b.name];
     if (entry && b.m0 && Math.abs(b.m / b.m0 - 1) > 0.01) lede += ` Its mass is now ${(b.m / b.m0).toPrecision(3)}× what it started with.`;

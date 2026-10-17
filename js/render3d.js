@@ -17,22 +17,22 @@ const c3 = (r, g, b) => [r / 255, g / 255, b / 255];
 const LOOKS = {
   Sun: { kind: 2, spots: 1, tilt: 7.25, day: 609 },
   Mercury: { colA: c3(128, 122, 115), colB: c3(92, 87, 82), craters: 1, tilt: 0.03, day: 1407.6 },
-  Venus: { colA: c3(200, 160, 100), colB: c3(160, 120, 80), cloud: 1, colC: c3(236, 214, 160), atmo: c3(255, 220, 150), atmoK: 0.7, greenhouse: 480, tilt: 177.4, day: 5832.5 },
-  Earth: { colA: c3(120, 100, 70), colB: c3(150, 130, 95), ocean: 0.7, life: 1, cloud: 0.62, atmo: c3(90, 150, 255), atmoK: 1, greenhouse: 33, tilt: 23.4, day: 23.93 },
+  Venus: { colA: c3(200, 160, 100), colB: c3(160, 120, 80), cloud: 1, colC: c3(236, 214, 160), atmo: c3(255, 220, 150), atmoK: 0.7, tilt: 177.4, day: 5832.5 },
+  Earth: { colA: c3(120, 100, 70), colB: c3(150, 130, 95), ocean: 0.7, life: 1, cloud: 0.62, atmo: c3(90, 150, 255), atmoK: 1, tilt: 23.4, day: 23.93 },
   Moon: { colA: c3(160, 156, 150), colB: c3(92, 90, 88), craters: 1, tilt: 6.7, day: 655.7 },
-  Mars: { ice: 1, colA: c3(170, 84, 44), colB: c3(118, 58, 32), craters: 0.35, atmo: c3(230, 140, 90), atmoK: 0.25, greenhouse: 5, dry: 1.25, tilt: 25.2, day: 24.6 },
+  Mars: { colA: c3(170, 84, 44), colB: c3(118, 58, 32), craters: 0.35, atmo: c3(230, 140, 90), atmoK: 0.25, tilt: 25.2, day: 24.6 },
   Ceres: { colA: c3(118, 115, 110), colB: c3(84, 82, 80), craters: 1, lumpy: 0.03, day: 9.07 },
   Jupiter: { kind: 1, colA: c3(234, 218, 190), colB: c3(176, 126, 88), bands: 7, storm: [0.95, -0.32, 0.1, 0.17], colC: c3(190, 90, 60), atmo: c3(230, 210, 170), atmoK: 0.2, tilt: 3.1, day: 9.93 },
   Saturn: { kind: 1, colA: c3(240, 228, 196), colB: c3(214, 192, 148), bands: 9, bandK: 0.45, atmo: c3(240, 220, 170), atmoK: 0.2, tilt: 26.7, day: 10.7 },
   Uranus: { kind: 1, colA: c3(170, 226, 232), colB: c3(150, 210, 220), bands: 3, atmo: c3(180, 240, 255), atmoK: 0.4, tilt: 97.8, day: 17.24 },
   Neptune: { kind: 1, colA: c3(76, 112, 226), colB: c3(56, 88, 196), bands: 4, storm: [0.6, -0.5, 0.6, 0.12], colC: c3(30, 46, 120), atmo: c3(120, 160, 255), atmoK: 0.45, tilt: 28.3, day: 16.1 },
-  Pluto: { ice: 1, colA: c3(214, 190, 160), colB: c3(140, 100, 76), craters: 0.3, tilt: 122.5, day: 153.3 },
+  Pluto: { colA: c3(214, 190, 160), colB: c3(140, 100, 76), craters: 0.3, tilt: 122.5, day: 153.3 },
   Io: { colA: c3(232, 214, 110), colB: c3(190, 140, 60), volc: 1, day: 42.5 },
   Europa: { colA: c3(226, 218, 204), colB: c3(170, 130, 100), lineae: 1, day: 85.2 },
   Ganymede: { colA: c3(150, 140, 126), colB: c3(98, 88, 78), craters: 0.6, day: 171.7 },
   Callisto: { colA: c3(104, 94, 82), colB: c3(70, 62, 54), craters: 1, day: 400.5 },
   "Halley's Comet": { colA: c3(48, 44, 40), colB: c3(30, 28, 26), lumpy: 0.45, craters: 0.5, day: 52.8 },
-  'Proto-Earth': { colA: c3(90, 50, 36), colB: c3(60, 34, 26), greenhouse: 950, day: 5 },
+  'Proto-Earth': { colA: c3(90, 50, 36), colB: c3(60, 34, 26), day: 5 },
   Theia: { colA: c3(140, 115, 96), colB: c3(100, 82, 70), craters: 0.5, day: 12 },
 };
 
@@ -60,10 +60,9 @@ function lookFor(b) {
   const look = { kind: 0, colA: base, colB: base.map((v) => v * 0.7), colC: [0.96, 0.97, 1], tilt: r * 30, day: 8 + r * 40 };
   if (b.comet || me < 1e-4 || b.name.startsWith('Planetesimal')) Object.assign(look, { lumpy: b.comet ? 0.45 : 0.3, craters: 0.8, colA: base.map((v) => v * 0.8), day: 6 + r * 20 });
   else if (me < 0.05) look.craters = 1;
-  else if (b.atmo) Object.assign(look, { ocean: 0.55 + r * 0.2, cloud: 0.5, atmo: b.atmo.map((v) => v / 255), atmoK: 0.8, greenhouse: 25, colA: [0.45, 0.38, 0.28], colB: [0.6, 0.52, 0.4] });
-  else if (me > 0.3) Object.assign(look, { ocean: r > 0.5 ? r * 0.6 : 0, craters: 0.25, greenhouse: 10, atmoK: 0.3, atmo: [0.7, 0.75, 0.85] });
+  else if (b.atmo) Object.assign(look, { ocean: 0.55 + r * 0.2, cloud: 0.5, atmo: b.atmo.map((v) => v / 255), atmoK: 0.8, colA: [0.45, 0.38, 0.28], colB: [0.6, 0.52, 0.4] });
+  else if (me > 0.3) Object.assign(look, { ocean: r > 0.5 ? r * 0.6 : 0, craters: 0.25, atmoK: 0.3, atmo: [0.7, 0.75, 0.85] });
   else look.craters = 0.6;
-  if (!look.ocean) look.dry = 1.2;
   return look;
 }
 
@@ -560,11 +559,10 @@ export class Renderer3D {
       }
     }
 
-    let temp = b.temp;
-    if (lights) {
-      temp = 278.6 * Math.pow(0.7, 0.25) * Math.pow(lights.flux, 0.25) + (l.greenhouse || 0);
-    }
-    const snowLat = Math.max(0, Math.min(1.3, 0.9 + (temp - 288) / 60 + (l.dry || 0)));
+    // Climate comes from the thermal model (distance, impacts, composition); see thermal.js.
+    const th = b.th;
+    const temp = th ? th.Ts : b.temp;
+    const snowLat = th ? (th.ice > 0.97 ? -0.3 : 1 - th.ice) : 1.3; // caps cover the area above this sine of latitude
     const crack = l.kind === 0 ? Math.max(0, Math.min(1, (tide.tau - 0.3) / 0.5)) : 0;
 
     const p = this.pBody, u = p.u;
@@ -586,8 +584,8 @@ export class Renderer3D {
     gl.uniform3fv(u.uColA, l.colA || [0.6, 0.6, 0.6]);
     gl.uniform3fv(u.uColB, l.colB || [0.4, 0.4, 0.4]);
     gl.uniform3fv(u.uColC, l.colC || [0.95, 0.96, 1]);
-    gl.uniform1f(u.uOcean, l.ocean || 0);
-    gl.uniform1f(u.uCloud, l.cloud || 0);
+    gl.uniform1f(u.uOcean, th ? th.ocean : 0);
+    gl.uniform1f(u.uCloud, th ? th.cloud : 0);
     gl.uniform1f(u.uCraters, l.craters || 0);
     gl.uniform1f(u.uLife, l.life || 0);
     gl.uniform1f(u.uBands, l.bands || 6);
@@ -600,26 +598,35 @@ export class Renderer3D {
     gl.uniform1f(u.uFacet, l.lumpy ? 0.85 : nImp ? 0.12 : 0);
     gl.uniform1f(u.uTemp, temp);
     gl.uniform1f(u.uSnowLat, snowLat);
-    gl.uniform1f(u.uIce, l.ice ?? (l.ocean ? 1 : 0));
-    gl.uniform1f(u.uHeat, Math.min(1.5, b.heat));
+    gl.uniform1f(u.uIce, th && th.ice > 0.003 ? 1 : 0);
+    gl.uniform1f(u.uLatSpan, th ? th.latSpan : 50);
+    gl.uniform1f(u.uBoil, th ? th.boil : 373);
+    gl.uniform1f(u.uHeat, 0); // impact heat is already part of the surface temperature
     gl.uniform1f(u.uCrack, crack);
     gl.uniform1f(u.uTime, now / 1000);
     gl.uniform4fv(u.uStorm, l.storm || [0, 0, 1, 0]);
     const ld = lights ? lights.dirs : [[0, 1, 0], [0, 0, 0], [0, 1, 0], [0, 0, 0]];
     gl.uniform3fv(u.uL0, ld[0]); gl.uniform3fv(u.uLc0, ld[1]);
     gl.uniform3fv(u.uL1, ld[2]); gl.uniform3fv(u.uLc1, ld[3]);
+    // Atmosphere: strength from surface pressure; colour from composition (CO2 haze, steam, air).
+    let atmo = l.atmo || null, atmoK = l.atmoK ?? 0.5;
+    if (b.atm && l.kind === 0) {
+      const p = b.atm.p + (th ? th.steam : 0);
+      atmoK = (l.atmoK ?? 0.8) * Math.max(0, Math.min(1.3, (Math.log10(Math.max(p, 1e-9)) + 3) / 3));
+      if (!atmo && p > 0.01) atmo = th && th.steam > 1 ? [0.92, 0.94, 1] : b.atm.co2 > 0.5 && p > 5 ? [1, 0.85, 0.6] : [0.5, 0.7, 1];
+      if (atmoK <= 0) atmo = null;
+    }
     // A hot world's atmosphere glows orange instead of scattering blue.
-    let atmo = l.atmo || null;
-    const hotK = Math.min(1, Math.max(0, (temp + b.heat * 1700 - 600) / 900));
+    const hotK = Math.min(1, Math.max(0, (temp - 600) / 900));
     if (atmo && hotK > 0) atmo = atmo.map((v, i) => v + ([1, 0.45, 0.15][i] - v) * hotK);
     gl.uniform3fv(u.uAtmo, atmo || [0, 0, 0]);
-    gl.uniform1f(u.uAtmoK, l.atmo ? l.atmoK ?? 0.5 : 0);
+    gl.uniform1f(u.uAtmoK, atmo ? atmoK : 0);
     const g = this.spheres[lod];
     gl.bindVertexArray(g.vao);
     gl.drawElements(gl.TRIANGLES, g.n, gl.UNSIGNED_SHORT, 0);
 
     // Glows and other additive layers, drawn after all solid bodies.
-    if (l.atmo && shownPx > 3) {
+    if (atmo && shownPx > 3) {
       const thick = l.kind === 1 ? 1.015 : 1.035;
       glows.push(() => {
         const a = this.pAtmo, au = a.u;
@@ -637,7 +644,7 @@ export class Renderer3D {
         gl.uniform1f(au.uLumpy, 0);
         gl.uniform1f(au.uLogDepthFC, this.logFC);
         gl.uniform3fv(au.uAtmo, atmo);
-        gl.uniform1f(au.uAtmoK, l.atmoK ?? 0.5);
+        gl.uniform1f(au.uAtmoK, atmoK);
         gl.uniform3fv(au.uL0, ld[0]);
         gl.bindVertexArray(g.vao);
         gl.drawElements(gl.TRIANGLES, g.n, gl.UNSIGNED_SHORT, 0);

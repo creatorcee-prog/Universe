@@ -1,5 +1,6 @@
 import { G } from './units.js';
 import { reclassify, refresh, isLuminous } from './bodies.js';
+import { thermalStep, mergeThermal, finishMerge, accreteHeat } from './thermal.js';
 
 // Particle kinds (purely visual categories; particles carry mass but do not attract each other).
 export const PK = { DEBRIS: 0, HOT: 1, STAR_BLUE: 2, STAR_GOLD: 3, ICE: 4, DUST: 5, GAS: 6, ROCK: 7 };
@@ -339,6 +340,7 @@ export class World {
     }
     const keep = M - debrisMass;
 
+    if ((s.kind === 'rocky' || s.kind === 'gas') && (o.kind === 'rocky' || o.kind === 'gas')) mergeThermal(s, o, vrel2, violence, this);
     let r = s.r;
     if (!['bh', 'ns', 'wd', 'core'].includes(s.kind)) r = Math.cbrt(s.r * s.r * s.r + o.r * o.r * o.r);
     s.x = cmx; s.y = cmy; s.z = cmz;
@@ -348,6 +350,7 @@ export class World {
     s.heat = Math.min(1.5, s.heat + Math.min(1, 6 * ratio * (0.2 + q)));
     o.alive = false;
     o.mergedInto = s;
+    finishMerge(s);
     // Remember where the hit landed so the 3D view can scar and heat that patch of surface.
     // Direction is in world axes from the survivor's centre; size is the impactor's angular radius.
     if (s.kind !== 'bh' && s.kind !== 'core') {
@@ -436,6 +439,7 @@ export class World {
 
     this.stepParticles(att, steps, t0, done);
     this.flushPending();
+    thermalStep(this, done);
     this.releaseOrphanRings();
     if (this.ringOuter.size) this.disturbRings();
     return done;
@@ -596,6 +600,8 @@ export class World {
       if (b) {
         const m = this.pm[i];
         const M = b.m + m;
+        const dvx = this.pvx[i] - b.vx, dvy = this.pvy[i] - b.vy, dvz = this.pvz[i] - b.vz;
+        accreteHeat(b, m, dvx * dvx + dvy * dvy + dvz * dvz);
         b.vx = (b.vx * b.m + this.pvx[i] * m) / M;
         b.vy = (b.vy * b.m + this.pvy[i] * m) / M;
         b.vz = (b.vz * b.m + this.pvz[i] * m) / M;

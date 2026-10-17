@@ -48,9 +48,9 @@ Switch in **Settings → View**.
 
 - **Realistic** (default): WebGL 2 spheres with procedural surfaces that react to the simulation, worked out
   for every point on the surface each frame:
-  - *Temperature*: day sides warm, poles cool, and the day–night swing depends on whether the world has air
-    and oceans to store heat. Oceans freeze below about 266 K and boil off above 373 K; ice caps advance or
-    retreat; rock and gas glow at their own black-body colour once they pass about 800 K.
+  - *Temperature and ice*: driven by the climate model below. Day sides warm, poles cool, ice caps sit where
+    it is colder than −10 °C (limited by the water available), oceans freeze, or boil off at the
+    pressure-dependent boiling point, and rock and gas glow at their black-body colour above about 800 K.
   - *Impacts*: each hit dents the surface at the exact spot it landed, glows white-hot, cools to red over a
     few seconds, and leaves a dark scar that turns with the planet.
   - *Tides*: a body stretches toward whatever pulls on it hardest, and glowing fissures open as it nears
@@ -70,6 +70,33 @@ Switch in **Settings → View**.
 
 The renderer is written directly against WebGL 2 with no 3D library, so it works offline and adds
 about 50 KB.
+
+## Climate model (`js/thermal.js`)
+
+Every planet has a **composition** (mass fractions of iron, silicate rock, water, other ices and
+hydrogen/helium) and an **atmosphere** (surface pressure, CO₂ share). Mergers mix compositions by mass.
+
+- **Sunlight**: summed from every star, falling off as 1/d², so distance sets the climate.
+- **Albedo**: built from the surface. Ice reflects about 60%, ocean 6%, rock 4–60% depending on the
+  material, clouds 55–77%. Polar ice counts for less, because sunlight is weaker there.
+- **Greenhouse**: an optical depth from CO₂ (linear when it dominates a thick atmosphere, logarithmic as a
+  trace gas), other gases, water vapour (which grows with temperature while there is liquid water), and
+  steam.
+- **Impacts**: 30% of the collision's kinetic energy becomes heat, divided by the body's heat capacity
+  (water about 4× rock per kg, iron about half). The heat leaks out through the surface: quickly while it is
+  molten, slowly once a crust forms.
+- **Water**: boils at a pressure-dependent point (Clausius–Clapeyron: 373 K at 1 bar, about 570 K at
+  Venus's 92 bar), becoming a steam atmosphere that raises the greenhouse further, and rains back out once
+  it cools.
+
+Feedbacks happen on their own: move Earth inward past about 0.9 AU and it enters a runaway greenhouse; out
+to 1.25 AU and ice-albedo feedback freezes it into a snowball. Climate studies put the real thresholds in
+roughly the same places.
+
+Calibration (model / measured mean surface temperature, K): Mercury 419/440, Venus 732/737, Earth 285/288,
+Moon 269/250, Mars 220/210, Ceres 161/168, Jupiter 127/124, Saturn 95/95, Uranus 58/59, Neptune 58/59,
+Pluto 40/44. Measured values: NASA Planetary Fact Sheets. Threshold references: Kasting et al. (1993),
+*Icarus* 101, 108; Kopparapu et al. (2013), *ApJ* 765, 131.
 
 ## The book
 
