@@ -146,12 +146,19 @@ Switch in **Settings → View**.
   headphones); Settings → "Bass boost for the phone speaker" turns it on.
   Sound starts on the first tap (a browser rule). It plays even with the iPhone on silent, unless
   Settings → "Quiet when the iPhone is on silent" is on (that mode also lets your music keep playing).
-- **Image maps** (assets/maps, equirectangular, 0° longitude at the centre): Venus uses the Magellan
-  radar mosaic and Titan the brightness of its haze top. They are stored as brightness relative to their
-  mean, so the shaders keep physically chosen colours: Venus's radar brightness (roughness and
-  elevation, not colour) shades its dark basalt ground and relief, seen in the surface view or if its
-  clouds are stripped; Titan's tints its haze (darker northern hood). A haze thicker than optical depth
-  3 (Titan's is ~5) now hides the ground from space, as a cloud deck does.
+- **Image maps** (assets/maps, equirectangular, 0° longitude at the centre):
+  - *Colour maps*: Mars (Viking colour mosaic), Io (Galileo/Voyager), Pluto (New Horizons), Jupiter and
+    Saturn (Cassini; their contrast-enhanced colours scaled back to the app's true-colour calibration).
+    The Mars and Io sources covered only the central 320° of longitude; the 40° around 180° is a blend
+    of the two edges and holds no real features. Io's volcanoes glow only in its dark paterae, on the
+    night side.
+  - *Earth*: land, sea depth (continental shelves), mountains and ice decoded from a NASA hypsometric
+    relief map (the hand-traced coastlines fill its missing 40°), and city lights from NASA Black
+    Marble.
+  - *Venus*: Magellan radar brightness (roughness, not colour) shades its dark basalt and relief; *Titan*:
+    the brightness of its haze top. A haze thicker than optical depth 3 hides the ground from space.
+  - Neptune is drawn pale greenish blue (Irwin et al. 2024): the deep blue of familiar Voyager images
+    came from contrast stretching.
 - **Surface view terrain**: standing on a world you see real ground around you, a mesh from your feet to
   ~150 km built from the same continental noise as the globe (Earth's real continents line up), with
   rolling hills, mountain ridges, dunes and crater fields. Ground cover follows the globe's climate

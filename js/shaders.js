@@ -138,6 +138,8 @@ uniform float uRingProf[16]; // ring opacity profile from the actual ring partic
 uniform sampler2D uMap;    // surface map: 1 = land/mountains/ice (Earth, painted worlds), 2 = albedo (lunar maria)
 uniform float uMapMode;
 uniform float uCity;       // night-side city lights (Earth)
+uniform sampler2D uNight;  // where they are (Black Marble), when uNightMap = 1
+uniform float uNightMap;
 uniform vec4 uOcc[4];      // bodies that can eclipse this one: centre relative to the eye (world axes), radius
 uniform int uOccN;
 uniform float uSunAng;     // angular radius of the light source seen from here (penumbra width)
@@ -322,14 +324,18 @@ void main() {
       float dOct = uPx > 300.0 ? 4.0 : uPx > 120.0 ? 3.0 : 2.0;
       warp += (fbm(vec3(sp.xy * 18.0, latD * 1.6) + uSeed + 9.0, int(dOct)) - 0.5) * 0.9 * tq;
       float lp = latD + warp;
-      if (uProfile < 2.5) col = bandTable(lp, uProfile);
+      bool cmap = uMapMode > 5.5;
+      if (cmap) col = texture(uMap, vec2(atan(-vObj.z, vObj.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(vObj.y, -1.0, 1.0)) / 3.14159265)).rgb;
+      else if (uProfile < 2.5) col = bandTable(lp, uProfile);
       else if (uProfile < 3.5) {
         // Uranus: almost featureless cyan haze; faint bands and a brighter polar hood.
         col = vec3(0.66, 0.86, 0.9) * (0.97 + 0.04 * sin(lp * 0.12)) + vec3(0.06, 0.05, 0.03) * smoothstep(55.0, 75.0, abs(lp));
       } else {
-        // Neptune: deep blue, a darker band near 60°S, lighter towards the equator.
-        col = mix(vec3(0.21, 0.37, 0.84), vec3(0.29, 0.47, 0.9), exp(-lp * lp / 600.0));
-        col = mix(col, vec3(0.14, 0.25, 0.66), exp(-pow((lp + 60.0) / 7.0, 2.0)) * 0.8);
+        // Neptune: pale greenish blue, only a little bluer than Uranus. The deep blue of the familiar
+        // Voyager images came from contrast-stretched processing (Irwin et al. 2024, MNRAS 527, 11521).
+        // A darker band near 60°S, lighter towards the equator.
+        col = mix(vec3(0.49, 0.68, 0.86), vec3(0.56, 0.75, 0.9), exp(-lp * lp / 600.0));
+        col = mix(col, vec3(0.38, 0.55, 0.75), exp(-pow((lp + 60.0) / 7.0, 2.0)) * 0.8);
         // Bright methane-ice cirrus streaks, long and thin, near 25°N and 40°S.
         float st = smoothstep(0.62, 0.85, fbm(vec3(sp.xy * 3.0, latD * 0.9) + uSeed + 7.0, 4));
         col = mix(col, vec3(0.92, 0.95, 1.0), st * (exp(-pow((latD + 42.0) / 3.5, 2.0)) + exp(-pow((latD - 26.0) / 3.0, 2.0))) * 0.85);
@@ -345,16 +351,16 @@ void main() {
       float lum = dot(col, vec3(0.3, 0.55, 0.15));
       float belt = 1.0 - smoothstep(0.62, 0.84, lum);
       float flow2 = fbm(fp * 2.1 + vec3(w1.y * 2.0, 0.0, 0.0) + 13.0, fo);
-      if (uProfile < 1.5) {
+      if (uProfile < 1.5 && !cmap) {
         col = mix(col, vec3(0.93, 0.88, 0.8), belt * smoothstep(0.5, 0.72, flow) * 0.6);
         col = mix(col, col * vec3(0.82, 0.7, 0.6), (1.0 - belt) * smoothstep(0.55, 0.75, flow2) * 0.45);
       }
-      col *= 0.88 + 0.26 * flow * (uProfile < 2.5 ? 1.0 : 0.4);
+      col *= cmap ? 0.93 + 0.14 * flow : 0.88 + 0.26 * flow * (uProfile < 2.5 ? 1.0 : 0.4);
       col *= 0.97 + 0.06 * vnoise(vec3(sp.xy * 48.0, latD * 4.0) + uSeed);
       float grad = length(bandTable(lp + 0.6, uProfile) - bandTable(lp - 0.6, uProfile));
       float eddy = fbm(vec3(sp.xy * 9.0, latD * 0.9) + uSeed + vec3(uTime * 0.01, 0.0, 0.0), 4);
-      if (uProfile < 2.5) col = mix(col, col * (0.8 + 0.4 * eddy), clamp(grad * 4.0, 0.0, 1.0) * tq);
-      if (uProfile < 1.5) {
+      if (uProfile < 2.5 && !cmap) col = mix(col, col * (0.8 + 0.4 * eddy), clamp(grad * 4.0, 0.0, 1.0) * tq);
+      if (uProfile < 1.5 && !cmap) {
         // Festoons: dark blue-grey plumes hooking from the NEB's southern edge into the Equatorial Zone.
         float fe = smoothstep(0.62, 0.9, 0.5 + 0.5 * sin(lon * 11.0 + 2.4 * fbm(vec3(sp.xy * 2.0, latD * 0.25) + uSeed, 3) + (latD - 7.0) * 0.4));
         col = mix(col, vec3(0.37, 0.39, 0.45), fe * exp(-pow((latD - 5.5) / 2.2, 2.0)) * 0.6);
@@ -488,9 +494,12 @@ void main() {
       bio = mix(bio, sand, clamp(desert * 1.3 - wet * 0.9, 0.0, 1.0));
       land = mix(land, bio, uLife * warm * lowland + uLife * 0.35 * (1.0 - lowland));
     }
+    // Colour map: the real surface colours (with life or seas still drawn on top if the world gets them).
+    bool cmapR = uMapMode > 4.5 && uMapMode < 5.5;
+    if (cmapR) land = MP.rgb;
     // Close up, land shows finer texture (fields of terrain and vegetation patches).
     if (uPx > 250.0) land *= 0.86 + 0.28 * fbm(q * 70.0 + 3.0, 3);
-    if (uProfile > 4.5 && uProfile < 5.5) {
+    if (uProfile > 4.5 && uProfile < 5.5 && !cmapR) {
       // Mars: albedo features at their real places (lat, east lon in degrees). Dark: Syrtis Major, Mare
       // Acidalium, Solis Lacus, the dark southern highlands band; bright: Hellas and Argyre basins, Tharsis.
       float mlat = degrees(asin(clamp(vObj.y, -1.0, 1.0)));
@@ -532,7 +541,8 @@ void main() {
     col = mix(seaCol, land, landMask);
     // Ice caps creep toward the equator as the planet cools.
     float snow = smoothstep(uSnowLat, uSnowLat + 0.07, lat + 0.12 * (fbm(q * 3.0, 3) - 0.5));
-    col = mix(col, ice, snow * smoothstep(290.0, 268.0, T) * uIce);
+    // A colour map already shows the world's own ice (Mars's caps, Pluto's nitrogen plains).
+    col = mix(col, ice, snow * smoothstep(290.0, 268.0, T) * uIce * (cmapR ? 0.0 : 1.0));
     cityLand = landMask; cityE = e; cityIce = MP.b;
     // Mapped ice sheets (Greenland, Antarctica) and painted ice.
     col = mix(col, ice * (0.92 + 0.08 * rg2), (uMapMode < 1.5 ? 1.0 : 0.0) * smoothstep(0.35, 0.6, MP.b));
@@ -644,6 +654,12 @@ void main() {
     float cl0 = metro * (dots * smoothstep(0.25, 0.55, vnoise(q * 40.0)) + 0.35 * smoothstep(0.55, 0.85, vnoise(q * 60.0)));
     float coastal = 1.0 - smoothstep(0.0, 0.12, cityE);
     float lights = cl0 * (0.35 + 0.65 * coastal) * cityLand * (1.0 - smoothstep(0.3, 0.6, cityIce / 1.0)) * (1.0 - frozen) * smoothstep(0.0, 0.4, 1.0 - lat);
+    if (uNightMap > 0.5) {
+      // The real distribution of lights, broken into points of light when seen close up.
+      float Lm = texture(uNight, vec2(atan(-vObj.z, vObj.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(vObj.y, -1.0, 1.0)) / 3.14159265)).r;
+      float fine = mix(1.0, 0.25 + 1.5 * dots * smoothstep(0.2, 0.6, vnoise(q * 40.0)) + 0.3 * metro, smoothstep(250.0, 900.0, uPx));
+      lights = Lm * 1.4 * fine * cityLand * (1.0 - frozen);
+    }
     outc += vec3(1.0, 0.7, 0.36) * lights * night * 1.7 * (1.0 - cloud * 0.7);
   }
 
@@ -717,7 +733,14 @@ void main() {
     float cr = 1.0 - smoothstep(0.0, 0.035, abs(vnoise(q * 8.0) - 0.5));
     outc += vec3(1.0, 0.42, 0.1) * cr * uCrack * 1.4;
   }
-  if (uVolc > 0.0) {
+  if (uVolc > 0.0 && uMapMode > 4.5 && uMapMode < 5.5) {
+    // With a real map (Io): hot lava sits in its dark paterae, and at visible wavelengths it only shows
+    // against the night side (as Galileo and New Horizons saw it).
+    vec3 mc = texture(uMap, vec2(atan(-vObj.z, vObj.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(vObj.y, -1.0, 1.0)) / 3.14159265)).rgb;
+    float pat = smoothstep(0.22, 0.1, dot(mc, vec3(0.3, 0.55, 0.15)));
+    float nightV = 1.0 - smoothstep(-0.1, 0.05, dot(N, uL0));
+    outc += vec3(1.0, 0.42, 0.1) * pat * nightV * uVolc * 0.5 * (0.7 + 0.3 * sin(uTime * 3.0 + q.x * 9.0));
+  } else if (uVolc > 0.0) {
     float v = smoothstep(0.86, 0.93, vnoise(q * 7.0));
     outc = mix(outc, vec3(0.05), v * 0.6 * uVolc);
     outc += vec3(1.0, 0.45, 0.12) * smoothstep(0.91, 0.95, vnoise(q * 7.0)) * uVolc * (0.6 + 0.4 * sin(uTime * 3.0 + q.x * 9.0));
@@ -955,7 +978,10 @@ void main() {
     soil = mix(soil, soil * vec3(1.15, 1.0, 0.8), desert * 0.5);
     vec3 rock = mix(vec3(0.33, 0.31, 0.29), uColB * 0.85, uOcean > 0.0 ? 0.35 : 0.75) * (0.8 + 0.4 * n2);
     col = soil;
-    if (uMapMode > 2.5 && uMapMode < 3.5) col *= 0.6 + 0.8 * texture(uMap, vec2(atan(-vDir.z, vDir.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(vDir.y, -1.0, 1.0)) / 3.14159265)).r;
+    vec2 uvD = vec2(atan(-vDir.z, vDir.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(vDir.y, -1.0, 1.0)) / 3.14159265);
+    if (uMapMode > 2.5 && uMapMode < 3.5) col *= 0.6 + 0.8 * texture(uMap, uvD).r;
+    // Colour map: the ground takes the colour seen from orbit, varied by the local soil pattern.
+    if (uMapMode > 4.5 && uMapMode < 5.5) { vec3 mc = texture(uMap, uvD).rgb; soil = mc * (soil / max(dot(mix(uColA, uColB, 0.5), vec3(0.333)), 0.05)) * 0.5 + mc * 0.5; rock = mix(rock, mc * 0.75, 0.6); col = soil; }
     if (uLife > 0.0) {
       float warm = smoothstep(255.0, 280.0, T) * smoothstep(335.0, 305.0, T);
       float veg = uLife * warm * smoothstep(0.36, 0.56, moist) * (1.0 - smoothstep(0.35, 0.6, slope));

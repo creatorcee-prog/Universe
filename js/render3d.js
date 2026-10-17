@@ -15,22 +15,50 @@ let EARTH_MAP = null, MOON_MAP = null; // built once, on first use
 //            tracks roughness and elevation (tesserae and highlands bright, smooth lava plains dark),
 //            so it shades the ground and its relief; the rock colour stays dark basalt.
 //   mode 4 — Titan: brightness of the haze top (darker northern polar hood); tints the haze only.
-const PHOTO = [[/^Venus( \d+)?$/, 'venus', 3], [/^Titan( \d+)?$/, 'titan', 4]];
+// Colour maps (the image is the surface colour itself):
+//   mode 5 — rocky worlds: Mars (Viking MDIM colour mosaic), Io (Galileo/Voyager), Pluto (New Horizons).
+//   mode 6 — giant planets: Jupiter (Cassini) and Saturn cloud tops, in place of the band tables.
+// Mars's and Io's sources covered only the central 320° of longitude; the missing 40° around 180° is
+// filled by blending the two edges (so it holds no real features).
+const PHOTO = [
+  [/^Venus( \d+)?$/, 'venus', 3, 'rocky'], [/^Titan( \d+)?$/, 'titan', 4, 'rocky'],
+  [/^Mars( \d+)?$/, 'mars', 5, 'rocky'], [/^Io( \d+)?$/, 'io', 5, 'rocky'], [/^Pluto( \d+)?$/, 'pluto', 5, 'rocky'],
+  [/^Jupiter( \d+)?$/, 'jupiter', 6, 'gas'], [/^Saturn( \d+)?$/, 'saturn', 6, 'gas'],
+];
 const photoImg = {};
-function photoMap(b) {
-  if (b.kind !== 'rocky') return null;
-  const p = PHOTO.find(([re]) => re.test(b.name));
-  if (!p) return null;
-  const [, file, mode] = p;
+function loadImage(file, ext = 'jpg') {
   let e = photoImg[file];
   if (!e) {
     e = photoImg[file] = { img: null };
     const inline = typeof window !== 'undefined' && window.__MAPS__ && window.__MAPS__[file];
     const im = new Image();
     im.onload = () => { e.img = im; };
-    im.src = inline || `assets/maps/${file}.jpg`;
+    im.src = inline || `assets/maps/${file}.${ext}`;
   }
-  return e.img ? { mode, img: e.img, W: e.img.width, H: e.img.height, ver: 1 } : null;
+  return e.img;
+}
+function photoMap(b) {
+  const p = PHOTO.find(([re, , , kind]) => re.test(b.name) && b.kind === kind);
+  if (!p) return null;
+  const img = loadImage(p[1]);
+  return img ? { mode: p[2], img, W: img.width, H: img.height, ver: 1 } : null;
+}
+// Earth: land, sea depth, mountains and ice decoded from a NASA hypsometric relief map (the hand-traced
+// geography fills the 40° of longitude the source lacked), in the same channels as earthMap(). Read back
+// to pixels because painting edits it. Until it has loaded, the hand-traced map stands in.
+let EARTH_REAL = null;
+function earthReal() {
+  if (EARTH_REAL) return EARTH_REAL;
+  const img = loadImage('earth', 'png');
+  if (!img) return null;
+  try {
+    const c = document.createElement('canvas');
+    c.width = img.width; c.height = img.height;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    g.drawImage(img, 0, 0);
+    EARTH_REAL = { W: img.width, H: img.height, data: new Uint8Array(g.getImageData(0, 0, img.width, img.height).data.buffer) };
+  } catch { EARTH_REAL = { W: 0 }; }
+  return EARTH_REAL;
 }
 
 // Realistic view: WebGL2 spheres with procedural, physically driven surfaces.
@@ -56,7 +84,7 @@ const LOOKS = {
   Jupiter: { kind: 1, profile: 1, aurora: 2, colA: c3(234, 218, 190), colB: c3(176, 126, 88), bands: 7, storm: [0.92, -0.38, 0.1, 0.07], colC: c3(196, 104, 72), atmo: c3(230, 210, 170), atmoK: 0.2, tilt: 3.1, day: 9.93 },
   Saturn: { kind: 1, profile: 2, aurora: 2, colA: c3(240, 228, 196), colB: c3(214, 192, 148), bands: 9, bandK: 0.45, atmo: c3(240, 220, 170), atmoK: 0.2, tilt: 26.7, day: 10.7, hex: 1 },
   Uranus: { kind: 1, profile: 3, colA: c3(170, 226, 232), colB: c3(150, 210, 220), bands: 3, atmo: c3(180, 240, 255), atmoK: 0.4, tilt: 97.8, day: 17.24 },
-  Neptune: { kind: 1, profile: 4, colA: c3(76, 112, 226), colB: c3(56, 88, 196), bands: 4, storm: [0.6, -0.5, 0.6, 0.12], colC: c3(30, 46, 120), atmo: c3(120, 160, 255), atmoK: 0.45, tilt: 28.3, day: 16.1 },
+  Neptune: { kind: 1, profile: 4, colA: c3(76, 112, 226), colB: c3(56, 88, 196), bands: 4, storm: [0.6, -0.5, 0.6, 0.12], colC: c3(62, 88, 140), atmo: c3(150, 195, 235), atmoK: 0.45, tilt: 28.3, day: 16.1 },
   Pluto: { colA: c3(214, 190, 160), colB: c3(140, 100, 76), craters: 0.3, tilt: 122.5, day: 153.3 },
   Io: { colA: c3(232, 214, 110), colB: c3(190, 140, 60), volc: 1, day: 42.5, locked: 1 },
   Europa: { colA: c3(226, 218, 204), colB: c3(170, 130, 100), lineae: 1, day: 85.2, locked: 1 },
@@ -1024,7 +1052,12 @@ export class Renderer3D {
     // Convection cells: ~40 across the Sun's disc (shown as fine texture), a handful on supergiants.
     gl.uniform1f(u.uGran, Math.max(3.5, Math.min(40, 40 / Math.sqrt(Math.max(1, b.r / 0.00465)))));
     // Surface maps: Earth's geography and the Moon's maria are built in; painting adds one to any world.
-    if (!b.surfaceMap && /^Earth( \d+)?$/.test(b.name) && b.kind === 'rocky') b.surfaceMap = { mode: 1, W: 512, H: 256, data: (EARTH_MAP ||= earthMap()).slice(), ver: 1 };
+    if (/^Earth( \d+)?$/.test(b.name) && b.kind === 'rocky') {
+      const er = earthReal();
+      // The real map replaces the stand-in as soon as it is ready, unless the stand-in was painted.
+      if (er && er.W && (!b.surfaceMap || (b.surfaceMap.standIn && b.surfaceMap.ver === 1))) b.surfaceMap = { mode: 1, W: er.W, H: er.H, data: er.data.slice(), ver: 2 };
+      else if (!b.surfaceMap) b.surfaceMap = { mode: 1, W: 512, H: 256, data: (EARTH_MAP ||= earthMap()).slice(), ver: 1, standIn: true };
+    }
     if (!b.surfaceMap && /^Moon( \d+)?$/.test(b.name) && b.kind === 'rocky') b.surfaceMap = { mode: 2, W: 512, H: 256, data: (MOON_MAP ||= moonMap()).slice(), ver: 1 };
     if (!b.surfaceMap) b.surfaceMap = photoMap(b) || undefined;
     const sm = b.surfaceMap;
@@ -1047,19 +1080,39 @@ export class Renderer3D {
           gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, sm.img);
           gl.generateMipmap(gl.TEXTURE_2D);
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-        } else if (t.ver < 0 || !sm.dirtyRows) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, sm.W, sm.H, 0, gl.RGBA, gl.UNSIGNED_BYTE, sm.data);
+        } else if (t.ver < 0 || !sm.dirtyRows || t.W !== sm.W) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, sm.W, sm.H, 0, gl.RGBA, gl.UNSIGNED_BYTE, sm.data);
         else {
           const [y0, y1] = sm.dirtyRows;
           gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y0, sm.W, y1 - y0 + 1, gl.RGBA, gl.UNSIGNED_BYTE, sm.data.subarray(y0 * sm.W * 4, (y1 + 1) * sm.W * 4));
         }
         sm.dirtyRows = null;
-        t.ver = sm.ver;
+        t.ver = sm.ver; t.W = sm.W;
       }
       gl.uniform1i(u.uMap, 5);
       gl.activeTexture(gl.TEXTURE0);
     }
     gl.uniform1f(u.uMapMode, sm ? sm.mode : 0);
-    gl.uniform1f(u.uCity, /^Earth( \d+)?$/.test(b.name) && b.life && (b.lifeAge || 0) > 3.7e9 ? 1 : 0);
+    const city = /^Earth( \d+)?$/.test(b.name) && b.life && (b.lifeAge || 0) > 3.7e9;
+    gl.uniform1f(u.uCity, city ? 1 : 0);
+    // Where the lights are: NASA Black Marble (city lights only, the moonlit ground and snow removed).
+    const night = city ? loadImage('earth-night') : null;
+    if (night) {
+      if (!this.nightTex) {
+        this.nightTex = gl.createTexture();
+        gl.activeTexture(gl.TEXTURE6);
+        gl.bindTexture(gl.TEXTURE_2D, this.nightTex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, night);
+        gl.generateMipmap(gl.TEXTURE_2D);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      }
+      gl.activeTexture(gl.TEXTURE6);
+      gl.bindTexture(gl.TEXTURE_2D, this.nightTex);
+      gl.uniform1i(u.uNight, 6);
+      gl.activeTexture(gl.TEXTURE0);
+    }
+    gl.uniform1f(u.uNightMap, night ? 1 : 0);
     // Eclipses: up to four bodies that sit between this one and its light, nearest the light path first.
     {
       const P = lights && lights.primary;
@@ -1098,7 +1151,8 @@ export class Renderer3D {
     } else gl.uniform3f(u.uRingN, 0, 0, 0);
     gl.uniform1f(u.uCrack, crack);
     gl.uniform1f(u.uTime, now / 1000);
-    gl.uniform4fv(u.uStorm, l.storm || [0, 0, 1, 0]);
+    // A colour map already holds the real storms (the Great Red Spot, the white ovals).
+    gl.uniform4fv(u.uStorm, l.storm && !(sm && sm.mode === 6) ? l.storm : [0, 0, 1, 0]);
     const ld = lights ? lights.dirs : [[0, 1, 0], [0, 0, 0], [0, 1, 0], [0, 0, 0]];
     gl.uniform3fv(u.uL0, ld[0]); gl.uniform3fv(u.uLc0, ld[1]);
     gl.uniform3fv(u.uL1, ld[2]); gl.uniform3fv(u.uLc1, ld[3]);

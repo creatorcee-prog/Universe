@@ -21,7 +21,10 @@ js += `window.__AUDIO__ = ${JSON.stringify(sounds)};\n`;
 // Image maps likewise (js/render3d.js).
 const mapDir = join(root, 'assets', 'maps');
 const maps = {};
-for (const f of readdirSync(mapDir)) if (f.endsWith('.jpg')) maps[f.slice(0, -4)] = 'data:image/jpeg;base64,' + readFileSync(join(mapDir, f)).toString('base64');
+for (const f of readdirSync(mapDir)) {
+  const m = f.match(/^(.*)\.(jpg|png)$/);
+  if (m) maps[m[1]] = `data:image/${m[2] === 'png' ? 'png' : 'jpeg'};base64,` + readFileSync(join(mapDir, f)).toString('base64');
+}
 js += `window.__MAPS__ = ${JSON.stringify(maps)};\n`;
 for (const name of ORDER) {
   let src = readFileSync(join(root, 'js', name + '.js'), 'utf8');
