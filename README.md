@@ -161,6 +161,11 @@ Switch in **Settings → View**.
   - *Greyscale mosaics*: Callisto, Europa, Ganymede (Voyager/Galileo), Phobos and Deimos (Viking), as
     brightness tinted with each world's colours; Charon (New Horizons) in colour. The Callisto, Europa,
     Ganymede and Phobos sources also lacked the 40° around 180° (blended from the edges).
+  - *Moon*: the near side from a full-Moon photograph (LRO) reprojected onto the globe, fading 63–80°
+    from the sub-Earth point into the hand-placed maria and far-side basins.
+  - *Jupiter*: rebuilt from the Hubble OPAL 2016 photograph: the photographed hemisphere is reprojected
+    (limb darkening removed, the ultraviolet aurora masked out); the unseen longitudes are filled with
+    offset copies of it, crossfaded, with the Great Red Spot only once (tools/jupiter_build.py).
   - *Earth*: land, sea depth (continental shelves), mountains and ice decoded from a NASA hypsometric
     relief map (the hand-traced coastlines fill its missing 40°), and city lights from NASA Black
     Marble.

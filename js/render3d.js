@@ -21,13 +21,16 @@ let EARTH_MAP = null, MOON_MAP = null; // built once, on first use
 //   mode 7 — greyscale mosaics (Voyager/Galileo for Callisto, Europa, Ganymede; Viking for Phobos and
 //            Deimos), as brightness relative to the mean: tinted with the world's own colours, the darker
 //            material (Europa's lineae, Ganymede's old dark terrain) in the darker one.
+//   mode 8 — the Moon: as mode 7, brightness relative to the highlands, from a full-Moon photograph
+//            (LRO) reprojected onto the near side; G marks where it covers (fading out 63–80° from the
+//            sub-Earth point), the rest is the hand-placed maria and far-side basins.
 // Mars's and Io's sources covered only the central 320° of longitude; the missing 40° around 180° is
 // filled by blending the two edges (so it holds no real features).
 const PHOTO = [
   [/^Venus( \d+)?$/, 'venus', 3, 'rocky'], [/^Titan( \d+)?$/, 'titan', 4, 'rocky'],
   [/^Mars( \d+)?$/, 'mars', 5, 'rocky'], [/^Io( \d+)?$/, 'io', 5, 'rocky'], [/^Pluto( \d+)?$/, 'pluto', 5, 'rocky'],
   [/^Jupiter( \d+)?$/, 'jupiter', 6, 'gas'], [/^Saturn( \d+)?$/, 'saturn', 6, 'gas'],
-  [/^Charon( \d+)?$/, 'charon', 5, 'rocky'],
+  [/^Charon( \d+)?$/, 'charon', 5, 'rocky'], [/^Moon( \d+)?$/, 'moon', 8, 'rocky'],
   ...['Callisto', 'Europa', 'Ganymede', 'Phobos', 'Deimos'].map((n) => [new RegExp(`^${n}( \\d+)?$`), n.toLowerCase(), 7, 'rocky']),
 ];
 const photoImg = {};
@@ -45,7 +48,7 @@ function loadImage(file, ext = 'jpg') {
 function photoMap(b) {
   const p = PHOTO.find(([re, , , kind]) => re.test(b.name) && b.kind === kind);
   if (!p) return null;
-  const img = loadImage(p[1]);
+  const img = loadImage(p[1], p[4]);
   return img ? { mode: p[2], img, W: img.width, H: img.height, ver: 1 } : null;
 }
 // Earth: land, sea depth, mountains and ice decoded from a NASA hypsometric relief map (the hand-traced
@@ -1044,7 +1047,7 @@ export class Renderer3D {
     const wind = ((deck ? 100 : 20) / Rm) * 86400;
     gl.uniform1f(u.uCloudT, this.cloudT || 0); gl.uniform1f(u.uWind, wind); gl.uniform1f(u.uDeck, deck); gl.uniform1f(u.uDeckH, deckH);
     // An image map already shows the real craters and lineae; procedural ones would double them.
-    const imgMap = b.surfaceMap && b.surfaceMap.mode >= 5;
+    const imgMap = b.surfaceMap && b.surfaceMap.mode >= 5 && b.surfaceMap.mode !== 8;
     gl.uniform1f(u.uCraters, imgMap ? 0 : l.craters || 0);
     gl.uniform1f(u.uLife, b.life ? 1 : 0);
     gl.uniform1f(u.uBands, l.bands || 6);
@@ -1080,7 +1083,12 @@ export class Renderer3D {
       if (er && er.W && (!b.surfaceMap || (b.surfaceMap.standIn && b.surfaceMap.ver === 1))) b.surfaceMap = { mode: 1, W: er.W, H: er.H, data: er.data.slice(), ver: 2 };
       else if (!b.surfaceMap) b.surfaceMap = { mode: 1, W: 512, H: 256, data: (EARTH_MAP ||= earthMap()).slice(), ver: 1, standIn: true };
     }
-    if (!b.surfaceMap && /^Moon( \d+)?$/.test(b.name) && b.kind === 'rocky') b.surfaceMap = { mode: 2, W: 512, H: 256, data: (MOON_MAP ||= moonMap()).slice(), ver: 1 };
+    if (/^Moon( \d+)?$/.test(b.name) && b.kind === 'rocky') {
+      // The near side from a full-Moon photograph (LRO); the hand-placed maria stand in until it loads.
+      const pm = photoMap(b);
+      if (pm && (!b.surfaceMap || b.surfaceMap.standIn)) b.surfaceMap = pm;
+      else if (!b.surfaceMap) b.surfaceMap = { mode: 2, W: 512, H: 256, data: (MOON_MAP ||= moonMap()).slice(), ver: 1, standIn: true };
+    }
     if (!b.surfaceMap) b.surfaceMap = photoMap(b) || undefined;
     const sm = b.surfaceMap;
     if (sm) {

@@ -640,9 +640,9 @@ void main() {
       land = mix(land, bio, uLife * warm * lowland + uLife * 0.35 * (1.0 - lowland));
     }
     // Colour map: the real surface colours (with life or seas still drawn on top if the world gets them).
-    bool cmapR = uMapMode > 4.5 && uMapMode < 7.5;
+    bool cmapR = uMapMode > 4.5 && uMapMode < 8.5;
     if (uMapMode > 4.5 && uMapMode < 5.5) land = MP.rgb;
-    if (uMapMode > 6.5 && uMapMode < 7.5) { float t = 2.0 * MP.r; land = mix(uColB, uColA, clamp(t, 0.0, 1.0)) * t; }
+    if (uMapMode > 6.5 && uMapMode < 8.5) { float t = 2.0 * MP.r; land = mix(uColB, uColA, clamp(t, 0.0, 1.0)) * t; }
     // Close up, land shows finer texture (fields of terrain and vegetation patches).
     if (uPx > 250.0) land *= 0.86 + 0.28 * fbm(q * 70.0 + 3.0, 3);
     if (uProfile > 4.5 && uProfile < 5.5 && !cmapR) {
@@ -713,7 +713,13 @@ void main() {
       float c2 = crater(vObj * 11.0 + uSeed * 2.0);
       float bowl = smoothstep(0.18, 0.45, c) * 0.7 + 0.3 * smoothstep(0.15, 0.4, c2);
       float rim = smoothstep(0.42, 0.5, c) * smoothstep(0.6, 0.5, c);
-      col *= mix(1.0, 0.84 + 0.18 * bowl + 0.1 * rim, uCraters);
+      if (uMapMode > 7.5 && uMapMode < 8.5) {
+        // The Moon beyond the photograph (G is where it covers): highlands saturated with small and
+        // mid-sized craters, no large ringed ones (those read as bullseyes at this scale).
+        float hc = crater(vObj * 28.0 + uSeed), hc2 = crater(vObj * 60.0 + uSeed * 3.0);
+        float sat = 0.93 + 0.06 * smoothstep(0.15, 0.4, hc) + 0.04 * smoothstep(0.12, 0.35, hc2) + 0.08 * (fbm(q * 14.0, 3) - 0.5) + 0.04 * (bowl - 0.5);
+        col *= mix(1.0, sat, 1.0 - MP.g);
+      } else col *= mix(1.0, 0.84 + 0.18 * bowl + 0.1 * rim, uCraters);
     }
     // Scorched basin: charred brown with radial streaks, a light ejecta rim, and rays splashed outward.
     vec3 burnt = mix(vec3(0.09, 0.06, 0.045), vec3(0.26, 0.17, 0.11), vnoise(q * 18.0) * 0.6 + rays * 0.4);
@@ -1076,7 +1082,7 @@ void main() {
     col = soil;
     if (uMapMode > 2.5 && uMapMode < 3.5) col *= 0.6 + 0.8 * mapTex(uMap, vDir).r;
     // Colour map: the ground takes the colour seen from orbit, varied by the local soil pattern.
-    if (uMapMode > 4.5 && uMapMode < 7.5) { vec3 mc = mapTex(uMap, vDir).rgb; if (uMapMode > 6.5) { float t = 2.0 * mc.r; mc = mix(uColB, uColA, clamp(t, 0.0, 1.0)) * t; } soil = mc * (soil / max(dot(mix(uColA, uColB, 0.5), vec3(0.333)), 0.05)) * 0.5 + mc * 0.5; rock = mix(rock, mc * 0.75, 0.6); col = soil; }
+    if (uMapMode > 4.5 && uMapMode < 8.5) { vec3 mc = mapTex(uMap, vDir).rgb; if (uMapMode > 6.5) { float t = 2.0 * mc.r; mc = mix(uColB, uColA, clamp(t, 0.0, 1.0)) * t; } soil = mc * (soil / max(dot(mix(uColA, uColB, 0.5), vec3(0.333)), 0.05)) * 0.5 + mc * 0.5; rock = mix(rock, mc * 0.75, 0.6); col = soil; }
     if (uLife > 0.0) {
       float warm = smoothstep(255.0, 280.0, T) * smoothstep(335.0, 305.0, T);
       float veg = uLife * warm * smoothstep(0.36, 0.56, moist) * (1.0 - smoothstep(0.35, 0.6, slope));
