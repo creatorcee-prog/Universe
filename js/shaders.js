@@ -56,6 +56,24 @@ vec3 blackbody(float t) {
 }
 `;
 
+// Equirectangular map lookup (east-positive longitude, 0° at the centre). Fragment shaders pick the
+// texture derivatives from whichever longitude parametrisation is continuous here, so the wrap at 180°
+// does not drop to the smallest mip level (a visible seam line); vertex shaders read the full level.
+const MAPTEX_FS = `
+vec4 mapTex(sampler2D s, vec3 d) {
+  vec2 uv = vec2(atan(-d.z, d.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(d.y, -1.0, 1.0)) / 3.14159265);
+  vec2 uv2 = vec2(fract(uv.x + 0.5), uv.y);
+  vec2 gx = dFdx(uv), gy = dFdy(uv), gx2 = dFdx(uv2), gy2 = dFdy(uv2);
+  if (abs(gx2.x) + abs(gy2.x) < abs(gx.x) + abs(gy.x)) { gx = gx2; gy = gy2; }
+  return textureGrad(s, uv, gx, gy);
+}
+`;
+const MAPTEX_VS = `
+vec4 mapTex(sampler2D s, vec3 d) {
+  return textureLod(s, vec2(atan(-d.z, d.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(d.y, -1.0, 1.0)) / 3.14159265), 0.0);
+}
+`;
+
 export const BODY_VS = HEAD + NOISE + `
 layout(location = 0) in vec3 aPos;
 uniform mat4 uProj;
@@ -100,7 +118,7 @@ void main() {
 }
 `;
 
-export const BODY_FS = HEAD + NOISE + BLACKBODY + `
+export const BODY_FS = HEAD + NOISE + BLACKBODY + MAPTEX_FS + `
 in vec3 vObj;
 in vec3 vViewPos;
 in vec3 vN;
@@ -224,7 +242,10 @@ void main() {
   vec3 V = normalize(-vViewPos);
   vec3 N = normalize(vN);
   if (uFacet > 0.0) {
-    vec3 cx = cross(dFdx(vViewPos), dFdy(vViewPos));
+    // In units of the body's radius: in AU, a small moon's per-pixel steps (~1e-10) underflow the cross
+    // product, and normalising the denormal result gives NaN (drawn black).
+    vec3 pr = vViewPos / uRadius;
+    vec3 cx = cross(dFdx(pr), dFdy(pr));
     vec3 Nd = dot(cx, cx) > 0.0 ? normalize(cx) : N;
     if (dot(Nd, V) < 0.0) Nd = -Nd;
     N = normalize(mix(N, Nd, uFacet));
@@ -325,7 +346,7 @@ void main() {
       warp += (fbm(vec3(sp.xy * 18.0, latD * 1.6) + uSeed + 9.0, int(dOct)) - 0.5) * 0.9 * tq;
       float lp = latD + warp;
       bool cmap = uMapMode > 5.5;
-      if (cmap) col = texture(uMap, vec2(atan(-vObj.z, vObj.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(vObj.y, -1.0, 1.0)) / 3.14159265)).rgb;
+      if (cmap) col = mapTex(uMap, vObj).rgb;
       else if (uProfile < 2.5) col = bandTable(lp, uProfile);
       else if (uProfile < 3.5) {
         // Uranus: almost featureless cyan haze; faint bands and a brighter polar hood.
@@ -435,8 +456,7 @@ void main() {
     vec4 MP = vec4(0.0);
     float coast = 0.5, mapW = 0.0, mapH = 0.0;
     if (uMapMode > 0.5) {
-      vec2 uvM = vec2(atan(-vObj.z, vObj.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(vObj.y, -1.0, 1.0)) / 3.14159265);
-      MP = texture(uMap, uvM);
+      MP = mapTex(uMap, vObj);
       if (uMapMode < 1.5) {
         mapW = MP.a;
         // Coastline at 0.5, made fractal by noise at several scales (bays, headlands, island chains).
@@ -457,12 +477,14 @@ void main() {
     // Relief shading: tilt the normal by the slope of the height field (screen-space bump mapping),
     // so mountain ranges and valleys show, most of all near the terminator.
     {
-      vec3 dpx = dFdx(vViewPos), dpy = dFdy(vViewPos);
+      // Positions in units of the radius, so the products below stay far from float underflow on small
+      // bodies (in AU they reach ~1e-40, and normalising that gives NaN).
+      vec3 dpx = dFdx(vViewPos / uRadius), dpy = dFdy(vViewPos / uRadius);
       float dhx = dFdx(Hgt), dhy = dFdy(Hgt);
       vec3 r1 = cross(dpy, N), r2 = cross(N, dpx);
       float det = dot(dpx, r1);
       vec3 grad = sign(det) * (dhx * r1 + dhy * r2);
-      vec3 Nb = normalize(abs(det) * N - grad * uRadius * 0.05 * uRelief);
+      vec3 Nb = normalize(abs(det) * N - grad * 0.05 * uRelief);
       N = normalize(mix(N, Nb, landMask * clamp(uRelief, 0.0, 1.0)));
       day = max(dot(N, uL0), 0.0);
     }
@@ -495,8 +517,9 @@ void main() {
       land = mix(land, bio, uLife * warm * lowland + uLife * 0.35 * (1.0 - lowland));
     }
     // Colour map: the real surface colours (with life or seas still drawn on top if the world gets them).
-    bool cmapR = uMapMode > 4.5 && uMapMode < 5.5;
-    if (cmapR) land = MP.rgb;
+    bool cmapR = uMapMode > 4.5 && uMapMode < 7.5;
+    if (uMapMode > 4.5 && uMapMode < 5.5) land = MP.rgb;
+    if (uMapMode > 6.5 && uMapMode < 7.5) { float t = 2.0 * MP.r; land = mix(uColB, uColA, clamp(t, 0.0, 1.0)) * t; }
     // Close up, land shows finer texture (fields of terrain and vegetation patches).
     if (uPx > 250.0) land *= 0.86 + 0.28 * fbm(q * 70.0 + 3.0, 3);
     if (uProfile > 4.5 && uProfile < 5.5 && !cmapR) {
@@ -630,7 +653,7 @@ void main() {
     // Thick cloud tops are brighter, thin edges greyer.
     vec3 cc = uColC * (0.72 + 0.32 * smoothstep(thr, thr + 0.25, cl));
     // Haze map (Titan): the real brightness pattern of the haze top, relative to its mean.
-    if (uMapMode > 3.5 && uMapMode < 4.5) cc *= 2.0 * texture(uMap, vec2(atan(-vObj.z, vObj.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(vObj.y, -1.0, 1.0)) / 3.14159265)).r;
+    if (uMapMode > 3.5 && uMapMode < 4.5) cc *= 2.0 * mapTex(uMap, vObj).r;
     col = mix(col, cc, cloud);
   }
   vec3 Hv = normalize(uL0 + V);
@@ -656,7 +679,7 @@ void main() {
     float lights = cl0 * (0.35 + 0.65 * coastal) * cityLand * (1.0 - smoothstep(0.3, 0.6, cityIce / 1.0)) * (1.0 - frozen) * smoothstep(0.0, 0.4, 1.0 - lat);
     if (uNightMap > 0.5) {
       // The real distribution of lights, broken into points of light when seen close up.
-      float Lm = texture(uNight, vec2(atan(-vObj.z, vObj.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(vObj.y, -1.0, 1.0)) / 3.14159265)).r;
+      float Lm = mapTex(uNight, vObj).r;
       float fine = mix(1.0, 0.25 + 1.5 * dots * smoothstep(0.2, 0.6, vnoise(q * 40.0)) + 0.3 * metro, smoothstep(250.0, 900.0, uPx));
       lights = Lm * 1.4 * fine * cityLand * (1.0 - frozen);
     }
@@ -736,7 +759,7 @@ void main() {
   if (uVolc > 0.0 && uMapMode > 4.5 && uMapMode < 5.5) {
     // With a real map (Io): hot lava sits in its dark paterae, and at visible wavelengths it only shows
     // against the night side (as Galileo and New Horizons saw it).
-    vec3 mc = texture(uMap, vec2(atan(-vObj.z, vObj.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(vObj.y, -1.0, 1.0)) / 3.14159265)).rgb;
+    vec3 mc = mapTex(uMap, vObj).rgb;
     float pat = smoothstep(0.22, 0.1, dot(mc, vec3(0.3, 0.55, 0.15)));
     float nightV = 1.0 - smoothstep(-0.1, 0.05, dot(N, uL0));
     outc += vec3(1.0, 0.42, 0.1) * pat * nightV * uVolc * 0.5 * (0.7 + 0.3 * sin(uTime * 3.0 + q.x * 9.0));
@@ -773,13 +796,12 @@ vec2 bigTerrain(vec3 d) {
   float rg2 = 1.0 - abs(2.0 * vnoise(q * 7.3 + 3.0) - 1.0);
   float mtn = rg * rg * (0.65 + 0.35 * rg2) * smoothstep(0.0, 0.1, e);
   if (uMapMode > 0.5 && uMapMode < 1.5) {
-    vec2 uvM = vec2(atan(-d.z, d.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(d.y, -1.0, 1.0)) / 3.14159265);
-    vec4 MP = texture(uMap, uvM);
+    vec4 MP = mapTex(uMap, d);
     float coast = MP.r + (h - 0.5) * 0.5;
     e = mix(e, (coast - 0.5) * 0.12, MP.a) + 0.22 * MP.g;
     mtn = max(mtn, rg * rg * (0.35 + 0.65 * rg2) * MP.g * 1.7);
   }
-  if (uMapMode > 2.5 && uMapMode < 3.5) e += 0.25 * (texture(uMap, vec2(atan(-d.z, d.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(d.y, -1.0, 1.0)) / 3.14159265)).r - 0.5);
+  if (uMapMode > 2.5 && uMapMode < 3.5) e += 0.25 * (mapTex(uMap, d).r - 0.5);
   return vec2(e, mtn);
 }
 // Height above sea level (m). Real topography scales roughly as 1/g (uRelief: ~4 km on Earth).
@@ -851,7 +873,7 @@ float smallHeight(vec2 p, float rough, float res) {
 }
 `;
 
-export const TERRAIN_VS = HEAD + NOISE + TERRAIN_COMMON + `
+export const TERRAIN_VS = HEAD + NOISE + MAPTEX_VS + TERRAIN_COMMON + `
 layout(location = 0) in vec2 aPolar;   // distance from the observer (m), azimuth
 uniform mat4 uProj;
 uniform mat3 uView, uRot;              // world -> view, object -> world
@@ -898,7 +920,7 @@ void main() {
 }
 `;
 
-export const TERRAIN_FS = HEAD + NOISE + TERRAIN_COMMON + `
+export const TERRAIN_FS = HEAD + NOISE + MAPTEX_FS + TERRAIN_COMMON + `
 in vec3 vViewPos;
 in vec3 vDir;
 in vec2 vPlanar;
@@ -978,10 +1000,9 @@ void main() {
     soil = mix(soil, soil * vec3(1.15, 1.0, 0.8), desert * 0.5);
     vec3 rock = mix(vec3(0.33, 0.31, 0.29), uColB * 0.85, uOcean > 0.0 ? 0.35 : 0.75) * (0.8 + 0.4 * n2);
     col = soil;
-    vec2 uvD = vec2(atan(-vDir.z, vDir.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(vDir.y, -1.0, 1.0)) / 3.14159265);
-    if (uMapMode > 2.5 && uMapMode < 3.5) col *= 0.6 + 0.8 * texture(uMap, uvD).r;
+    if (uMapMode > 2.5 && uMapMode < 3.5) col *= 0.6 + 0.8 * mapTex(uMap, vDir).r;
     // Colour map: the ground takes the colour seen from orbit, varied by the local soil pattern.
-    if (uMapMode > 4.5 && uMapMode < 5.5) { vec3 mc = texture(uMap, uvD).rgb; soil = mc * (soil / max(dot(mix(uColA, uColB, 0.5), vec3(0.333)), 0.05)) * 0.5 + mc * 0.5; rock = mix(rock, mc * 0.75, 0.6); col = soil; }
+    if (uMapMode > 4.5 && uMapMode < 7.5) { vec3 mc = mapTex(uMap, vDir).rgb; if (uMapMode > 6.5) { float t = 2.0 * mc.r; mc = mix(uColB, uColA, clamp(t, 0.0, 1.0)) * t; } soil = mc * (soil / max(dot(mix(uColA, uColB, 0.5), vec3(0.333)), 0.05)) * 0.5 + mc * 0.5; rock = mix(rock, mc * 0.75, 0.6); col = soil; }
     if (uLife > 0.0) {
       float warm = smoothstep(255.0, 280.0, T) * smoothstep(335.0, 305.0, T);
       float veg = uLife * warm * smoothstep(0.36, 0.56, moist) * (1.0 - smoothstep(0.35, 0.6, slope));

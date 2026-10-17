@@ -18,12 +18,17 @@ let EARTH_MAP = null, MOON_MAP = null; // built once, on first use
 // Colour maps (the image is the surface colour itself):
 //   mode 5 — rocky worlds: Mars (Viking MDIM colour mosaic), Io (Galileo/Voyager), Pluto (New Horizons).
 //   mode 6 — giant planets: Jupiter (Cassini) and Saturn cloud tops, in place of the band tables.
+//   mode 7 — greyscale mosaics (Voyager/Galileo for Callisto, Europa, Ganymede; Viking for Phobos and
+//            Deimos), as brightness relative to the mean: tinted with the world's own colours, the darker
+//            material (Europa's lineae, Ganymede's old dark terrain) in the darker one.
 // Mars's and Io's sources covered only the central 320° of longitude; the missing 40° around 180° is
 // filled by blending the two edges (so it holds no real features).
 const PHOTO = [
   [/^Venus( \d+)?$/, 'venus', 3, 'rocky'], [/^Titan( \d+)?$/, 'titan', 4, 'rocky'],
   [/^Mars( \d+)?$/, 'mars', 5, 'rocky'], [/^Io( \d+)?$/, 'io', 5, 'rocky'], [/^Pluto( \d+)?$/, 'pluto', 5, 'rocky'],
   [/^Jupiter( \d+)?$/, 'jupiter', 6, 'gas'], [/^Saturn( \d+)?$/, 'saturn', 6, 'gas'],
+  [/^Charon( \d+)?$/, 'charon', 5, 'rocky'],
+  ...['Callisto', 'Europa', 'Ganymede', 'Phobos', 'Deimos'].map((n) => [new RegExp(`^${n}( \\d+)?$`), n.toLowerCase(), 7, 'rocky']),
 ];
 const photoImg = {};
 function loadImage(file, ext = 'jpg') {
@@ -1023,12 +1028,14 @@ export class Renderer3D {
     let cover = th && l.kind === 0 ? th.cloud : 0;
     if (l.kind === 0 && cover < 1) { const o = atmosphereOptics(b); if (o && o.tauM > 3) cover = 1; }
     gl.uniform1f(u.uCloud, cover);
-    gl.uniform1f(u.uCraters, l.craters || 0);
+    // An image map already shows the real craters and lineae; procedural ones would double them.
+    const imgMap = b.surfaceMap && b.surfaceMap.mode >= 5;
+    gl.uniform1f(u.uCraters, imgMap ? 0 : l.craters || 0);
     gl.uniform1f(u.uLife, b.life ? 1 : 0);
     gl.uniform1f(u.uBands, l.bands || 6);
     gl.uniform1f(u.uBandK, l.bandK ?? 0.7);
     gl.uniform1f(u.uVolc, l.volc || 0);
-    gl.uniform1f(u.uLineae, l.lineae || 0);
+    gl.uniform1f(u.uLineae, imgMap ? 0 : l.lineae || 0);
     gl.uniform1f(u.uSpots, l.spots || 0);
     gl.uniform1f(u.uProfile, l.profile || 0);
     gl.uniform1f(u.uAurora, l.aurora || 0);

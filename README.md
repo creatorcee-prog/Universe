@@ -152,6 +152,9 @@ Switch in **Settings → View**.
     The Mars and Io sources covered only the central 320° of longitude; the 40° around 180° is a blend
     of the two edges and holds no real features. Io's volcanoes glow only in its dark paterae, on the
     night side.
+  - *Greyscale mosaics*: Callisto, Europa, Ganymede (Voyager/Galileo), Phobos and Deimos (Viking), as
+    brightness tinted with each world's colours; Charon (New Horizons) in colour. The Callisto, Europa,
+    Ganymede and Phobos sources also lacked the 40° around 180° (blended from the edges).
   - *Earth*: land, sea depth (continental shelves), mountains and ice decoded from a NASA hypsometric
     relief map (the hand-traced coastlines fill its missing 40°), and city lights from NASA Black
     Marble.

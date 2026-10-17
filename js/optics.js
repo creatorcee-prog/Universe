@@ -45,6 +45,9 @@ export function atmosphereOptics(b) {
     kmix += f * G.n * G.n * G.F;
   }
   const H = (8.314 * T) / ((mu / 1000) * g);               // scale height (m)
+  // A scale height that is a sizeable fraction of the radius means the gas is not bound (it escapes as
+  // fast as it is made): small moons like Phobos have no atmosphere to draw.
+  if (H > 0.2 * R) return null;
   const dens = (P / 1.01325) * (288 / T);                 // number density relative to Earth sea level
   const betaR = AIR_BR.map((v) => v * (kmix / AIR_K) * dens);
   const betaA = [0, 0, 0];
