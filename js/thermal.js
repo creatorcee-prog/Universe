@@ -381,3 +381,52 @@ export function accreteMaterial(b, mSun, kind) {
 export function surfaceTemp(b) {
   return b.th ? b.th.Ts : null;
 }
+
+// ---------- temperature zones around a heat source ----------
+
+// Kopparapu et al. (2013, ApJ 765, 131; erratum 2013 ApJ 770, 82): stellar flux, in units of Earth's,
+// at the habitable zone's edges as a function of the star's effective temperature.
+function kopparapu(T, s0, a, b, c, d) {
+  const t = Math.max(2600, Math.min(7200, T || 5780)) - 5780;
+  return s0 + a * t + b * t * t + c * t ** 3 + d * t ** 4;
+}
+
+// Flux (Earth = 1) at which a dark, fast-spinning body sits at temperature T: T = 278.6 K × S^¼.
+const fluxAt = (T) => Math.pow(T / 278.6, 4);
+
+// Heat output of a body in solar luminosities: its own light for stars, or the glow of an impact-heated
+// planet (σT⁴ over its surface while it holds a lot of internal heat). Null if it gives off little heat.
+export function heatOutput(b) {
+  if (b.lum > 0) return b.lum;
+  const th = b.th;
+  if (!th || th.Eint <= 0) return null;
+  const dTb = th.Eint / (b.m * MSUN_KG * heatCapacity(b));
+  if (dTb < 300 || th.Ts < 600) return null;
+  const R = b.r * AU_M;
+  return (4 * Math.PI * R * R * SIGMA * th.Ts ** 4) / L_SUN;
+}
+
+// Rings of equilibrium temperature around a source, as distances (AU) from its centre.
+// Zones closer in than the body's own surface are dropped, so small emitters only show what reaches out.
+export function tempZones(b) {
+  const L = heatOutput(b);
+  if (!L) return null;
+  const T = b.lum > 0 ? b.temp : b.th.Ts;
+  const d = (S) => Math.sqrt(L / S);
+  const sInner = kopparapu(T, 1.107, 1.332e-4, 1.58e-8, -8.308e-12, -1.931e-15); // runaway greenhouse
+  const sOuter = kopparapu(T, 0.356, 6.171e-5, 1.698e-9, -3.198e-12, -5.575e-16); // maximum greenhouse
+  const zones = [
+    { name: 'Molten rock', rin: 0, rout: d(fluxAt(1400)), col: [255, 90, 40] },
+    { name: 'Too hot for water', rin: d(fluxAt(1400)), rout: d(sInner), col: [255, 170, 60] },
+    { name: 'Habitable zone', rin: d(sInner), rout: d(sOuter), col: [90, 220, 120] },
+    { name: 'Cold', rin: d(sOuter), rout: d(fluxAt(170)), col: [120, 170, 255] },
+    { name: 'Water ice (beyond the snow line)', rin: d(fluxAt(170)), rout: d(fluxAt(40)), col: [160, 225, 255], fade: true },
+  ];
+  const min = b.r * 1.05;
+  const out = [];
+  for (const z of zones) {
+    if (z.rout <= min) continue;
+    out.push({ ...z, rin: Math.max(z.rin, min) });
+  }
+  return out.length ? { L, zones: out } : null;
+}

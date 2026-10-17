@@ -27,6 +27,7 @@ class App {
     this.cam = new Camera();
     this.settings = loadSettings();
     this.renderer = new Renderer(this.canvas, this.world, this.cam, this.settings);
+    this.zones = new Set(); // heat sources showing their temperature zones
     this.state = { tool: 'view', addItem: 'earth', selected: null, paused: false, speed: 0.1, preset: null };
     this.adding = null;
     this.rate = 0;
@@ -172,6 +173,7 @@ class App {
   }
 
   loadPreset(id) {
+    this.zones.clear();
     if (this.surface) this.exitSurface();
     const p = PRESETS.find((x) => x.id === id) || PRESETS[0];
     this.world.reset();
@@ -445,7 +447,12 @@ class App {
     this.updateAddPreview();
     const a = this.adding;
     const preview = a && a.v ? { x: a.P[0], y: a.P[1], z: a.P[2], path: a.path, bound: a.bound, hit: a.hit, dragTo: a.dragTo } : a ? { x: a.P[0], y: a.P[1], z: a.P[2] } : null;
-    const ui = { selected: this.state.selected, preview, surface: this.surface };
+    if (this.zones.size) for (const b of [...this.zones]) {
+      const r = this.world.resolve(b);
+      this.zones.delete(b);
+      if (r && r.alive) this.zones.add(r);
+    }
+    const ui = { selected: this.state.selected, preview, surface: this.surface, zones: this.zones };
     if (this.renderer.overlay) this.r3d.draw(now, ui, dtReal, done);
     this.renderer.draw(now, ui);
     this.ui.tick(now);

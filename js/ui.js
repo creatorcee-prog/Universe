@@ -3,6 +3,7 @@ import { CATALOG, typeName, isLuminous, makeBody, reclassify } from './bodies.js
 import { orbitOf } from './physics.js';
 import { PRESETS } from './presets.js';
 import { Book } from './book.js';
+import { tempZones } from './thermal.js';
 
 // Time-speed slider spans 1 second per second to 300 million years per second (log scale).
 const MIN_EXP = Math.log10(1 / 3.15576e7);
@@ -79,6 +80,12 @@ export class UI {
       this.toast(`Removed ${b.name}`);
     });
     $('btn-reset').addEventListener('click', () => { app.loadPreset(app.state.preset.id); this.closeSheets(); });
+    $('i-zones').addEventListener('click', () => {
+      const b = app.state.selected;
+      if (!b) return;
+      if (app.zones.has(b)) app.zones.delete(b); else app.zones.add(b);
+      this.refreshInfo(true);
+    });
     $('i-stand').addEventListener('click', () => { if (app.state.selected) app.enterSurface(app.state.selected, 'day'); });
     $('sv-leave').addEventListener('click', () => app.exitSurface());
     document.querySelectorAll('[data-where]').forEach((btn) => btn.addEventListener('click', () => {
@@ -282,6 +289,12 @@ export class UI {
       hab.className = 'hab ' + (hv.verdict === 'Habitable' ? 'good' : hv.verdict === 'Marginal' ? 'mid' : '');
     }
     $('i-stand').hidden = b.kind !== 'rocky';
+    // Any heat source whose zones reach beyond its own surface can show them.
+    const zb = $('i-zones'), canZone = !!tempZones(b);
+    if (!canZone) this.app.zones.delete(b);
+    zb.hidden = !canZone;
+    zb.classList.toggle('on', this.app.zones.has(b));
+    zb.textContent = this.app.zones.has(b) ? 'Hide temperature zones' : 'Show temperature zones';
     // Stars and white dwarfs can be pushed to their death; the label says what will happen.
     const death = $('i-death');
     death.hidden = !(b.kind === 'star' || b.kind === 'wd');

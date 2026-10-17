@@ -171,6 +171,18 @@ source list on every entry.
   - *The flash*: its light peaks around 10⁹ L☉ and fades over months, heating any planets nearby.
 
   Select a star and use **Go supernova** to skip ahead.
+- **Temperature zones**: select a star, or any object glowing with its own heat (for example a planet melted
+  by a giant impact), and tap **Show temperature zones**. Rings in the orbital plane show:
+  - *molten rock*: equilibrium temperature above 1,400 K;
+  - *too hot for liquid water*;
+  - *the habitable zone*: Kopparapu et al. 2013 edges, adjusted for the star's temperature, 0.95–1.68 AU for
+    the Sun;
+  - *cold*;
+  - *the water snow line*: 170 K, about 2.7 AU for the Sun (Hayashi 1981);
+  - *the ice zone*: out to where nitrogen freezes, about 40 K.
+
+  Zones scale with the source's brightness and update as it ages. A hot planet's zones only appear while its
+  heat reaches beyond its own surface, and vanish as it cools.
 
 ### Simplifications
 

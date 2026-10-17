@@ -1,5 +1,6 @@
 import { PK } from './physics.js';
 import { isLuminous } from './bodies.js';
+import { tempZones } from './thermal.js';
 
 const TRAIL_LEN = 360;
 
@@ -113,6 +114,7 @@ export class Renderer {
       ctx.clearRect(0, 0, W, H);
       this.gridSpacing = Math.pow(10, Math.floor(Math.log10(cam.dist / 1.5)));
       if (this.settings.trails) this.drawTrails();
+      this.drawZones(ui);
       this.drawBodies(now, ui);
       this.drawFlashes(now);
       if (ui.preview) this.drawPreview(ui.preview);
@@ -128,6 +130,7 @@ export class Renderer {
     if (this.settings.stars) this.drawStars();
     if (this.settings.grid) this.drawGrid();
     if (this.settings.trails) this.drawTrails();
+    this.drawZones(ui);
     this.drawParticles();
     this.drawBodies(now, ui);
     this.drawFrontRings();
@@ -204,6 +207,71 @@ export class Renderer {
       ctx.stroke(buckets[k]);
       ctx.strokeStyle = `rgba(140,170,230,${a * 1.8})`;
       ctx.stroke(majors[k]);
+    }
+  }
+
+  // Temperature zones: flat rings in the orbital (x-z) plane around each chosen heat source.
+  drawZones(ui) {
+    if (!ui.zones || !ui.zones.size || ui.surface) return;
+    const { ctx, cam, dpr } = this;
+    const N = 160, p = this.tmp;
+    const W = this.canvas.width, H = this.canvas.height;
+    for (const b of ui.zones) {
+      const z = tempZones(b);
+      if (!z) continue;
+      // Points of a circle of radius r, or null if much of it is behind the camera.
+      const circle = (r) => {
+        const pts = [];
+        for (let i = 0; i < N; i++) {
+          const a = (i / N) * Math.PI * 2;
+          if (cam.project(b.x + r * Math.cos(a), b.y, b.z + r * Math.sin(a), p) <= 0) return null;
+          pts.push(p.x, p.y);
+        }
+        return pts;
+      };
+      const addRing = (path, pts, rev) => {
+        for (let k = 0; k < N; k++) {
+          const i = (rev ? N - 1 - k : k) * 2;
+          if (k === 0) path.moveTo(pts[i], pts[i + 1]); else path.lineTo(pts[i], pts[i + 1]);
+        }
+        path.closePath();
+      };
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.font = `600 ${11 * dpr}px Inter, system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      for (const zone of z.zones) {
+        const outer = circle(zone.rout);
+        if (!outer) continue;
+        // Skip rings far smaller than a pixel or so large they fill the whole screen.
+        let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity, low = 0;
+        for (let i = 0; i < outer.length; i += 2) {
+          minx = Math.min(minx, outer[i]); maxx = Math.max(maxx, outer[i]);
+          miny = Math.min(miny, outer[i + 1]);
+          if (outer[i + 1] > maxy) { maxy = outer[i + 1]; low = i; }
+        }
+        if (maxx - minx < 3 * dpr) continue;
+        const inner = zone.rin > 0 ? circle(zone.rin) : null;
+        const path = new Path2D();
+        addRing(path, outer, false);
+        if (inner) addRing(path, inner, true);
+        const [r, g, bl] = zone.col;
+        ctx.fillStyle = `rgba(${r},${g},${bl},${zone.fade ? 0.05 : zone.name === 'Habitable zone' ? 0.16 : 0.1})`;
+        ctx.fill(path, 'evenodd');
+        ctx.strokeStyle = `rgba(${r},${g},${bl},0.55)`;
+        ctx.lineWidth = dpr;
+        ctx.setLineDash(zone.fade ? [4 * dpr, 4 * dpr] : []);
+        const edge = new Path2D();
+        addRing(edge, outer, false);
+        ctx.stroke(edge);
+        ctx.setLineDash([]);
+        // Label the zone at the bottom of its outer edge, if it is on screen and not too cramped.
+        const lx = outer[low], ly = outer[low + 1];
+        const w = inner ? Math.abs(ly - inner[low + 1]) : maxy - miny;
+        if (lx > 0 && lx < W && ly > H * 0.12 && ly < H * 0.78 && (maxx - minx) > 60 * dpr && w > 4 * dpr) {
+          ctx.fillStyle = `rgba(${r},${g},${bl},0.9)`;
+          ctx.fillText(zone.name, lx, ly - 4 * dpr);
+        }
+      }
     }
   }
 
