@@ -241,7 +241,8 @@ export class Renderer3D {
   buildPost(W, H) {
     const gl = this.gl;
     this.freePost();
-    const samples = Math.min(4, gl.getParameter(gl.MAX_SAMPLES) || 0);
+    if (this.samples === undefined) this.samples = 4;
+    const samples = Math.min(this.samples, gl.getParameter(gl.MAX_SAMPLES) || 0);
     for (const tryHdr of this.hdr ? [true, false] : [false]) {
       this.hdr = tryHdr;
       const ms = gl.createFramebuffer();
@@ -367,7 +368,7 @@ export class Renderer3D {
     gl.uniform3fv(u.uUp, sv.up);
     gl.uniform3fv(u.uSun, sv.sun);
     gl.uniform1f(u.uAir, optics ? 1 : 0);
-    if (optics) setOpticsUniforms(gl, u, optics);
+    if (optics) setOpticsUniforms(gl, u, optics, 20);
     // The eye adapts: dim, hazy worlds are shown brighter than their true daylight, but not all the way.
     // Also opens up a little at dusk.
     const el = sv.elev || 0;
@@ -527,7 +528,7 @@ export class Renderer3D {
   }
 
   resize() {
-    this.dpr = Math.min(2, window.devicePixelRatio || 1);
+    this.dpr = Math.min(2, window.devicePixelRatio || 1) * (this.quality ?? 1);
     const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
     this.canvas.width = Math.round(w * this.dpr);
     this.canvas.height = Math.round(h * this.dpr);
@@ -545,8 +546,30 @@ export class Renderer3D {
 
   // ---------- per-frame ----------
 
+  // Dynamic resolution: when frames take longer than 1/40 s, first drop multisampling, then render at
+  // a lower resolution (down to 55%); climb back when there is headroom. Checked every 1.5 s.
+  adaptQuality(dtReal, now) {
+    if (!(dtReal > 0) || dtReal > 0.5) return; // ignore pauses (tab switches, alerts)
+    this.ft = this.ft ? this.ft * 0.92 + dtReal * 0.08 : dtReal;
+    if (now - (this.qT || 0) < 1500) return;
+    this.qT = now;
+    if (this.quality === undefined) this.quality = 1;
+    const prevQ = this.quality, prevS = this.samples;
+    if (this.ft > 1 / 40) {
+      if (this.samples > 0) this.samples = 0;
+      else this.quality = Math.max(0.55, this.quality - 0.15);
+    } else if (this.ft < 1 / 56 && now - (this.qUp || 0) > 4000) {
+      this.qUp = now;
+      if (this.quality < 1) this.quality = Math.min(1, this.quality + 0.1);
+      else if (this.samples === 0) this.samples = 4;
+    }
+    if (this.quality !== prevQ) this.resize();
+    if (this.samples !== prevS) this.freePost(); // rebuilt at the next draw
+  }
+
   draw(now, ui, dtReal, simDt) {
     if (this.lost) return;
+    this.adaptQuality(dtReal, now);
     const gl = this.gl, cam = this.cam, world = this.world;
     // The Pixel view renders at a fraction of the resolution and is upscaled with hard edges.
     const scale = this.settings.view === 'pixel' ? Math.max(2, Math.round(3 * this.dpr)) : 1;
@@ -927,7 +950,7 @@ export class Renderer3D {
         gl.uniform1f(au.uLogDepthFC, this.logFC);
         gl.uniform3fv(au.uL0, ld[0]);
         if (optics) {
-          setOpticsUniforms(gl, au, optics);
+          setOpticsUniforms(gl, au, optics, 14);
           gl.uniform3fv(au.uCenterV, this.viewOf(x, y, z));
           gl.uniform1f(au.uPR, R);
           gl.uniform1f(au.uExpo, 5.5 * (ld[1][0] + ld[1][1] + ld[1][2] > 0 ? 1 : 0));

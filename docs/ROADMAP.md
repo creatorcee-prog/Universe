@@ -165,3 +165,22 @@ Next:
 - Stereo panning by where on screen the event is.
 - A quiet space ambience, and wind in the Surface view scaled by air pressure (none on airless worlds).
 - Check the licence of the supplied sound packs before publishing the app widely.
+
+## iPhone testing round (black boxes, black holes not feeding, lag)
+
+Fixed:
+- Black rectangles: NaN pixels from square roots and powers of values that rounding pushed just below
+  zero. Desktop GPUs divide exactly, Apple GPUs approximately, so x/x came out a hair above 1. Clamped
+  at the source (scattering, limb, faceted normals), and the bloom and composite passes now replace any
+  NaN/Inf with black so one bad pixel can never spread into blocks.
+- Black holes now eat tidal debris and grow: an accretion-disk step (bound debris inside twice the
+  tidal radius drains in about 10 orbits there).
+- Particles on close passes the sub-step can't resolve no longer gain energy (they were flung out at
+  thousands of km/s); the birth-to-frame-end integrator is adaptive and has a capture test.
+- Debris from a body shredded near a black hole continues on its parent's true orbit (1PN to Newtonian
+  hand-off using the far-field orbital energy). Tidal disruption now leaves half the debris unbound, as
+  for a parabolic orbit (Rees 1988), instead of all of it bound.
+- Lag: dynamic resolution (drops 4x multisampling, then resolution down to 55%) and fewer scattering
+  samples. Settings → Show performance displays frame rate, physics and drawing time.
+
+Still to check on a real iPhone: that no black boxes remain, and how much the frame rate improves.

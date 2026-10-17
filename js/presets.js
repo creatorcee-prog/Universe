@@ -241,7 +241,7 @@ export const PRESETS = [
   },
   {
     id: 'binary', name: 'Binary Star',
-    blurb: 'Two suns in a tight orbit with circumbinary planets. The innermost planet is doomed.',
+    blurb: 'Two suns in a tight orbit with circumbinary planets. The innermost planet is too close to stay: within a year or so it is flung out, or falls into one of the stars.',
     speed: 0.15,
     camera: { follow: null, dist: 5, pitch: 0.7, yaw: 0 },
     build(w) {

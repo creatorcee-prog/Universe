@@ -81,12 +81,13 @@ export function atmosphereOptics(b) {
 }
 
 // Uniforms shared by the surface sky and the atmosphere shell (see SCATTER in shaders.js).
-export function setOpticsUniforms(gl, u, o) {
+export function setOpticsUniforms(gl, u, o, steps = 16) {
   gl.uniform3fv(u.uBR, o.betaR); gl.uniform3fv(u.uBM, o.betaM);
   gl.uniform3fv(u.uBA, o.betaA); gl.uniform3fv(u.uBMa, o.betaMa);
   gl.uniform1f(u.uHR, o.hR); gl.uniform1f(u.uHM, o.hM);
   gl.uniform3fv(u.uG, o.mieG); gl.uniform3fv(u.uTauS, o.tauS);
   gl.uniform1f(u.uTop, atmosphereTop(o));
+  gl.uniform1i(u.uSteps, steps);
 }
 
 // Outer edge of the drawn atmosphere, in planet radii: eight scale heights of whichever layer is taller.

@@ -14,7 +14,7 @@ import { UI } from './ui.js';
 const SETTINGS_KEY = 'universe-pocket-settings';
 
 function loadSettings() {
-  const defaults = { trails: true, labels: true, grid: true, stars: true, trailsRelative: true, collisions: true, sound: true, view: 'realistic', bloom: true, trailColor: 'body', orbits: false, trueSize: false };
+  const defaults = { trails: true, labels: true, grid: true, stars: true, trailsRelative: true, collisions: true, sound: true, perf: false, view: 'realistic', bloom: true, trailColor: 'body', orbits: false, trueSize: false };
   try {
     return { ...defaults, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') };
   } catch {
@@ -588,6 +588,24 @@ class App {
     this.audio.ambient(level, rate);
   }
 
+  // Settings → Show performance: frame rate, and how long physics and drawing take on the CPU each frame.
+  // If the frame rate is low while both are small, the graphics chip is the bottleneck.
+  perfReadout(now, dtReal, drawMs) {
+    const el = document.getElementById('perf');
+    if (!this.settings.perf) { if (!el.hidden) el.hidden = true; return; }
+    const k = 0.1;
+    this.pf = this.pf || { dt: dtReal || 0.016, ph: 0, dr: 0, t: 0 };
+    const p = this.pf;
+    if (dtReal > 0 && dtReal < 0.5) p.dt += (dtReal - p.dt) * k;
+    p.ph += ((this.physMs || 0) - p.ph) * k;
+    p.dr += (drawMs - p.dr) * k;
+    if (now - p.t < 400) return;
+    p.t = now;
+    el.hidden = false;
+    const q = this.r3d && this.renderer.overlay ? ` · res ${Math.round((this.r3d.quality ?? 1) * 100)}%${this.r3d.samples ? ' AA' : ''}` : '';
+    el.textContent = `${Math.round(1 / p.dt)} fps · physics ${p.ph.toFixed(1)} ms · drawing ${p.dr.toFixed(1)} ms${q} · ${this.world.bodies.length} bodies, ${this.world.np + this.world.nr} particles`;
+  }
+
   frame(now) {
     requestAnimationFrame(this.frame);
     try {
@@ -606,7 +624,9 @@ class App {
       // Simulated time follows real time even at low frame rates, so the time-speed label stays true.
       const frameDt = Math.min(dtReal, 0.25);
       const want = this.state.speed * frameDt;
+      const tp = performance.now();
       done = w.advance(want, 8);
+      this.physMs = performance.now() - tp;
       this.rate = this.rate * 0.85 + (done / frameDt) * 0.15;
       w.limited = w.limited || this.rate < this.state.speed * 0.9;
       if (done > 0) this.renderer.sampleTrails();
@@ -662,8 +682,10 @@ class App {
       if (r && r.alive) this.zones.add(r);
     }
     const ui = { selected: this.state.selected, preview, surface: this.surface, zones: this.zones, laser: this.laser && this.laser.body ? this.laser : null };
+    const tr = performance.now();
     if (this.renderer.overlay) this.r3d.draw(now, ui, dtReal, done);
     this.renderer.draw(now, ui);
+    this.perfReadout(now, dtReal, performance.now() - tr);
     this.ui.tick(now);
   }
 }

@@ -193,11 +193,12 @@ void main() {
   vec3 V = normalize(-vViewPos);
   vec3 N = normalize(vN);
   if (uFacet > 0.0) {
-    vec3 Nd = normalize(cross(dFdx(vViewPos), dFdy(vViewPos)));
+    vec3 cx = cross(dFdx(vViewPos), dFdy(vViewPos));
+    vec3 Nd = dot(cx, cx) > 0.0 ? normalize(cx) : N;
     if (dot(Nd, V) < 0.0) Nd = -Nd;
     N = normalize(mix(N, Nd, uFacet));
   }
-  float mu = max(dot(N, V), 0.0);
+  float mu = clamp(dot(N, V), 0.0, 1.0); // clamped above too: pow(1 - mu, ..) of a negative is NaN on Apple GPUs
 
   // Impacts: fresh ones glow, all leave a scar. Around each: a scorched basin with a lighter rim,
   // radial ejecta rays, a shock ring racing outward, and a plume of vapour over the site.
@@ -520,6 +521,7 @@ uniform float uHR, uHM;            // scale heights (radii)
 uniform vec3 uG;                   // Mie asymmetry per channel
 uniform vec3 uTauS;                // vertical scattering optical depth of the whole column
 uniform float uTop;                // atmosphere top radius
+uniform int uSteps;                // ray-march samples (fewer from space, where the shell is small)
 const float PI = 3.14159265;
 // Optical depth (in scale heights, relative to surface density) from radius r (in units of H: x),
 // in direction with cosine mu to the local vertical, out to infinity.
@@ -542,19 +544,21 @@ vec3 tauToSun(float r, float mu) {
 float phaseR(float c) { return 0.0596831 * (1.0 + c * c); }
 vec3 phaseM(float c) {
   vec3 g2 = uG * uG;
-  return 0.1193662 * (1.0 - g2) * (1.0 + c * c) / ((2.0 + g2) * pow(1.0 + g2 - 2.0 * uG * c, vec3(1.5)));
+  return 0.1193662 * (1.0 - g2) * (1.0 + c * c) / ((2.0 + g2) * pow(max(1.0 + g2 - 2.0 * uG * c, vec3(1e-4)), vec3(1.5)));
 }
 // In-scattered light along o + d·t, t in [0, tMax], sunlight from direction sun (irradiance 1).
 // Samples cluster toward t = 0 when bias > 1. T returns the transmittance of the whole segment.
 vec3 scatter(vec3 o, vec3 d, float tMax, vec3 sun, float bias, out vec3 T) {
-  const int N = 28;
+  const int NMAX = 24;
+  int N = clamp(uSteps, 4, NMAX);
   float c = dot(d, sun);
   float pR = phaseR(c);
   vec3 pM = phaseM(c);
   vec3 L = vec3(0.0);
   vec3 tau = vec3(0.0);
   float tPrev = 0.0;
-  for (int i = 0; i < N; i++) {
+  for (int i = 0; i < NMAX; i++) {
+    if (i >= N) break;
     float s = (float(i) + 1.0) / float(N);
     float t1 = tMax * pow(s, bias);
     float dt = t1 - tPrev;
@@ -570,13 +574,15 @@ vec3 scatter(vec3 o, vec3 d, float tMax, vec3 sun, float bias, out vec3 T) {
     // Diffuse light at this height from the column above it.
     vec3 tS = uBR * uHR * rhoR + uBM * uHM * rhoM;
     vec3 tE = tS + uBA * uHR * rhoR + uBMa * uHM * rhoM;
-    vec3 w = tS / max(tE, vec3(1e-9));
-    vec3 gE = uBM * uHM * rhoM * uG / max(tS, vec3(1e-9));
+    // Clamped: on GPUs that divide approximately (Apple's), x/x can come out a hair above 1, and the
+    // square roots below would then return NaN.
+    vec3 w = clamp(tS / max(tE, vec3(1e-9)), 0.0, 1.0);
+    vec3 gE = clamp(uBM * uHM * rhoM * uG / max(tS, vec3(1e-9)), 0.0, 0.99);
     vec3 k = sqrt(max(3.0 * (1.0 - w) * (1.0 - w * gE), vec3(0.0)));
     vec3 Td = exp(-k * tE) / (1.0 + 0.75 * (1.0 - gE) * tS);
     float twi = max(mu0 + 0.08, 0.0) / 1.08;            // diffuse light lingers just after sunset
     // Absorption between scatterings tints multiply scattered light: two-stream albedo (1−s)/(1+s).
-    vec3 sa = sqrt((1.0 - w) / max(1.0 - w * gE, vec3(1e-4)));
+    vec3 sa = sqrt(max(1.0 - w, 0.0) / max(1.0 - w * gE, vec3(1e-4)));
     vec3 ms = (sR + sM) * (1.0 - exp(-uTauS)) * Td * (1.0 - sa) / (1.0 + sa) * twi * (0.5 / PI);
     vec3 S = sR * pR * Ts + sM * pM * Ts + ms;
     vec3 stepT = exp(-ext * dt);
@@ -627,8 +633,8 @@ void main() {
   float t1 = hit ? ground.x : top.y;
   vec3 T;
   vec3 L = scatter(o + d * t0, d, t1 - t0, uL0, 1.0, T);
-  vec3 col = tone(L * uExpo);
-  float a = 1.0 - dot(T, vec3(0.3333));
+  vec3 col = tone(max(L, 0.0) * uExpo);
+  float a = clamp(1.0 - dot(T, vec3(0.3333)), 0.0, 1.0);
   col += uHot * a;
   outColor = vec4(col, hit ? min(a, 0.92) : a * 0.5);
   ` + WRITE_DEPTH + `
@@ -908,7 +914,16 @@ void main() {
 `;
 
 // Bloom: bright parts are downsampled through a chain of half-size images, then blurred back up.
-export const DOWN_FS = HEAD + `
+// Replace NaN/Inf with black. Tested on the bit pattern because isnan() can be optimised away under
+// fast-math. Without this one bad pixel is smeared by the bloom passes into black rectangles.
+const FINITE = `
+vec3 finite(vec3 c) {
+  uvec3 b = floatBitsToUint(c) & 0x7f800000u;
+  return vec3(b.r == 0x7f800000u ? 0.0 : c.r, b.g == 0x7f800000u ? 0.0 : c.g, b.b == 0x7f800000u ? 0.0 : c.b);
+}
+`;
+
+export const DOWN_FS = HEAD + FINITE + `
 in vec2 vUV;
 uniform sampler2D uTex;
 uniform vec2 uTexel;
@@ -919,6 +934,9 @@ void main() {
   vec3 c = 0.25 * (texture(uTex, vUV + uTexel * vec2(-1.0, -1.0)).rgb + texture(uTex, vUV + uTexel * vec2(1.0, -1.0)).rgb
                  + texture(uTex, vUV + uTexel * vec2(-1.0, 1.0)).rgb + texture(uTex, vUV + uTexel * vec2(1.0, 1.0)).rgb);
   if (uFirst == 1) {
+    c = 0.25 * (finite(texture(uTex, vUV + uTexel * vec2(-1.0, -1.0)).rgb) + finite(texture(uTex, vUV + uTexel * vec2(1.0, -1.0)).rgb)
+              + finite(texture(uTex, vUV + uTexel * vec2(-1.0, 1.0)).rgb) + finite(texture(uTex, vUV + uTexel * vec2(1.0, 1.0)).rgb));
+    c = min(c, vec3(1e4));
     float l = max(c.r, max(c.g, c.b));
     float soft = clamp(l - uThreshold + 0.25, 0.0, 0.5);
     float k = max(soft * soft / 0.5, l - uThreshold) / max(l, 1e-4);
@@ -945,13 +963,13 @@ void main() {
 
 // Final image: scene plus bloom, with a soft shoulder so bright lava and stars roll off to white
 // instead of clipping.
-export const COMPOSITE_FS = HEAD + `
+export const COMPOSITE_FS = HEAD + FINITE + `
 in vec2 vUV;
 uniform sampler2D uScene, uBloom;
 uniform float uBloomK;
 out vec4 outColor;
 void main() {
-  vec3 c = texture(uScene, vUV).rgb + texture(uBloom, vUV).rgb * uBloomK;
+  vec3 c = finite(texture(uScene, vUV).rgb) + finite(texture(uBloom, vUV).rgb) * uBloomK;
   float l = max(c.r, max(c.g, c.b));
   if (l > 0.82) {
     float m = 0.82 + 0.18 * (1.0 - exp(-(l - 0.82) / 0.18));
@@ -964,7 +982,7 @@ void main() {
 
 // Pixel view: nearest-neighbour upscale of a low-resolution render, posterised to a small palette
 // with 4x4 ordered (Bayer) dithering, like hand-made pixel art.
-export const PIXEL_FS = HEAD + `
+export const PIXEL_FS = HEAD + FINITE + `
 in vec2 vUV;
 uniform sampler2D uScene, uBloom;
 uniform vec2 uLow;
@@ -974,7 +992,7 @@ const float BAYER[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0
 void main() {
   vec2 p = floor(gl_FragCoord.xy / uScale);
   vec2 uv = (p + 0.5) / uLow;
-  vec3 c = texelFetch(uScene, ivec2(min(p, uLow - 1.0)), 0).rgb + texture(uBloom, uv).rgb * uBloomK;
+  vec3 c = finite(texelFetch(uScene, ivec2(min(p, uLow - 1.0)), 0).rgb) + finite(texture(uBloom, uv).rgb) * uBloomK;
   float l = max(c.r, max(c.g, c.b));
   if (l > 0.82) { float m = 0.82 + 0.18 * (1.0 - exp(-(l - 0.82) / 0.18)); c *= m / l; }
   int i = int(mod(p.y, 4.0)) * 4 + int(mod(p.x, 4.0));

@@ -1,4 +1,4 @@
-import { G } from './units.js';
+import { G, C_AU_YR } from './units.js';
 import { reclassify, refresh, isLuminous } from './bodies.js';
 import { thermalStep, mergeThermal, finishMerge, accreteHeat, accreteMaterial } from './thermal.js';
 import { evolveStar, stellarDeath, transientLum } from './stellar.js';
@@ -32,6 +32,15 @@ function segHit(ax, ay, az, bx, by, bz, cx, cy, cz, r2) {
   const t = e2 > 0 ? Math.max(0, Math.min(1, (wx * ex + wy * ey + wz * ez) / e2)) : 0;
   const dx = wx - ex * t, dy = wy - ey * t, dz = wz - ez * t;
   return dx * dx + dy * dy + dz * dz < r2;
+}
+
+// Closest distance from point c to the segment a-b.
+function segDist(ax, ay, az, bx, by, bz, cx, cy, cz) {
+  const ex = bx - ax, ey = by - ay, ez = bz - az;
+  const wx = cx - ax, wy = cy - ay, wz = cz - az;
+  const e2 = ex * ex + ey * ey + ez * ez;
+  const t = e2 > 0 ? Math.max(0, Math.min(1, (wx * ex + wy * ey + wz * ez) / e2)) : 0;
+  return Math.hypot(wx - ex * t, wy - ey * t, wz - ez * t);
 }
 
 export function captureRadius(b) {
@@ -245,6 +254,29 @@ export class World {
     this.handleContacts(dt);
   }
 
+  // Orbital energy about the nearest black hole or neutron star, noted while the body is beyond 200
+  // Schwarzschild radii (where the 1PN terms are under 1%). Used to hand tidal debris over on the right orbit.
+  noteFarEnergy() {
+    let holes = null;
+    for (const b of this.bodies) if (b.kind === 'bh' || b.kind === 'ns') (holes || (holes = [])).push(b);
+    if (!holes) return;
+    for (const b of this.bodies) {
+      if (b.kind === 'bh' || b.kind === 'ns') continue;
+      // The hole pulling hardest on it.
+      let best = null, pull = 0;
+      for (const h of holes) {
+        if (h.m < 30 * b.m) continue;
+        const d2 = (b.x - h.x) ** 2 + (b.y - h.y) ** 2 + (b.z - h.z) ** 2, f = h.m / d2;
+        if (f > pull) { pull = f; best = h; }
+      }
+      if (!best) continue;
+      const r = Math.hypot(b.x - best.x, b.y - best.y, b.z - best.z);
+      if (r < 200 * ((2 * G * best.m) / (C_AU_YR * C_AU_YR))) continue;
+      const v2 = (b.vx - best.vx) ** 2 + (b.vy - best.vy) ** 2 + (b.vz - best.vz) ** 2;
+      b.eFar = { host: best, E: v2 / 2 - (G * best.m) / r };
+    }
+  }
+
   // Collisions (swept, so fast bodies cannot tunnel through each other) and Roche-limit disruption.
   handleContacts(dt) {
     const bs = this.bodies, n = bs.length;
@@ -451,13 +483,33 @@ export class World {
     // A shredded star is hydrogen plasma (glows, never clumps); planets break into gas or rock.
     const kind = small.kind === 'star' ? PK.SN_H : small.kind === 'gas' ? PK.GAS : PK.ROCK;
     const vesc = Math.sqrt((2 * G * small.m) / small.r);
+    // Bodies near a black hole or neutron star move under 1PN gravity, particles under Newton's. Hand the
+    // debris over on the same orbit: give it the speed at which its Newtonian energy equals the parent's
+    // conserved 1PN energy, E = v²/2 − GM/r + (3v⁴/8 + 3GMv²/2r + G²M²/2r²)/c². Without this, a star on a
+    // parabolic plunge (40,000 km/s at the tidal radius) would leave all its debris bound instead of half.
+    // The 1PN energy itself drifts at the 2PN level this close in (0.3 c), so prefer the orbit's energy
+    // recorded while the body was still far from the hole (see noteFarEnergy), which is what decides
+    // whether the debris escapes.
+    let bvx = small.vx, bvy = small.vy, bvz = small.vz;
+    if (big.kind === 'bh' || big.kind === 'ns') {
+      const rx = small.x - big.x, ry = small.y - big.y, rz = small.z - big.z;
+      const wx = small.vx - big.vx, wy = small.vy - big.vy, wz = small.vz - big.vz;
+      const r = Math.hypot(rx, ry, rz), v2 = wx * wx + wy * wy + wz * wz, u = (G * big.m) / r, c2 = C_AU_YR * C_AU_YR;
+      const far = small.eFar && small.eFar.host === big ? small.eFar.E : null;
+      const E1 = far ?? v2 / 2 - u + ((3 / 8) * v2 * v2 + 1.5 * u * v2 + 0.5 * u * u) / c2;
+      const want = 2 * (E1 + u);
+      if (want > 0 && v2 > 0) {
+        const k = Math.sqrt(want / v2);
+        bvx = big.vx + wx * k; bvy = big.vy + wy * k; bvz = big.vz + wz * k;
+      }
+    }
     for (let k = 0; k < count; k++) {
       const u = randUnit();
       const rr = small.r * Math.cbrt(rand());
       const sp = vesc * 0.15 * rand();
       this.spawnParticle(
         small.x + u[0] * rr, small.y + u[1] * rr, small.z + u[2] * rr,
-        small.vx + u[0] * sp, small.vy + u[1] * sp, small.vz + u[2] * sp,
+        bvx + u[0] * sp, bvy + u[1] * sp, bvz + u[2] * sp,
         small.m / Math.max(1, count), kind,
       );
     }
@@ -519,6 +571,7 @@ export class World {
 
   advanceCore(simDt, budgetMs) {
     if (simDt <= 0) return 0;
+    this.noteFarEnergy();
     const start = performance.now();
     const t0 = this.t;
 
@@ -584,6 +637,7 @@ export class World {
     this.limited = remaining > 0;
 
     this.stepParticles(att, steps, t0, done);
+    this.diskAccretion(done);
     // Particles with mass pull on each other and on the bodies (Barnes-Hut tree).
     particleGravity(this, done, this.tree);
     // Touching clumps bounce or stick; big clumps become moonlets.
@@ -597,42 +651,100 @@ export class World {
     return done;
   }
 
+  // Accretion disks. Debris from a tidal disruption swings back to about the disruption distance, far
+  // outside the hole's capture radius, so on ballistic orbits it would circle forever. In reality the
+  // returning streams collide, circularize at about twice the tidal radius r_t and drain inward through
+  // the disk (Rees 1988; fallback and accretion in weeks for supermassive holes). Here, bound particles
+  // inside r_circ = 2 r_t (for a Sun-like star, r_t = R☉ (M/M☉)^⅓) are swallowed at a rate of one per
+  // viscous time, taken as 10 orbits at r_circ (a thick disk, α ≈ 0.1): about 3 days at any mass.
+  diskAccretion(dt) {
+    if (!(dt > 0) || !this.np) return;
+    const holes = this.bodies.filter((b) => b.kind === 'bh' && b.alive);
+    if (!holes.length) return;
+    const touched = new Set();
+    for (const h of holes) {
+      const rc = 2 * 0.00465047 * Math.cbrt(h.m), rc2 = rc * rc;
+      const tVisc = 10 * 2 * Math.PI * Math.sqrt((rc * rc * rc) / (G * h.m));
+      const pTake = 1 - Math.exp(-dt / tVisc);
+      for (let i = this.np - 1; i >= 0; i--) {
+        const dx = this.px[i] - h.x, dy = this.py[i] - h.y, dz = this.pz[i] - h.z;
+        const r2 = dx * dx + dy * dy + dz * dz;
+        if (r2 > rc2) continue;
+        const vx = this.pvx[i] - h.vx, vy = this.pvy[i] - h.vy, vz = this.pvz[i] - h.vz;
+        if ((vx * vx + vy * vy + vz * vz) / 2 - (G * h.m) / Math.sqrt(r2) >= 0) continue; // unbound: escapes
+        if (rand() > pTake) continue;
+        this.absorbParticle(i, h, touched);
+        this.removeParticle(i);
+      }
+    }
+    this.finishAbsorb(touched);
+  }
+
   // Particles born during this frame's substeps are integrated from their birth time to the frame's end
   // (against the bodies' end-of-frame positions, which is accurate because the gap is under one frame).
   flushPending() {
     if (this.pending.length === 0) return;
     const att = this.bodies.slice().sort((a, b) => b.m - a.m).slice(0, MAX_ATTRACTORS);
     const acc = (s, out) => {
-      let ax = 0, ay = 0, az = 0, tmin = Infinity;
+      let ax = 0, ay = 0, az = 0, tmin = Infinity, best = 0, host = null;
       for (const b of att) {
         const dx = b.x - s[0], dy = b.y - s[1], dz = b.z - s[2];
         const d2 = dx * dx + dy * dy + dz * dz + b.soft * b.soft + 1e-30;
         const d = Math.sqrt(d2);
         const f = (G * b.m) / (d2 * d);
         ax += dx * f; ay += dy * f; az += dz * f;
+        if (f * d > best) { best = f * d; host = b; }
         const t2 = (d2 * d) / (G * b.m);
         if (t2 < tmin) tmin = t2;
       }
-      out[0] = ax; out[1] = ay; out[2] = az; out[3] = Math.sqrt(tmin);
+      out[0] = ax; out[1] = ay; out[2] = az; out[3] = Math.sqrt(tmin); out[4] = host;
       return out;
     };
-    const a = [0, 0, 0, 0];
+    // Two-body energy of particle p about body b (per unit mass), and its distance.
+    const energy = (p, b) => {
+      const rx = p[0] - b.x, ry = p[1] - b.y, rz = p[2] - b.z, wx = p[3] - b.vx, wy = p[4] - b.vy, wz = p[5] - b.vz;
+      const r = Math.sqrt(rx * rx + ry * ry + rz * rz + b.soft * b.soft);
+      return [(wx * wx + wy * wy + wz * wz) / 2 - (G * b.m) / r, r, Math.sqrt(wx * wx + wy * wy + wz * wz)];
+    };
+    const a = [0, 0, 0, 0, null];
+    const touched = new Set();
     for (const p of this.pending) {
       const dtp = this.t - p[8];
+      let into = null;
       if (dtp > 0 && att.length) {
         acc(p, a);
-        const n = Math.min(256, Math.max(1, Math.ceil(dtp / (0.05 * a[3]))));
-        const h = dtp / n;
-        for (let k = 0; k < n; k++) {
+        // Adaptive leapfrog: each step is 3% of the local dynamical time, so a plunge toward a compact
+        // object is resolved near closest approach (at most 2048 steps).
+        let left = dtp;
+        for (let k = 0; k < 2048 && left > 0; k++) {
+          const h = k === 2047 ? left : Math.min(left, 0.03 * a[3]);
+          left -= h;
+          const host = a[4];
+          const [e0, r0, w0] = host ? energy(p, host) : [0, Infinity, 0];
           p[3] += a[0] * h * 0.5; p[4] += a[1] * h * 0.5; p[5] += a[2] * h * 0.5;
+          const sx = p[0], sy = p[1], sz = p[2];
           p[0] += p[3] * h; p[1] += p[4] * h; p[2] += p[5] * h;
+          // Swallowed or hit on the way.
+          if (host && segHit(sx, sy, sz, p[0], p[1], p[2], host.x, host.y, host.z, captureRadius(host) ** 2)) { into = host; break; }
           acc(p, a);
           p[3] += a[0] * h * 0.5; p[4] += a[1] * h * 0.5; p[5] += a[2] * h * 0.5;
+          // As in stepParticles: if the step still can't resolve a close pass, keep the two-body energy.
+          if (host) {
+            const [, r1, w1] = energy(p, host);
+            const want = 2 * (e0 + (G * host.m) / r1);
+            const rMin = Math.min(r0, r1, segDist(sx, sy, sz, p[0], p[1], p[2], host.x, host.y, host.z));
+            if (rMin < 2.5 * h * Math.max(w0, w1) && want > 0 && w1 > 0) {
+              const kk = Math.sqrt(want) / w1;
+              p[3] = host.vx + (p[3] - host.vx) * kk; p[4] = host.vy + (p[4] - host.vy) * kk; p[5] = host.vz + (p[5] - host.vz) * kk;
+            }
+          }
         }
       }
-      this.addParticle(p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7]);
+      const idx = this.addParticle(p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7]);
+      if (into && idx >= 0) { this.absorbParticle(idx, into, touched); this.removeParticle(idx); }
     }
     this.pending.length = 0;
+    this.finishAbsorb(touched);
   }
 
   stepParticles(att, steps, t0, span) {
@@ -753,8 +865,43 @@ export class World {
             if (t2 < minT2) minT2 = t2;
           } else { ax = extx; ay = exty; az = extz; }
         }
+        // Two-body energy about the host before this sub-step (used below when the step is too coarse).
+        let e0 = NaN, e0r = 0, e0w = 0, hq = -1;
+        if (host >= 0) {
+          hq = base + host * 4;
+          const hm = samp[hq + 3];
+          if (hm !== 0) {
+            const at = att[host];
+            const rx = sx - samp[hq], ry = sy - samp[hq + 1], rz = sz - samp[hq + 2];
+            const wx = ux - at.vx, wy = uy - at.vy, wz = uz - at.vz;
+            const r = Math.sqrt(rx * rx + ry * ry + rz * rz), w2 = wx * wx + wy * wy + wz * wz;
+            e0 = w2 / 2 - (G * hm) / Math.sqrt(r * r + soft2[host]);
+            e0r = r; e0w = Math.sqrt(w2);
+          }
+        }
         ux += ax * hh; uy += ay * hh; uz += az * hh;
         x += ux * hh * 0.5; y += uy * hh * 0.5; z += uz * hh * 0.5;
+        // A close pass the sub-step cannot resolve gains or loses energy that isn't physical (the
+        // particle gets flung out at thousands of km/s). Over one sub-step the two-body energy about
+        // the host is conserved almost exactly, so restore it: rescale the speed relative to the host,
+        // keeping the direction.
+        if (e0 === e0) {
+          const at = att[host], hm = samp[hq + 3];
+          const rx = x - samp[hq], ry = y - samp[hq + 1], rz = z - samp[hq + 2];
+          const wx = ux - at.vx, wy = uy - at.vy, wz = uz - at.vz;
+          const w2 = wx * wx + wy * wy + wz * wz;
+          const r1 = Math.sqrt(rx * rx + ry * ry + rz * rz);
+          const qx = mx - samp[hq], qy = my - samp[hq + 1], qz = mz - samp[hq + 2];
+          const rMin = Math.min(e0r, r1, Math.sqrt(qx * qx + qy * qy + qz * qz));
+          // Under-resolved: the closest point of this step is passed in less than ~2.5 sub-steps per
+          // radian (r/v < 2.5 hh). Resolved orbits (a debris disk at 25 steps per orbit) are left alone,
+          // so other bodies still exchange energy with them.
+          const want = 2 * (e0 + (G * hm) / Math.sqrt(r1 * r1 + soft2[host]));
+          if (rMin < 2.5 * hh * Math.max(e0w, Math.sqrt(w2)) && want > 0 && w2 > 0) {
+            const k = Math.sqrt(want / w2);
+            ux = at.vx + wx * k; uy = at.vy + wy * k; uz = at.vz + wz * k;
+          }
+        }
         // Swept capture: did this sub-step's path pass through the host (or, on the first
         // sub-step, any attractor)? Without this, fast particles skip over small black holes.
         if (hitA < 0) {
@@ -798,34 +945,41 @@ export class World {
     for (let k = absorbed.length - 2; k >= 0; k -= 2) {
       const i = absorbed[k];
       const b = this.resolve(att[absorbed[k + 1]]);
-      if (b) {
-        const m = this.pm[i];
-        const M = b.m + m;
-        const dvx = this.pvx[i] - b.vx, dvy = this.pvy[i] - b.vy, dvz = this.pvz[i] - b.vz;
-        accreteHeat(b, m, dvx * dvx + dvy * dvy + dvz * dvz);
-        accreteMaterial(b, m, this.pk[i]);
-        // Meteors leave craters too (rate-limited so a shower doesn't wipe older scars at once).
-        if (b.kind === 'rocky' && this.pk[i] !== PK.GAS && this.pk[i] !== PK.SN_H) {
-          const now = performance.now();
-          const recent = b.impacts ? b.impacts.filter((h) => now - h.t < 400).length : 0;
-          if (recent < 6) {
-            const nx = this.px[i] - b.x, ny = this.py[i] - b.y, nz = this.pz[i] - b.z, d = Math.hypot(nx, ny, nz) || 1;
-            const ratio = m / b.m, v2 = dvx * dvx + dvy * dvy + dvz * dvz, ve2 = (2 * G * b.m) / b.r;
-            b.impacts = b.impacts || [];
-            b.impacts.push({ x: nx / d, y: ny / d, z: nz / d, e: Math.min(1, 0.55 + 2e4 * ratio * (1 + v2 / ve2)), size: 0.03 + Math.min(0.3, 15 * Math.cbrt(ratio)), t: now });
-            if (b.impacts.length > 16) b.impacts.shift();
-          }
-        }
-        b.vx = (b.vx * b.m + this.pvx[i] * m) / M;
-        b.vy = (b.vy * b.m + this.pvy[i] * m) / M;
-        b.vz = (b.vz * b.m + this.pvz[i] * m) / M;
-        if (b.kind === 'rocky' || b.kind === 'gas') b.r = Math.cbrt(b.r * b.r * b.r * (M / b.m));
-        b.m = M;
-        if (b.kind === 'bh') b.heat = Math.min(1.5, b.heat + 0.01);
-        touched.add(b);
-      }
+      if (b) this.absorbParticle(i, b, touched);
       this.removeParticle(i);
     }
+    this.finishAbsorb(touched);
+  }
+
+  // Particle i's mass, momentum, heat and material go into body b (the caller removes the particle).
+  absorbParticle(i, b, touched) {
+    const m = this.pm[i];
+    const M = b.m + m;
+    const dvx = this.pvx[i] - b.vx, dvy = this.pvy[i] - b.vy, dvz = this.pvz[i] - b.vz;
+    accreteHeat(b, m, dvx * dvx + dvy * dvy + dvz * dvz);
+    accreteMaterial(b, m, this.pk[i]);
+    // Meteors leave craters too (rate-limited so a shower doesn't wipe older scars at once).
+    if (b.kind === 'rocky' && this.pk[i] !== PK.GAS && this.pk[i] !== PK.SN_H) {
+      const now = performance.now();
+      const recent = b.impacts ? b.impacts.filter((h) => now - h.t < 400).length : 0;
+      if (recent < 6) {
+        const nx = this.px[i] - b.x, ny = this.py[i] - b.y, nz = this.pz[i] - b.z, d = Math.hypot(nx, ny, nz) || 1;
+        const ratio = m / b.m, v2 = dvx * dvx + dvy * dvy + dvz * dvz, ve2 = (2 * G * b.m) / b.r;
+        b.impacts = b.impacts || [];
+        b.impacts.push({ x: nx / d, y: ny / d, z: nz / d, e: Math.min(1, 0.55 + 2e4 * ratio * (1 + v2 / ve2)), size: 0.03 + Math.min(0.3, 15 * Math.cbrt(ratio)), t: now });
+        if (b.impacts.length > 16) b.impacts.shift();
+      }
+    }
+    b.vx = (b.vx * b.m + this.pvx[i] * m) / M;
+    b.vy = (b.vy * b.m + this.pvy[i] * m) / M;
+    b.vz = (b.vz * b.m + this.pvz[i] * m) / M;
+    if (b.kind === 'rocky' || b.kind === 'gas') b.r = Math.cbrt(b.r * b.r * b.r * (M / b.m));
+    b.m = M;
+    if (b.kind === 'bh') b.heat = Math.min(1.5, b.heat + 0.01);
+    touched.add(b);
+  }
+
+  finishAbsorb(touched) {
     for (const b of touched) {
       const ev = reclassify(b);
       if (ev) this.events.push({ text: `${b.name}: ${ev}`, body: b, big: true, snd: 'transform', power: 0.7, at: [b.x, b.y, b.z] });
