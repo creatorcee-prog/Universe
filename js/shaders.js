@@ -84,6 +84,9 @@ uniform sampler2D uDonor;
 uniform mat3 uDonorRot;
 uniform float uDonorK, uDonorMean;
 float donorT(vec3 d) { return dot(mapTex(uDonor, uDonorRot * d).rgb, vec3(0.3, 0.55, 0.15)) / uDonorMean; }
+// Earth's day colours (Blue Marble), weighted by uDayK.
+uniform sampler2D uDay;
+uniform float uDayK;
 `;
 const MAPTEX_VS = `
 vec4 mapTex(sampler2D s, vec3 d) {
@@ -146,6 +149,9 @@ const CLOUDS = `
 uniform float uCloudT;   // days
 uniform float uWind;     // angular wind speed at the deck, rad/day (U / R)
 uniform float uDeck;     // 1: a planet-wide deck
+uniform sampler2D uCloudTex;
+uniform float uCloudTexMode; // 1: real cloud field sampled by the weather; 2: the deck's own map
+uniform vec2 uCloudStats;    // the cloud field's mean and standard deviation
 float windAt(float latD) {
   if (uDeck > 0.5) return cos(radians(latD));
   float a = abs(latD);
@@ -173,10 +179,26 @@ float cloudRaw(vec3 d, float seed, float age, float gen, int oct) {
     spiral += exp(-dd * dd / 0.02);
   }
   vec3 cq = vec3(vS.x * 3.2, vS.y * 5.5, vS.z * 3.2) + wv * 1.8 + sd * 1.7;
-  return fbm(cq, oct) + 0.12 * spiral;
+  float r = fbm(cq, oct) + 0.12 * spiral;
+  if (uCloudTexMode > 0.5 && uCloudTexMode < 1.5) {
+    // A real cloud field (fronts, cyclones, cloud streets) at a different longitude each generation,
+    // carried by the same winds and storms, with generated detail on top.
+    float ang = 6.2831853 * hash(vec3(gen, 3.7, seed));
+    vec3 vt = normalize(vec3(vS.x * cos(ang) - vS.z * sin(ang), vS.y, vS.x * sin(ang) + vS.z * cos(ang)) + wv * 0.06);
+    float rt = 0.5 + (mapTex(uCloudTex, vt).r - uCloudStats.x) / uCloudStats.y * 0.075;
+    r = mix(r, rt + 0.035 * (fbm(cq * 2.3 + 4.0, 3) - 0.5), 0.85);
+  }
+  return r;
 }
 // x: cloud density 0..1, y: how thick (bright tops). px: the body's size on screen (detail level).
 vec2 cloudField(vec3 d, float cover, float seed, float px) {
+  if (uDeck > 0.5 && uCloudTexMode > 1.5) {
+    // A planet-wide deck with its own map (Venus): solid, its brightness pattern turning with the winds.
+    float a0 = uWind * uCloudT;
+    vec3 v = vec3(d.x * cos(a0) - d.z * sin(a0), d.y, d.x * sin(a0) + d.z * cos(a0));
+    float t = 2.0 * mapTex(uCloudTex, v).r;
+    return vec2(1.0, clamp(0.5 + (t - 1.0) * 2.5 + 0.06 * (fbm(v * 24.0, 3) - 0.5), 0.0, 1.0));
+  }
   float T = uDeck > 0.5 ? 6.0 : 2.5;
   float ph = uCloudT / T;
   float a = fract(ph), b = fract(ph + 0.5);
@@ -189,6 +211,7 @@ vec2 cloudField(vec3 d, float cover, float seed, float px) {
   float lat = abs(d.y);
   float zone = 0.55 + 0.3 * exp(-lat * lat / 0.012) + 0.35 * exp(-pow(lat - 0.78, 2.0) / 0.02) - 0.35 * exp(-pow(lat - 0.45, 2.0) / 0.015);
   if (uDeck > 0.5) zone = 1.0;
+  if (uCloudTexMode > 0.5) zone = mix(zone, 1.0, 0.7);   // the real field already has its latitudes
   float thr = 0.5 + (0.5 - clamp(cover * zone * 1.2, 0.0, 1.0)) * 0.34;
   float cloud = smoothstep(thr - 0.04, thr + 0.12, cl);
   // Fair-weather cumulus: fields of small puffy cells over the tropics, carried with the trade winds.
@@ -223,7 +246,7 @@ vec2 cloudField(vec3 d, float cover, float seed, float px) {
 `;
 
 // The cloud shell itself (BODY_VS at the deck's radius).
-export const CLOUD_FS = HEAD + NOISE + CLOUDS + `
+export const CLOUD_FS = HEAD + NOISE + MAPTEX_FS + CLOUDS + `
 in vec3 vObj;
 in vec3 vViewPos;
 in vec3 vN;
@@ -437,7 +460,8 @@ void main() {
       vec3 limb = blackbody(uTemp * (0.7 + 0.3 * sqrt(mu)));
       // Giant cells stand out strongly on supergiants (bright plumes, dark cool lanes).
       float big = smoothstep(26.0, 6.0, uGran);
-      float I = (0.5 + 0.5 * sqrt(mu)) * (0.9 + 0.2 * gran) * (1.0 - 0.75 * spot) * (1.0 - big * (0.4 * lanes - 0.12)) * (1.0 + big * 0.25 * (warpN - 0.5));
+      float act = uMapMode > 8.5 ? mix(1.0, 2.0 * mapTex(uMap, vObj).r, 0.18) : 1.0;
+      float I = act * (0.5 + 0.5 * sqrt(mu)) * (0.9 + 0.2 * gran) * (1.0 - 0.75 * spot) * (1.0 - big * (0.4 * lanes - 0.12)) * (1.0 + big * 0.25 * (warpN - 0.5));
       vec3 col = limb * I * (1.05 + 0.25 * facula) + c * glow * 1.5;
       outColor = vec4(col, 1.0);
     }
@@ -656,6 +680,7 @@ void main() {
     if (uMapMode > 6.5 && uMapMode < 8.5) { float t = 2.0 * MP.r; land = mix(uColB, uColA, clamp(t, 0.0, 1.0)) * t; }
     // Donor map: the borrowed world's light and dark terrain, over this world's own (climate) colours.
     if (uDonorK > 0.0) land *= mix(1.0, clamp(donorT(vObj), 0.15, 2.2), uDonorK);
+    if (uDayK > 0.0) land = mix(land, mapTex(uDay, vObj).rgb * 0.92, uDayK);
     // Close up, land shows finer texture (fields of terrain and vegetation patches).
     if (uPx > 250.0) land *= 0.86 + 0.28 * fbm(q * 70.0 + 3.0, 3);
     if (uProfile > 4.5 && uProfile < 5.5 && !cmapR) {
@@ -1095,6 +1120,7 @@ void main() {
     col = soil;
     if (uMapMode > 2.5 && uMapMode < 3.5) col *= 0.6 + 0.8 * mapTex(uMap, vDir).r;
     // Colour map: the ground takes the colour seen from orbit, varied by the local soil pattern.
+    if (uDayK > 0.0) { soil = mix(soil, mapTex(uDay, vDir).rgb * (0.75 + 0.5 * n1), uDayK * 0.85); col = soil; }
     if (uDonorK > 0.0) { float t = donorT(vDir); soil *= mix(1.0, clamp(t, 0.2, 2.0), uDonorK * 0.8); rock *= mix(1.0, clamp(t, 0.4, 1.6), uDonorK * 0.5); col = soil; }
     if (uMapMode > 4.5 && uMapMode < 8.5) { vec3 mc = mapTex(uMap, vDir).rgb; if (uMapMode > 6.5) { float t = 2.0 * mc.r; mc = mix(uColB, uColA, clamp(t, 0.0, 1.0)) * t; } soil = mc * (soil / max(dot(mix(uColA, uColB, 0.5), vec3(0.333)), 0.05)) * 0.5 + mc * 0.5; rock = mix(rock, mc * 0.75, 0.6); col = soil; }
     if (uLife > 0.0) {
@@ -1629,6 +1655,8 @@ uniform mat3 uView;
 uniform vec2 uTan;       // tan(fov/2) * aspect, tan(fov/2)
 uniform vec3 uGalN, uGalC;
 uniform float uBright;
+uniform sampler2D uMW;   // panorama in galactic coordinates (south up, longitude increasing to the left)
+uniform float uMWK;
 out vec4 outColor;
 void main() {
   vec3 dv = normalize(vec3((vUV.x * 2.0 - 1.0) * uTan.x, (vUV.y * 2.0 - 1.0) * uTan.y, -1.0));
@@ -1636,6 +1664,20 @@ void main() {
   bool hidden;
   d = lensSource(d, hidden);
   if (hidden) { outColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+  if (uMWK > 0.5) {
+    vec3 e0 = normalize(cross(uGalN, uGalC));
+    float l = atan(dot(d, e0), dot(d, uGalC)), bb = asin(clamp(dot(d, uGalN), -1.0, 1.0));
+    vec2 uv = vec2(fract(0.5 - l / 6.2831853), 0.5 + bb / 3.14159265);
+    // Derivatives from a seam-free parametrisation so the 180° wrap keeps its detail.
+    vec2 uv2 = vec2(fract(uv.x + 0.5), uv.y);
+    vec2 gx = dFdx(uv), gy = dFdy(uv), gx2 = dFdx(uv2), gy2 = dFdy(uv2);
+    if (abs(gx2.x) + abs(gy2.x) < abs(gx.x) + abs(gy.x)) { gx = gx2; gy = gy2; }
+    vec3 m = textureGrad(uMW, uv, gx, gy).rgb;
+    // The panorama is a dim, display-ready image: lift its faint band (about 4% grey) to about the
+    // brightness the dark-adapted eye sees, while the bright core and its stars stay in range.
+    outColor = vec4(vec3(0.004, 0.006, 0.013) + 5.0 * m / (1.0 + 3.0 * m) * uBright, 1.0);
+    return;
+  }
   float b = dot(d, uGalN);
   vec3 e = normalize(cross(uGalN, uGalC));
   float lon = atan(dot(d, e), dot(d, uGalC));

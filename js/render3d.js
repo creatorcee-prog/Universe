@@ -21,6 +21,9 @@ let EARTH_MAP = null, MOON_MAP = null; // built once, on first use
 //   mode 7 — greyscale mosaics (Voyager/Galileo for Callisto, Europa, Ganymede; Viking for Phobos and
 //            Deimos), as brightness relative to the mean: tinted with the world's own colours, the darker
 //            material (Europa's lineae, Ganymede's old dark terrain) in the darker one.
+//   mode 9 — the Sun: a brightness pattern of active regions, applied lightly (the visible Sun is nearly
+//            uniform; its colour, limb darkening, granulation and spots come from the physics).
+// (Mode 8, kept for a partial map:)
 //   mode 8 — the Moon: as mode 7, brightness relative to the highlands, from a full-Moon photograph
 //            (LRO) reprojected onto the near side; G marks where it covers (fading out 63–80° from the
 //            sub-Earth point), the rest is the hand-placed maria and far-side basins.
@@ -30,7 +33,8 @@ const PHOTO = [
   [/^Venus( \d+)?$/, 'venus', 3, 'rocky'], [/^Titan( \d+)?$/, 'titan', 4, 'rocky'],
   [/^Mars( \d+)?$/, 'mars', 5, 'rocky'], [/^Io( \d+)?$/, 'io', 5, 'rocky'], [/^Pluto( \d+)?$/, 'pluto', 5, 'rocky'],
   [/^Jupiter( \d+)?$/, 'jupiter', 6, 'gas'], [/^Saturn( \d+)?$/, 'saturn', 6, 'gas'],
-  [/^Charon( \d+)?$/, 'charon', 5, 'rocky'], [/^Moon( \d+)?$/, 'moon', 8, 'rocky'],
+  [/^Charon( \d+)?$/, 'charon', 5, 'rocky'], [/^Moon( \d+)?$/, 'moon', 7, 'rocky'], [/^Mercury( \d+)?$/, 'mercury', 7, 'rocky'],
+  [/^Uranus( \d+)?$/, 'uranus', 6, 'gas'], [/^Neptune( \d+)?$/, 'neptune', 6, 'gas'], [/^Sun( \d+)?$/, 'sun', 9, 'star'],
   ...['Callisto', 'Europa', 'Ganymede', 'Phobos', 'Deimos'].map((n) => [new RegExp(`^${n}( \\d+)?$`), n.toLowerCase(), 7, 'rocky']),
 ];
 const photoImg = {};
@@ -573,6 +577,10 @@ export class Renderer3D {
     gl.uniform3f(u.uGalN, 0, Math.cos(1.05), Math.sin(1.05));
     gl.uniform3f(u.uGalC, 1, 0, 0);
     gl.uniform1f(u.uBright, 1);
+    // The real panorama (ESO/Solar System Scope) when loaded; the generated band until then.
+    const mw = loadImage('milkyway');
+    gl.uniform1f(u.uMWK, mw ? 1 : 0);
+    if (mw) { gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, this.donorTex(mw)); gl.uniform1i(u.uMW, 5); gl.activeTexture(gl.TEXTURE0); }
     this.setLensUniforms(u);
     gl.bindVertexArray(this.quad);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
@@ -720,6 +728,7 @@ export class Renderer3D {
     gl.uniform1f(u.uMapMode, b.surfaceMap && this.mapTex.get(b) ? b.surfaceMap.mode : 0);
     if (b.surfaceMap && this.mapTex.get(b)) { gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, this.mapTex.get(b).tex); gl.uniform1i(u.uMap, 5); gl.activeTexture(gl.TEXTURE0); }
     this.bindDonor(u, b, l);
+    this.bindEarthDay(u, b, th);
     gl.uniform1f(u.uRelief, 4000 * reliefK);
     gl.uniform1f(u.uCraters, l.craters ? Math.min(1, l.craters * 2.5) : 0);
     gl.uniform1f(u.uRough, 1);
@@ -807,6 +816,39 @@ export class Renderer3D {
       this.dTex.set(img, t);
     }
     return t;
+  }
+
+  // Earth's real colours (Blue Marble), while its climate and life are Earth-like; otherwise the colours
+  // come from the climate model (deserts, ice ages, a dead or a greenhouse world).
+  bindEarthDay(u, b, th) {
+    const gl = this.gl;
+    let k = 0;
+    if (/^Earth( \d+)?$/.test(b.name) && b.kind === 'rocky' && b.life && (b.lifeAge || 0) > 1e9 && th) {
+      const img = loadImage('earth-day');
+      if (img) {
+        k = Math.max(0, Math.min(1, 1 - Math.abs(th.Ts - 288) / 18)) * Math.min(1, th.ocean * 2.5 || 0);
+        gl.activeTexture(gl.TEXTURE8);
+        gl.bindTexture(gl.TEXTURE_2D, this.donorTex(img));
+        gl.uniform1i(u.uDay, 8);
+        gl.activeTexture(gl.TEXTURE0);
+      }
+    }
+    gl.uniform1f(u.uDayK, k);
+  }
+
+  // Cloud texture for a cloud layer: 1 = Earth's real cloud field, sampled by the generated weather;
+  // 2 = a planet-wide deck's own map (Venus), turning with the super-rotation. 0 = none.
+  bindCloudTex(u, b, deck) {
+    const gl = this.gl;
+    const file = deck ? (/^Venus( \d+)?$/.test(b.name) ? 'venus-clouds' : null) : 'earth-clouds';
+    const img = file && loadImage(file);
+    gl.uniform1f(u.uCloudTexMode, img ? (deck ? 2 : 1) : 0);
+    if (!img) return;
+    gl.activeTexture(gl.TEXTURE9);
+    gl.bindTexture(gl.TEXTURE_2D, this.donorTex(img));
+    gl.uniform1i(u.uCloudTex, 9);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.uniform2f(u.uCloudStats, 0.2784, 0.2456); // earth-clouds.jpg mean and standard deviation (tools/make_maps.py)
   }
 
   // Bind a world's donor map (or switch it off) for the current program.
@@ -1126,6 +1168,7 @@ export class Renderer3D {
     const deckH = deck ? 0.0006 : Math.max(0.0015, Math.min(0.02, opt0 ? (1.2 * opt0.H) / Rm : 0.002));
     const wind = ((deck ? 100 : 20) / Rm) * 86400;
     gl.uniform1f(u.uCloudT, this.cloudT || 0); gl.uniform1f(u.uWind, wind); gl.uniform1f(u.uDeck, deck); gl.uniform1f(u.uDeckH, deckH);
+    if (cover > 0.001) this.bindCloudTex(u, b, deck);
     // An image map already shows the real craters and lineae; procedural ones would double them.
     const imgMap = b.surfaceMap && b.surfaceMap.mode >= 5 && b.surfaceMap.mode !== 8;
     gl.uniform1f(u.uCraters, imgMap ? 0 : l.craters || 0);
@@ -1164,7 +1207,7 @@ export class Renderer3D {
       else if (!b.surfaceMap) b.surfaceMap = { mode: 1, W: 512, H: 256, data: (EARTH_MAP ||= earthMap()).slice(), ver: 1, standIn: true };
     }
     if (/^Moon( \d+)?$/.test(b.name) && b.kind === 'rocky') {
-      // The near side from a full-Moon photograph (LRO); the hand-placed maria stand in until it loads.
+      // The LRO global map; the hand-placed maria stand in until it loads.
       const pm = photoMap(b);
       if (pm && (!b.surfaceMap || b.surfaceMap.standIn)) b.surfaceMap = pm;
       else if (!b.surfaceMap) b.surfaceMap = { mode: 2, W: 512, H: 256, data: (MOON_MAP ||= moonMap()).slice(), ver: 1, standIn: true };
@@ -1203,6 +1246,7 @@ export class Renderer3D {
     }
     gl.uniform1f(u.uMapMode, sm ? sm.mode : 0);
     this.bindDonor(u, b, l);
+    this.bindEarthDay(u, b, th);
     // A donor already brings real craters; keep only a trace of the generated ring-shaped ones.
     if (b.donor && !imgMap) gl.uniform1f(u.uCraters, (l.craters || 0) * 0.3);
     const city = /^Earth( \d+)?$/.test(b.name) && b.life && (b.lifeAge || 0) > 3.7e9;
@@ -1307,6 +1351,7 @@ export class Renderer3D {
         gl.uniform1f(cu.uCloud, cover); gl.uniform1f(cu.uSeed, seeded(b.id) * 40); gl.uniform1f(cu.uPx, shownPx);
         gl.uniform1f(cu.uTime, performance.now() / 1000); gl.uniform1f(cu.uEcl, 0);
         gl.uniform1f(cu.uCloudT, this.cloudT || 0); gl.uniform1f(cu.uWind, wind); gl.uniform1f(cu.uDeck, deck);
+        this.bindCloudTex(cu, b, deck);
         gl.bindVertexArray(g.vao);
         gl.drawElements(gl.TRIANGLES, g.n, g.type, 0);
         gl.blendFunc(gl.ONE, gl.ONE);

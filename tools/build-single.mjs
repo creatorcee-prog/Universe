@@ -1,6 +1,7 @@
 // Bundles the app into one self-contained HTML file (no server or service worker needed).
 // Usage: node tools/build-single.mjs [out.html] [--fragment]
 //   --fragment  omit <!doctype>/<html>/<head>/<body> (for hosts that supply their own page skeleton)
+//   --external-maps  load assets/maps/* from next to the page instead of inlining them
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,10 +19,13 @@ const audioDir = join(root, 'assets', 'audio');
 const sounds = {};
 for (const f of readdirSync(audioDir)) if (f.endsWith('.mp3')) sounds[f.slice(0, -4)] = 'data:audio/mpeg;base64,' + readFileSync(join(audioDir, f)).toString('base64');
 js += `window.__AUDIO__ = ${JSON.stringify(sounds)};\n`;
-// Image maps likewise (js/render3d.js).
+// Image maps likewise (js/render3d.js), unless --external-maps: then the page loads them from
+// assets/maps/ next to it (the artifact build, which publishes them as separate files to stay under the
+// 16 MB page limit).
+const external = process.argv.includes('--external-maps');
 const mapDir = join(root, 'assets', 'maps');
 const maps = {};
-for (const f of readdirSync(mapDir)) {
+if (!external) for (const f of readdirSync(mapDir)) {
   const m = f.match(/^(.*)\.(jpg|png)$/);
   if (m) maps[m[1]] = `data:image/${m[2] === 'png' ? 'png' : 'jpeg'};base64,` + readFileSync(join(mapDir, f)).toString('base64');
 }

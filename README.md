@@ -152,32 +152,27 @@ Switch in the **View** panel.
   (Venus, Titan) super-rotates at ~100 m/s (Venus's clouds circle it in about 4 days). Two generations of
   cloud field crossfade every few days, so clouds form, shear and dissipate. Cover follows the climate
   model, so the weather changes as the planet warms, cools or loses its oceans.
-- **Image maps** (assets/maps, equirectangular, 0° longitude at the centre):
-  - *Colour maps*: Mars (Viking colour mosaic), Io (Galileo/Voyager), Pluto (New Horizons), Jupiter and
-    Saturn (Cassini; their contrast-enhanced colours scaled back to the app's true-colour calibration).
-    The Mars and Io sources covered only the central 320° of longitude; the 40° around 180° is a blend
-    of the two edges and holds no real features. Io's volcanoes glow only in its dark paterae, on the
-    night side.
-  - *Greyscale mosaics*: Callisto, Europa, Ganymede (Voyager/Galileo), Phobos and Deimos (Viking), as
-    brightness tinted with each world's colours; Charon (New Horizons) in colour. The Callisto, Europa,
-    Ganymede and Phobos sources also lacked the 40° around 180° (blended from the edges).
-  - *Moon*: the near side from a full-Moon photograph (LRO) reprojected onto the globe, fading 63–80°
-    from the sub-Earth point into the hand-placed maria and far-side basins.
-  - *Jupiter*: rebuilt from the Hubble OPAL 2016 photograph: the photographed hemisphere is reprojected
-    (limb darkening removed, the ultraviolet aurora masked out); the unseen longitudes are filled with
-    offset copies of it, crossfaded, with the Great Red Spot only once (tools/jupiter_build.py).
-  - *Donor maps for new worlds*: a world without a map of its own (anything you create, or a random
-    planetesimal) borrows the brightness pattern of a real world of its type — cratered (Moon,
-    Callisto, Ganymede), icy (Europa, Ganymede, Charon, Pluto), dusty (Mars), volcanic (Io), small
-    (Phobos, Deimos) or giant (Jupiter, Saturn bands) — at a random orientation, tinted with its own
-    colours and climate, so each new world has realistic detail and no two look alike.
-  - *Earth*: land, sea depth (continental shelves), mountains and ice decoded from a NASA hypsometric
-    relief map (the hand-traced coastlines fill its missing 40°), and city lights from NASA Black
-    Marble.
-  - *Venus*: Magellan radar brightness (roughness, not colour) shades its dark basalt and relief; *Titan*:
-    the brightness of its haze top. A haze thicker than optical depth 3 hides the ground from space.
-  - Neptune is drawn pale greenish blue (Irwin et al. 2024): the deep blue of familiar Voyager images
-    came from contrast stretching.
+- **Image maps** (assets/maps, 2048×1024 equirectangular, 0° longitude at the centre; Solar System Scope /
+  NASA sources, CC BY 4.0; built by `tools/make_maps.py`):
+  - *Colour*: Mars (brought to true colour), Jupiter (Cassini), Saturn, Uranus, Neptune (pale, as it
+    really looks: Irwin et al. 2024; the deep blue of Voyager images is a contrast stretch), Io, Pluto,
+    Charon.
+  - *Brightness, tinted with each world's own colours*: Mercury (MESSENGER), the Moon (LRO), Callisto,
+    Europa, Ganymede, Phobos, Deimos. Venus: Magellan radar brightness (roughness, not colour) for the
+    ground and relief, and its own cloud map for the deck, turning with the super-rotation.
+  - *Earth*: Blue Marble colours while its climate and life stay Earth-like (otherwise the climate model's
+    deserts, ice and seas); land, sea, shelves, mountains and ice decoded from it and a NASA relief map;
+    Black Marble city lights. Its real cloud map is not painted on: the generated weather samples it (at
+    a new longitude each cloud generation, carried by the winds and storms), so clouds look real but
+    still move, form and dissipate — on every world with clouds.
+  - *Sun*: a light pattern of active regions; colour, limb darkening, granulation and spots stay physical.
+  - *Milky Way*: the ESO panorama as the sky background, in galactic coordinates.
+  - *Donor maps for new worlds*: a world without a map of its own borrows the brightness pattern of a
+    real world of its type — cratered, icy, dusty, volcanic, small or giant — at a random orientation,
+    tinted with its own colours and climate, so each new world has realistic detail and no two look
+    alike.
+  - The artifact build loads the maps as separate files (`--external-maps`); the offline single file
+    inlines them (~17 MB).
 - **Surface view terrain**: standing on a world you see real ground around you, a mesh from your feet to
   ~150 km built from the same continental noise as the globe (Earth's real continents line up), with
   rolling hills, mountain ridges, dunes and crater fields. Ground cover follows the globe's climate

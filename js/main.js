@@ -586,7 +586,7 @@ class App {
       const u = (((-lon / (2 * Math.PI) + 0.5) % 1) + 1) % 1, v = 0.5 - lat / Math.PI;
       const x = Math.min(sm.W - 1, Math.floor(u * sm.W)), y = Math.max(0, Math.min(sm.H - 1, Math.floor(v * sm.H)));
       const o = (y * sm.W + x) * 4;
-      return sm.data[o + 3] > 127 && sm.data[o] > 140 && sm.data[o + 2] < 128; // land, a little inland, not ice sheet
+      return sm.data[o + 3] > 127 && sm.data[o] > 175 && sm.data[o + 2] < 128; // land, a little inland, not ice sheet
     };
     if (land(sv.lat, sv.lon)) return;
     const D = Math.PI / 180;
