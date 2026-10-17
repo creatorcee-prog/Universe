@@ -14,9 +14,12 @@ import { UI } from './ui.js';
 const SETTINGS_KEY = 'universe-pocket-settings';
 
 function loadSettings() {
-  const defaults = { trails: true, labels: true, grid: true, stars: true, trailsRelative: true, collisions: true, sound: true, music: true, uiSound: false, soundSilent: false, perf: false, view: 'realistic', bloom: true, trailColor: 'body', orbits: false, trueSize: false };
+  const defaults = { trails: true, labels: true, grid: true, stars: true, trailsRelative: true, collisions: true, sound: true, music: true, uiSound: true, soundSilent: false, perf: false, v: 2, view: 'realistic', bloom: true, trailColor: 'body', orbits: false, trueSize: false };
   try {
-    return { ...defaults, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') };
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+    // v2: interface sounds were off in v1 while the sound set was being replaced; the new set is on.
+    if ((saved.v || 1) < 2) { delete saved.uiSound; saved.v = 2; }
+    return { ...defaults, ...saved };
   } catch {
     return defaults;
   }
@@ -72,9 +75,9 @@ class App {
   // ---------- surface view ----------
 
   enterSurface(b, where = 'day') {
-    if (!this.r3d || !this.renderer.overlay) { this.audio.ui('denied2'); this.ui.toast('Switch to the Realistic or Pixel view to stand on a surface.'); return; }
-    if (b.kind !== 'rocky') { this.audio.ui('denied2'); this.ui.toast(`${b.name} has no solid surface to stand on.`); return; }
-    this.audio.ui('seq6');
+    if (!this.r3d || !this.renderer.overlay) { this.audio.ui('glitch'); this.ui.toast('Switch to the Realistic or Pixel view to stand on a surface.'); return; }
+    if (b.kind !== 'rocky') { this.audio.ui('glitch'); this.ui.toast(`${b.name} has no solid surface to stand on.`); return; }
+    this.audio.ui('affirm');
     const keep = this.surface ? this.surface.prevSpeed : this.state.speed;
     this.surface = { body: b, where, lat: 0, lon: 0, yaw: 0, pitch: 0.15, place: true, up: [0, 1, 0], sun: [1, 0, 0], sunPower: 0, prevSpeed: keep };
     // Slow time so one local day lasts about two minutes and the Sun can be watched crossing the sky.
@@ -86,7 +89,7 @@ class App {
   }
 
   exitSurface() {
-    if (this.surface) this.audio.ui('bleep1');
+    if (this.surface) this.audio.ui('click');
     const b = this.surface && this.surface.body;
     if (this.surface) this.ui.setSpeed(this.surface.prevSpeed);
     this.surface = null;
@@ -172,7 +175,7 @@ class App {
       Object.assign(this.settings, this.prePhoto);
     }
     this.photo = on;
-    if (on) this.audio.ui('seq3');
+    if (on) this.audio.ui('hint');
     this.ui.syncPhotoBar();
     document.getElementById('app').classList.toggle('photo', on);
     this.renderer.photo = on;
@@ -224,7 +227,7 @@ class App {
   }
 
   select(body, quiet = false) {
-    if (body && !quiet && body !== this.state.selected) this.audio.ui('bleep4');
+    if (body && !quiet && body !== this.state.selected) this.audio.ui('click');
     this.state.selected = body;
     this.ui.showInfo(body);
   }
@@ -252,7 +255,7 @@ class App {
       const d = this.renderer.dpr;
       target = this.renderer.pickBody((this.canvas.clientWidth / 2) * d, (this.canvas.clientHeight / 2) * d, 2000);
     }
-    if (!target) { this.audio.ui('denied2'); this.ui.toast('Nothing to lock onto. Tap an object first.'); return; }
+    if (!target) { this.audio.ui('glitch'); this.ui.toast('Nothing to lock onto. Tap an object first.'); return; }
     this.follow(target);
     this.ui.toast(`Camera locked on ${target.name}`);
   }
@@ -263,7 +266,7 @@ class App {
     const tilt = this.r3d.look(b).tilt || 0;
     const icy = b.kind === 'gas' || !b.th || b.th.Ts < 170;
     ring(this.world, b, b.r * (b.kind === 'gas' ? 1.24 : 1.4), b.r * (b.kind === 'gas' ? 2.27 : 2.5), b.kind === 'gas' ? 16000 : 9000, tilt, icy ? PK.ICE : PK.ROCK);
-    this.audio.ui('complete');
+    this.audio.ui('affirm');
     this.ui.toast(`${b.name} now has ${icy ? 'icy' : 'rocky'} rings`);
   }
 
@@ -278,7 +281,7 @@ class App {
   }
 
   deleteBody(b) {
-    this.audio.ui('denied3');
+    this.audio.ui('glitch');
     if (this.cam.follow === b) this.cam.follow = null;
     if (this.state.selected === b) this.select(null);
     this.zones.delete(b);
@@ -290,7 +293,7 @@ class App {
   // Paints into the body's surface map (equirectangular RGBA: R land, G mountains, B ice, A land override).
 
   paintAt(sx, sy, first) {
-    if (!this.r3d) { if (first) { this.audio.ui('denied2'); this.ui.toast('Painting needs the Realistic or Pixel view.'); } return; }
+    if (!this.r3d) { if (first) { this.audio.ui('glitch'); this.ui.toast('Painting needs the Realistic or Pixel view.'); } return; }
     const d = this.renderer.dpr, cam = this.cam;
     const dir = cam.ray(sx * d, sy * d);
     const E = [cam.tx + cam.ox, cam.ty + cam.oy, cam.tz + cam.oz];
@@ -304,7 +307,7 @@ class App {
       const t = -bq - Math.sqrt(disc);
       if (t > 0 && t < best) { best = t; hit = b; }
     }
-    if (!hit) { if (first) { this.audio.ui('denied3'); this.ui.toast('Touch a rocky world to paint it'); } return; }
+    if (!hit) { if (first) { this.audio.ui('glitch'); this.ui.toast('Touch a rocky world to paint it'); } return; }
     const b = hit;
     const P = [E[0] + dir[0] * best - b.x, E[1] + dir[1] * best - b.y, E[2] + dir[2] * best - b.z];
     const R = this.r3d.bodyRotation(b); // column-major object -> world; object = Rᵀ · world
@@ -356,7 +359,7 @@ class App {
     const d = this.renderer.dpr;
     const body = this.renderer.pickBody(sx * d, sy * d, 44);
     this.laser = { body, sx, sy };
-    if (!body) { this.audio.ui('denied3'); this.ui.toast('Missed: hold on an object'); }
+    if (!body) { this.audio.ui('glitch'); this.ui.toast('Missed: hold on an object'); }
   }
 
   laserMove(sx, sy) {
@@ -431,7 +434,7 @@ class App {
         this.world.addParticle(x + s * Math.cos(t) * r, y + u * r * 0.3, z + s * Math.sin(t) * r,
           vx + (Math.random() - 0.5) * j, vy + (Math.random() - 0.5) * j, vz + (Math.random() - 0.5) * j, mEach, PK.DUST);
       }
-      this.audio.ui('execute');
+      this.audio.ui('sequence');
       this.ui.toast('Released a dust cloud');
       return;
     }
@@ -469,7 +472,7 @@ class App {
     }
     thermalStep(this.world, 0);
     const where = a.parent ? (a.bound ? ` orbiting ${a.parent.name}` : ` on an escape path from ${a.parent.name}`) : '';
-    this.audio.ui('execute');
+    this.audio.ui('sequence');
     this.ui.toast(`Added ${b.name}${where}. Tap it for details.`);
   }
 
@@ -613,6 +616,28 @@ class App {
     this.audio.ambient(level, rate);
   }
 
+  // Object ambience: louder the more of the view a world fills (from about 1° across to filling it).
+  objectAmbience() {
+    const c = this.cam, sv = this.surface;
+    let hum = 0, wind = 0, rate = 1;
+    if (sv && sv.body) {
+      const g = sv.body.atm && sv.body.atm.gases;
+      const P = g ? Object.values(g).reduce((s, v) => s + v, 0) : 0; // bar
+      if (P > 1e-4) wind = Math.max(0.12, Math.min(1, 0.6 + 0.2 * Math.log10(P)));
+      else hum = 0.2;
+    } else {
+      for (const b of this.world.bodies) {
+        if (b.kind !== 'rocky' && b.kind !== 'gas' && b.kind !== 'star' && b.kind !== 'wd' && b.kind !== 'ns') continue;
+        const d = Math.hypot(b.x - c.tx - c.ox, b.y - c.ty - c.oy, b.z - c.tz - c.oz) || 1e-12;
+        const l = Math.max(0, Math.min(1, (Math.log10(b.r / d) + 1.7) / 1.2));
+        if (l <= 0) continue;
+        if (b.kind === 'gas' || b.kind === 'star') wind = Math.max(wind, l);
+        else if (l > hum) { hum = l; rate = Math.max(0.85, Math.min(1.15, 1 - 0.06 * Math.log10(b.m / 3e-6))); }
+      }
+    }
+    this.audio.nearby(hum, wind, rate);
+  }
+
   // Settings → Show performance: frame rate, and how long physics and drawing take on the CPU each frame.
   // If the frame rate is low while both are small, the graphics chip is the bottleneck.
   perfReadout(now, dtReal, drawMs) {
@@ -698,6 +723,7 @@ class App {
     } else this.slBody = null;
     this.cam.tick(now, dtReal);
     this.blackHoleDrone();
+    this.objectAmbience();
     this.updateAddPreview();
     const a = this.adding;
     const preview = a && a.v ? { x: a.P[0], y: a.P[1], z: a.P[2], path: a.path, bound: a.bound, hit: a.hit, dragTo: a.dragTo } : a ? { x: a.P[0], y: a.P[1], z: a.P[2] } : null;

@@ -134,7 +134,13 @@ Switch in **Settings → View**.
   use little memory. Pauses when the app is in the background.
 - **Sound** (Settings → Sound effects): interface blips, and deep rumbles for giant impacts, tidal
   disruptions, star mergers and supernovae, loud when they happen where you're looking and faint far away.
-  A drone swells as you approach a black hole (deeper for heavier holes, louder while it feeds). The
+  A drone swells as you approach a black hole (deeper for heavier holes, louder while it feeds). Close to
+  other objects there is ambience: a low engine-like hum near rocky worlds, white dwarfs and neutron stars
+  and a deep wind near gas giants and stars, rising as the object fills more of the view; on the ground of
+  a world with air the wind's level follows its surface pressure. Interface sounds (Settings → Interface
+  sounds, on by default): click for taps, a short sequence for opening panels and placing, a hint when a
+  notice appears, an affirmation for loading scenarios or landing, a glitch when something isn't possible.
+  Ambience and interface sounds are from Mixkit (free licence, mixkit.co/license). The
   rumbles are almost all below 150 Hz, which phone speakers can't play, so a harmonic bass enhancer adds
   overtones the ear hears as the low pitch (+14 dB in the 200 Hz–1 kHz band). Headphones still sound best.
   Sound starts on the first tap (a browser rule). It plays even with the iPhone on silent, unless

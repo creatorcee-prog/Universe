@@ -14,14 +14,16 @@
 // session); Settings can switch to "ambient", which follows the switch and mixes with other audio.
 
 const UI = {
-  // name: [file, gain] — gains level the clips to about the same loudness (measured mean volume). Only
-  // the low, soft sounds are kept (the high-pitched blips were removed at the user's request).
-  confirm5: ['confirm5', 0.42], confirm7: ['confirm7', 0.85], denied2: ['denied2', 0.36], denied3: ['denied3', 0.32],
-  complete: ['complete', 1.2],
+  // name: [file, gain] — gains level the clips to about the same loudness (measured mean volume).
+  click: ['ui-click', 0.8],        // taps, selecting, toggles, pause
+  sequence: ['ui-sequence', 0.95], // opening a panel, switching tab or tool, placing an object
+  hint: ['ui-hint', 1.15],         // a notice appears; photo mode
+  affirm: ['ui-affirm', 1.35],     // loading a scenario, landing on a surface, adding rings
+  glitch: ['ui-glitch', 0.9],      // not possible / missed
+  // Lower, softer sounds for things the simulation does by itself.
+  transform: ['confirm7', 0.85], complete: ['complete', 1.2],
 };
-// Sounds that were removed map to a remaining low one, or to nothing (silent).
-const ALIAS = { execute: 'confirm5', seq6: 'confirm7' };
-const COSMIC = ['rumble1', 'rumble4', 'rumbleloop', 'decay'];
+const COSMIC = ['rumble1', 'rumble4', 'rumbleloop', 'decay', 'amb-engine', 'amb-wind'];
 
 // Background music: shuffled, each track fading in and out, with 30 s of silence between tracks.
 const MUSIC = ['music-relax-beat', 'music-drone', 'music-vastness', 'music-space', 'music-valley-sunset'];
@@ -51,7 +53,6 @@ export class Sound {
     this.lastUI = 0;
     this.cool = {};
     this.voices = [];
-    this.drone = null;
     const unlock = () => { this.start(); };
     for (const ev of ['touchend', 'pointerup', 'click', 'keydown']) window.addEventListener(ev, unlock, { capture: true, passive: true });
   }
@@ -222,7 +223,6 @@ export class Sound {
   // Interface sound. Calls within 40 ms of each other collapse to the first. The generic click is a
   // fallback, played a tick after the tap, and skipped if the tap's handler already made a sound.
   ui(name, fallback = false) {
-    name = ALIAS[name] || name;
     const now = performance.now();
     if (now - this.lastUI < (fallback ? 400 : 40)) return;
     this.lastUI = now;
@@ -313,23 +313,25 @@ export class Sound {
       case 'transform':
         if (!ready('transform', 3000)) return;
         this.rumble('rumble4', 0.2 + 0.4 * p, 1.2, 6);
-        this.ui('confirm7');
+        this.ui('transform');
         break;
       case 'complete': this.ui('complete'); break;
-      case 'denied': this.ui('denied2'); break;
+      case 'denied': this.ui('glitch'); break;
     }
   }
 
-  // Black-hole drone, every frame: level 0..1 from how large the nearest hole looks, pitch from its mass.
-  ambient(level, rate) {
-    if (!this.ctx || !this.buf.rumbleloop) return;
+  // Looping beds, set every frame: started once audible, stopped once faded out. The MP3 encoder's
+  // padding at the ends is skipped so the loop doesn't click (the files are cut to loop seamlessly).
+  bed(key, file, level, rate = 1) {
+    const b = this.buf[file];
+    if (!this.ctx || !b) return;
     const t = this.ctx.currentTime;
-    if (!this.drone && level > 0.01 && this.on) {
+    this.beds = this.beds || {};
+    let v = this.beds[key];
+    if (!v && level > 0.01 && this.on) {
       const s = this.ctx.createBufferSource();
-      const b = this.buf.rumbleloop;
       s.buffer = b;
       s.loop = true;
-      // Skip the MP3 encoder's padding at the ends so the loop doesn't click.
       const d = b.getChannelData(0);
       let a = 0, z = d.length - 1;
       while (a < d.length && Math.abs(d[a]) < 1e-4) a++;
@@ -337,15 +339,25 @@ export class Sound {
       s.loopStart = a / b.sampleRate; s.loopEnd = z / b.sampleRate;
       const g = this.ctx.createGain(); g.gain.value = 0;
       s.connect(g); g.connect(this.fx);
-      s.start(t, s.loopStart);
-      this.drone = { s, g };
+      s.start(t, s.loopStart + Math.random() * (s.loopEnd - s.loopStart) * 0.9);
+      v = this.beds[key] = { s, g };
     }
-    if (!this.drone) return;
-    this.drone.g.gain.setTargetAtTime(this.on ? level * 0.8 : 0, t, 0.6);
-    this.drone.s.playbackRate.setTargetAtTime(rate, t, 0.8);
-    if (level <= 0.01 && this.drone.g.gain.value < 0.005) {
-      try { this.drone.s.stop(); } catch { /* already stopped */ }
-      this.drone = null;
+    if (!v) return;
+    v.g.gain.setTargetAtTime(this.on ? level : 0, t, 0.6);
+    v.s.playbackRate.setTargetAtTime(rate, t, 0.8);
+    if (level <= 0.01 && v.g.gain.value < 0.005) {
+      try { v.s.stop(); } catch { /* already stopped */ }
+      delete this.beds[key];
     }
+  }
+
+  // Black-hole drone: level 0..1 from how large the nearest hole looks, pitch from its mass.
+  ambient(level, rate) { this.bed('drone', 'rumbleloop', level * 0.8, rate); }
+
+  // Object ambience: a low engine-like hum near solid worlds and stellar remnants, a deep wind near gas
+  // giants and stars, and on the ground of a world with air. Levels 0..1.
+  nearby(hum, wind, rate = 1) {
+    this.bed('hum', 'amb-engine', hum * 0.45, rate);
+    this.bed('wind', 'amb-wind', wind * 0.4, 1);
   }
 }
