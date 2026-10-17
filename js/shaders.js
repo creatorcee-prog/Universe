@@ -253,8 +253,8 @@ void main() {
       float a = atan(vObj.z, vObj.x);
       float rr = length(vObj.xz);
       float hr = 0.24 / cos(mod(a + 0.3, 1.0472) - 0.5236);
-      float inside = smoothstep(hr + 0.012, hr - 0.012, rr);
-      col = mix(col, vec3(0.56, 0.66, 0.72) * (0.9 + 0.1 * vnoise(vObj * 30.0)), inside * 0.75);
+      float inside = smoothstep(hr + 0.02, hr - 0.02, rr);
+      col = mix(col, vec3(0.56, 0.66, 0.72) * (0.9 + 0.1 * vnoise(vObj * 30.0)), inside * 0.55);
       col *= 1.0 - 0.22 * exp(-pow((rr - hr) / 0.012, 2.0));
       col = mix(col, vec3(0.4, 0.48, 0.55), smoothstep(0.06, 0.0, rr) * 0.6);
     }

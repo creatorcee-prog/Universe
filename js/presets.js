@@ -91,6 +91,8 @@ const PLANETS = [
   ['Neptune', 30.06992276, 0.00859048, 1.77004347, -55.12002969, 44.96476227, 131.78422574, 6836527.10058, 24622, 'gas', [84, 124, 222], [60, 92, 190], [140, 180, 255]],
 ];
 
+const DAY_HOURS = { Mercury: 1407.6, Venus: -5832.5, Earth: 23.93, Mars: 24.62, Jupiter: 9.93, Saturn: 10.66, Uranus: -17.24, Neptune: 16.11 };
+
 // Orbit from mean longitude L, longitude of perihelion ϖ and node Ω: ω = ϖ − Ω, M = L − ϖ.
 function orbitLW(world, parent, body, a, e, I, L, w, O, pair = false) {
   return orbit(world, parent, body, a, e, I, O, w - O, L - w, pair);
@@ -102,6 +104,7 @@ function solarSystem(world, { belts = true, moon = true } = {}) {
   for (const [name, a, e, i, L, w, O, gm, rkm, kind, color, band, atmo] of PLANETS) {
     // With the Moon simulated separately, Earth's own mass goes here and the pair shares the barycentre orbit.
     const b = makeBody({ name, kind, m: massFromGM(gm), r: km(rkm), color, band, atmo });
+    b.dayH = DAY_HOURS[name]; // sidereal rotation period (NASA fact sheets)
     made[name] = orbitLW(world, s, b, a, e, i, L, w, O);
   }
   // Pluto: Standish's earlier table (J2000); system GM 975.5 km³/s² (Pluto plus Charon).
@@ -123,7 +126,7 @@ function solarSystem(world, { belts = true, moon = true } = {}) {
     // simulated mean sidereal month matches the measured 27.32166 days (mean distance stays ~384,400 km).
     orbitLW(world, made.Earth, m, km(LUNAR_A), 0.0549, 5.145, 218.3165, 83.3532, 125.0445, true);
   }
-  ring(world, made.Saturn, km(74500), km(136800), 9000, 26.7, PK.ICE);
+  ring(world, made.Saturn, km(74500), km(136800), 24000, 26.7, PK.ICE);
   if (belts) {
     for (let k = 0; k < 1500; k++) particleOrbit(world, s, between(2.1, 3.3), rand() * 0.15, rand() * 12, PK.ROCK);
     for (let k = 0; k < 700; k++) particleOrbit(world, s, between(39, 48), rand() * 0.12, rand() * 12, PK.ICE);

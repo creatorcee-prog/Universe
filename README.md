@@ -46,6 +46,18 @@ The layout follows Universe Sandbox's:
   - Drag instead of tapping to fling it. A dashed line predicts its path; a red X marks an impact.
 - **Sim**: the fine time-speed slider (1 second per second up to 300 million years per second), collisions,
   restart, clear debris and scenarios.
+- **Find** (magnifier, top right): search the scene by name or kind and fly to an object.
+- **Create → Real objects**: 28 real bodies with NASA fact-sheet masses and radii, from Phobos to
+  Sagittarius A*. Saturn comes with its rings and Betelgeuse in its supergiant phase. A third placement
+  method, **Binary**, drops a pair on a mutual orbit.
+- **View**: orbit lines (each body's predicted ellipse) and true sizes (no minimum dot size, so you can see
+  whether things really touch). Photo mode has a small toolbar for labels, trails, orbits, grid, stars and
+  glow.
+- **Surface tab**:
+  - *Atmosphere*: mass, pressure in kPa, density, speed of sound, scale height, dry lapse rate, elevation
+    range and mean molecular mass, from ideal-gas physics. These agree with NASA's values for Earth, Mars
+    and Venus to within a few percent.
+  - *Sea level*: a slider sets ocean coverage and the climate model responds.
 - **View**: style (Realistic, Classic, Pixel), glow, trails, trail colours (by object, orbital velocity or
   temperature), labels, grid, stars, camera lock and reset, and Photo mode.
 - **Tools**:
@@ -109,6 +121,20 @@ Switch in **Settings → View**.
   The readout shows latitude, local temperature, the Sun's height and air pressure. Local temperature uses
   the planet's mean temperature plus latitude, with day/night swings that are small under thick air and large
   on airless ground (the Moon goes from about 390 K at noon to 95 K at night).
+- **Surfaces** (Realistic view):
+  - *Terrain*: rocky worlds have continents and ridged mountain ranges with relief shading, so slopes catch
+    the light near the terminator. Relief scales with 1/g, as real topography does.
+  - *Climate*: dry subtropical belts sit near 25–30° (Hadley cells). Coasts have turquoise shelves, and
+    worlds with oceans get snow-capped peaks.
+  - *Clouds*: swirled and stretched by the winds, heaviest along the equator and the mid-latitude storm
+    tracks, and they cast shadows on the ground.
+  - *Vegetation*: its colour follows the star (Kiang et al. 2007: blue-green under F stars, green under the
+    Sun, olive under K stars, near-black under red dwarfs). New life starts out purple, after the "purple
+    Earth" hypothesis (DasSarma & Schwieterman 2018).
+  - *Saturn*: the polar hexagon, and its rings cast a shadow on the planet that follows the real ring
+    density, Cassini Division included.
+  - *Hot giants*: they glow through turbulent bands with dark vortices.
+  - *Surface view*: a moving cloud deck overhead, lit white by day and pink-orange at sunset.
 - **Classic**: the original 2D canvas renderer. Lighter on battery and older phones.
 - **NASA models**: planned, see [docs/ROADMAP.md](docs/ROADMAP.md).
 
@@ -213,6 +239,12 @@ source list on every entry.
     accretion rule of moon-formation N-body studies (Ida, Canup & Stewart 1997, *Nature* 389, 353).
   - *Moonlets*: clumps above about 3% of the Moon's mass become moonlets, which sweep up debris and merge.
   - *Frame length*: long frames are split so tight disks are followed accurately on slow devices too.
+- **Tides**: moons migrate as da/dt = 3(k₂/Q)(m/M)(R/a)⁵na: outward when the planet spins faster than the
+  moon orbits, inward otherwise.
+  - *Earth–Moon*: recedes 3.73 cm/yr (measured: 3.82, by lunar laser ranging).
+  - *Phobos*: falls 1.89 cm/yr (measured: about 1.8).
+- **Star mergers** become luminous red novae (V1309 Sco, V838 Mon): a flash of about 10⁵ L☉ that fades over
+  months, a shell of gas, and a remnant that stays swollen and cool for decades.
 - **Giant impacts**: oblique hits between rocky bodies put part of the debris straight into an orbiting disk,
   up to about 7 planet radii. This stands in for the torques and vapour pressure seen in fluid simulations
   (Canup & Asphaug 2001; Canup 2004), which a point-mass planet can't produce; ballistic debris alone always

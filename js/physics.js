@@ -10,7 +10,7 @@ import { coagulate } from './coagulate.js';
 export const PK = { DEBRIS: 0, HOT: 1, STAR_BLUE: 2, STAR_GOLD: 3, ICE: 4, DUST: 5, GAS: 6, ROCK: 7, SN_H: 8, SN_O: 9, SN_SI: 10, SN_FE: 11 };
 
 const PCAP = 16000; // free particles
-const RCAP = 12000; // ring particles locked to a host body
+const RCAP = 30000; // ring particles locked to a host body
 const MAX_STEPS = 3000; // body substeps per frame
 const MAX_ATTRACTORS = 24; // bodies that pull on particles
 const PRIORITY = { rocky: 0, gas: 1, star: 2, wd: 3, ns: 4, bh: 5, core: 6 };
@@ -588,6 +588,7 @@ export class World {
     coagulate(this, done);
     this.flushPending();
     this.evolveStars(done);
+    this.applyTides(done);
     thermalStep(this, done);
     this.releaseOrphanRings();
     if (this.ringOuter.size) this.disturbRings();
@@ -856,6 +857,38 @@ export class World {
   }
 
   // Trigger a star's death now (the "End of life" button).
+  // Tidal evolution of moons: the tide a moon raises on its planet is dragged ahead by the planet's spin
+  // (or lags behind, if the moon orbits faster than the planet turns), changing the orbit at
+  //   da/dt = ±3 (k2/Q) (m/M) (R/a)^5 n a        (e.g. Murray & Dermott, Solar System Dynamics, §4.9)
+  // k2/Q: Earth 0.025, which reproduces the Moon's measured recession of 3.8 cm/yr (lunar laser ranging);
+  // dry rocky worlds 0.0009, calibrated so Phobos falls ~1.8 cm/yr as measured (Bills et al. 2005); Jupiter 1.1e-5 (Lainey et al. 2009); Saturn 1.6e-4 (Lainey et al. 2012).
+  applyTides(dt) {
+    const bs = this.bodies;
+    if (bs.length < 2 || bs.length > 60 || !(dt > 0)) return;
+    const hier = this.hierarchy();
+    for (const m of bs) {
+      const p = hier.get(m)?.parent;
+      if (!p || p === m || (p.kind !== 'rocky' && p.kind !== 'gas') || m.m > p.m * 0.2 || m.soft || p.soft) continue;
+      const rx = m.x - p.x, ry = m.y - p.y, rz = m.z - p.z, vx = m.vx - p.vx, vy = m.vy - p.vy, vz = m.vz - p.vz;
+      const r = Math.hypot(rx, ry, rz), v2 = vx * vx + vy * vy + vz * vz, mu = G * (p.m + m.m);
+      const en = v2 / 2 - mu / r;
+      if (en >= 0) continue;
+      const a = -mu / (2 * en), n = Math.sqrt(mu / (a * a * a));
+      const kq = p.kind === 'gas' ? (p.name === 'Saturn' ? 1.6e-4 : 1.1e-5) : p.th && p.th.ocean > 0.05 ? 0.025 : 0.0009;
+      // Outward if the planet spins faster than the moon orbits (prograde), inward otherwise.
+      const dayYr = (p.dayH || (p.kind === 'gas' ? 10 : 24)) / 8766;
+      const hy = rz * vx - rx * vz; // orbit's angular momentum along +y (world "up", the planets' spin axis)
+      const sign = hy > 0 && 2 * Math.PI / n > Math.abs(dayYr) ? 1 : -1;
+      const dadt = sign * 3 * kq * (m.m / p.m) * Math.pow(p.r / a, 5) * n * a;
+      // Change the orbital energy: dE = μ da / (2a²), applied as a kick along the velocity.
+      const dv = (mu * dadt * dt) / (2 * a * a) / Math.sqrt(v2);
+      const ux = vx / Math.sqrt(v2), uy = vy / Math.sqrt(v2), uz = vz / Math.sqrt(v2);
+      const fm = p.m / (p.m + m.m), fp = m.m / (p.m + m.m);
+      m.vx += ux * dv * fm; m.vy += uy * dv * fm; m.vz += uz * dv * fm;
+      p.vx -= ux * dv * fp; p.vy -= uy * dv * fp; p.vz -= uz * dv * fp;
+    }
+  }
+
   killStar(b) {
     if (b.kind !== 'star' && b.kind !== 'wd') return null;
     const text = stellarDeath(this, b, 'was pushed to the end of its life');

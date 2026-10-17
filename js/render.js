@@ -123,9 +123,6 @@ export class Renderer {
     this.selected = ui.selected;
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
-    if (this.photo) {
-      if (this.overlay) { ctx.clearRect(0, 0, W, H); return; }
-    }
     if (this.overlay) {
       ctx.clearRect(0, 0, W, H);
       this.gridSpacing = Math.pow(10, Math.floor(Math.log10(cam.dist / 1.5)));
@@ -135,7 +132,7 @@ export class Renderer {
       this.drawBodies(now, ui);
       this.drawFlashes(now);
       if (ui.laser) this.drawLaser(ui.laser, now);
-      if (ui.preview) this.drawPreview(ui.preview);
+      if (ui.preview && !this.photo) this.drawPreview(ui.preview);
       if (this.settings.labels) this.drawLabels(ui);
       return;
     }
@@ -156,7 +153,7 @@ export class Renderer {
     this.drawFlashes(now);
     if (ui.laser) this.drawLaser(ui.laser, now);
     if (ui.preview && !this.photo) this.drawPreview(ui.preview);
-    if (this.settings.labels && !this.photo) this.drawLabels(ui);
+    if (this.settings.labels) this.drawLabels(ui);
   }
 
   drawStars() {
@@ -517,7 +514,7 @@ export class Renderer {
         ctx.lineWidth = dpr;
         ctx.beginPath(); ctx.arc(p.x, p.y, 6 * dpr, 0, Math.PI * 2); ctx.stroke();
       }
-      if (b === ui.selected || b === cam.follow) {
+      if (!this.photo && (b === ui.selected || b === cam.follow)) {
         ctx.globalCompositeOperation = 'source-over';
         ctx.strokeStyle = b === ui.selected ? 'rgba(255,190,90,0.95)' : 'rgba(150,180,255,0.55)';
         ctx.lineWidth = 1.5 * dpr;

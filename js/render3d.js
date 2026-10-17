@@ -764,7 +764,7 @@ export class Renderer3D {
     gl.uniform3fv(u.uColB, l.colB || [0.4, 0.4, 0.4]);
     gl.uniform3fv(u.uColC, l.colC || [0.95, 0.96, 1]);
     gl.uniform1f(u.uOcean, th ? th.ocean : 0);
-    gl.uniform1f(u.uCloud, th ? th.cloud : 0);
+    gl.uniform1f(u.uCloud, th && l.kind === 0 ? th.cloud : 0); // giants show their bands, not a rocky planet's cloud deck
     gl.uniform1f(u.uCraters, l.craters || 0);
     gl.uniform1f(u.uLife, b.life ? 1 : 0);
     gl.uniform1f(u.uBands, l.bands || 6);

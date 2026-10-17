@@ -43,6 +43,9 @@
       </div>
     </div>
     <div class="top-right">
+      <button id="btn-search" class="icon-btn" type="button" aria-label="Find an object">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+      </button>
       <button id="btn-book" class="icon-btn" type="button" aria-label="Open the book">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6.5C10 5 7 4.5 3.5 5v13c3.5-.5 6.5 0 8.5 1.5 2-1.5 5-2 8.5-1.5V5C17 4.5 14 5 12 6.5z"/><path d="M12 6.5v13"/></svg>
       </button>
@@ -165,7 +168,16 @@
     <p id="sv-readout" class="surface-readout"></p>
   </section>
   <div id="toast" class="toast" hidden role="status"></div>
-  <div id="photo-hint" class="photo-hint" aria-hidden="true">Photo mode · tap anywhere to return</div>
+  <div id="photo-hint" class="photo-hint" aria-hidden="true">Photo mode · tap the view to return</div>
+  <nav id="photo-bar" class="photo-bar" aria-label="Photo mode overlays">
+    <button type="button" data-ph="labels">Labels</button>
+    <button type="button" data-ph="trails">Trails</button>
+    <button type="button" data-ph="orbits">Orbits</button>
+    <button type="button" data-ph="grid">Grid</button>
+    <button type="button" data-ph="stars">Stars</button>
+    <button type="button" data-ph="bloom">Glow</button>
+    <button type="button" id="ph-exit">Done</button>
+  </nav>
 
   <div id="hint" class="hint">
     <p><b>Drag</b> to orbit · <b>Pinch</b> to zoom · <b>Two fingers</b> to pan</p>
@@ -180,6 +192,7 @@
       <div class="seg" role="group" aria-label="Placement">
         <button type="button" data-method="orbit" class="on">Orbit</button>
         <button type="button" data-method="place">Place</button>
+        <button type="button" data-method="binary">Binary</button>
       </div>
       <button id="add-more" class="icon-btn small" type="button" aria-label="Choose another object">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></svg>
@@ -274,6 +287,15 @@
     </div>
     <div id="create-grid" class="create-grid"></div>
     <p class="about">Pick an object, then tap the view. <b>Orbit</b> drops it into a circular orbit around whatever pulls hardest there; <b>Place</b> drops it at rest relative to that body. Drag instead of tapping to fling it.</p>
+  </section>
+
+  <section id="sheet-search" class="sheet" hidden aria-label="Find">
+    <div class="sheet-head">
+      <h2>Find</h2>
+      <button class="icon-btn small" type="button" data-close aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <input id="search-q" class="search-input" type="search" placeholder="Name or kind (moon, star…)" autocomplete="off" spellcheck="false">
+    <div id="search-list" class="search-list"></div>
   </section>
 
   <section id="sheet-sim" class="sheet" hidden aria-label="Simulation">

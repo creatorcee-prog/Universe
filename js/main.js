@@ -150,8 +150,18 @@ class App {
   }
 
   // Photo mode: hide every control and label for clean screenshots; tap to come back.
+  // Photo mode hides the interface; labels and the grid start off for a clean shot (restored on exit),
+  // and a small toolbar toggles overlays without leaving.
   setPhoto(on) {
+    if (on === this.photo) return;
+    if (on) {
+      this.prePhoto = { labels: this.settings.labels, grid: this.settings.grid };
+      this.settings.labels = false; this.settings.grid = false;
+    } else if (this.prePhoto) {
+      Object.assign(this.settings, this.prePhoto);
+    }
     this.photo = on;
+    this.ui.syncPhotoBar();
     document.getElementById('app').classList.toggle('photo', on);
     this.renderer.photo = on;
     if (on) {
@@ -350,7 +360,26 @@ class App {
     reclassify(b);
     this.world.addBody(b);
     // A new Saturn comes with its rings (A, B and C rings, 74,500-136,800 km, with the Cassini Division).
-    if (item.rings) ring(this.world, b, km(74500), km(136800), 6000, 26.7, PK.ICE);
+    if (item.rings) ring(this.world, b, km(74500), km(136800), 16000, 26.7, PK.ICE);
+    if (this.state.addMethod === 'binary') {
+      // A twin on a mutual circular orbit: separation ~20 radii for planets, ~0.1 AU·√M for stars,
+      // kept inside a third of the pair's Hill sphere around whatever they orbit.
+      const b2 = makeBody({ kind: item.kind, m: item.m, r: item.r, color: item.color, band: item.band, atmo: item.atmo, comet: item.comet, compKey: item.compKey, name: name ? `${name} B` : undefined });
+      if (item.ageFrac) b2.age = b.age;
+      let sep = item.kind === 'star' ? 0.1 * Math.sqrt(item.m) : item.kind === 'bh' ? 0.005 : 20 * (b.r || 1e-5);
+      if (a.parent) {
+        const d = Math.hypot(x - a.parent.x, y - a.parent.y, z - a.parent.z);
+        sep = Math.min(sep, (d * Math.cbrt((2 * b.m) / (3 * a.parent.m))) / 3);
+      }
+      const ux = this.cam.rx, uz = this.cam.rz, ul = Math.hypot(ux, uz) || 1; // horizontal, across the screen
+      const dx = (ux / ul) * sep / 2, dz = (uz / ul) * sep / 2;
+      const vrel = Math.sqrt((G * 2 * b.m) / sep) / 2;
+      const wx = -dz / (sep / 2), wz = dx / (sep / 2); // perpendicular, in the horizontal plane
+      b2.x = b.x - dx; b2.y = b.y; b2.z = b.z - dz; b2.vx = b.vx - wx * vrel; b2.vy = b.vy; b2.vz = b.vz - wz * vrel;
+      b.x += dx; b.z += dz; b.vx += wx * vrel; b.vz += wz * vrel;
+      reclassify(b2);
+      this.world.addBody(b2);
+    }
     thermalStep(this.world, 0);
     const where = a.parent ? (a.bound ? ` orbiting ${a.parent.name}` : ` on an escape path from ${a.parent.name}`) : '';
     this.ui.toast(`Added ${b.name}${where}. Tap it for details.`);

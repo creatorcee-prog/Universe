@@ -112,3 +112,21 @@ Still open:
 - **Visual overlap vs contact.** Small bodies are drawn at a minimum dot size. Zoomed out, two dots can
   overlap while the bodies are far apart. A "true size" toggle, or a distance readout when dots overlap,
   would make this clear.
+
+## Done in the surfaces round, and what is next
+
+Done: terrain and relief, climate-zone colours, star-dependent and early-purple vegetation, swirled clouds
+with shadows, ring shadows and Saturn's hexagon, hot-giant vortices, sky clouds in the surface view,
+atmosphere data and sea level, luminous red novae, tides, dense rings, real-object gallery, binary
+placement, orbit lines, true sizes, search, the photo toolbar, and particle sub-stepping up to 1024.
+
+Next:
+- **Elevation data view**: needs the shader's terrain noise mirrored in JavaScript.
+- **City lights**: on the night side of worlds with advanced life.
+- **Aurorae**: near the magnetic poles.
+- **Lightning**: in storm clouds, as at the end of the reference video.
+- **Volumetric clouds**: real 3D clouds seen at a low angle.
+- **Inner disk spreading**: after a giant impact.
+- **Laser settings**: beam radius and wavelength.
+- **Tidal locking**: and planets' spin-down.
+- **Launch placement**: aim and power.

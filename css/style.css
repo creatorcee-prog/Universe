@@ -227,6 +227,13 @@ input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border-radius: 
 #app.photo .surface-bar { display: none !important; }
 #app.on-surface .lock-chip, #app.on-surface #stat-grid { visibility: hidden; }
 .photo-hint { position: absolute; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 24px); transform: translateX(-50%); font-size: 13px; color: var(--ink); background: rgba(4,6,13,.6); padding: 6px 12px; border-radius: 999px; opacity: 0; pointer-events: none; white-space: nowrap; }
+.photo-bar { display: none; position: absolute; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); transform: translateX(-50%); gap: 4px; padding: 4px; border-radius: 999px; background: rgba(4,6,13,.55); border: 1px solid var(--line); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); max-width: calc(100% - 24px); overflow-x: auto; scrollbar-width: none; opacity: .55; transition: opacity .2s; }
+.photo-bar:hover, .photo-bar:active, .photo-bar:focus-within { opacity: 1; }
+#app.photo .photo-bar { display: flex; }
+.photo-bar button { flex: none; height: 30px; padding: 0 11px; border-radius: 999px; border: 0; background: none; font-size: 12px; font-weight: 600; color: var(--muted); cursor: pointer; }
+.photo-bar button.on { background: rgba(255,255,255,.14); color: var(--ink); }
+#ph-exit { color: var(--accent); }
+.photo-hint { bottom: calc(env(safe-area-inset-bottom, 0px) + 56px); }
 .photo-hint.fade { animation: photohint 2.6s ease forwards; }
 @keyframes photohint { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
 #app.photo .topbar, #app.photo .dock, #app.photo .info, #app.photo .toast, #app.photo .hint { display: none !important; }
@@ -379,6 +386,13 @@ input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border-radius: 
 .field-label { display: flex; justify-content: space-between; font-size: 16px; }
 .field-label output { font: 500 13px var(--font-data); color: var(--accent); }
 .field.row { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.search-input { width: 100%; height: 44px; border-radius: 12px; border: 1px solid var(--line-strong); background: rgba(255,255,255,.04); color: var(--ink); font: 16px var(--font-ui); padding: 0 14px; margin-bottom: 10px; }
+.search-list { display: grid; gap: 4px; }
+.search-item { display: flex; align-items: center; gap: 10px; text-align: left; padding: 9px 10px; border-radius: 10px; border: 0; background: rgba(255,255,255,.03); cursor: pointer; }
+.search-item:active { background: rgba(255,255,255,.08); }
+.search-item i { width: 14px; height: 14px; border-radius: 50%; flex: none; }
+.search-item b { font-size: 15px; font-weight: 600; }
+.search-item small { margin-left: auto; font-size: 12px; color: var(--muted); }
 .tool-list { display: grid; gap: 8px; }
 .tool-card { text-align: left; display: grid; gap: 2px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: rgba(255,255,255,.025); cursor: pointer; }
 .tool-card b { font-size: 17px; }
@@ -414,3 +428,4 @@ body:has(.sheet.open) .dock .readout, body:has(.sheet.open) .addbar { visibility
   .laser-power { width: 80px; }
 }
 #app:has(#tray:not([hidden])) .toast, #app:has(#laserbar:not([hidden])) .toast { bottom: calc(var(--dock-h, 70px) + 62px); }
+@media (max-width: 430px) { .photo-bar button { padding: 0 8px; } }

@@ -120,6 +120,8 @@ export class UI {
       this.refreshInfo(true);
     });
     $('i-book').addEventListener('click', (e) => { e.stopPropagation(); if (app.state.selected) this.book.open(app.state.selected); });
+    $('btn-search').addEventListener('click', () => { this.openSheet('sheet-search'); this.renderSearch(); setTimeout(() => $('search-q').focus(), 250); });
+    $('search-q').addEventListener('input', () => this.renderSearch());
     $('btn-book').addEventListener('click', () => this.book.open(app.state.selected));
     $('btn-scenarios').addEventListener('click', () => this.openSheet('sheet-scenarios'));
     document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => this.closeSheets()));
@@ -164,6 +166,8 @@ export class UI {
       app.surface.where = btn.dataset.where; app.surface.place = true; app.surface.pitch = 0.15;
       this.showSurface(app.surface);
     }));
+    document.querySelectorAll('[data-ph]').forEach((b) => b.addEventListener('click', () => { this.toggleSetting(b.dataset.ph); this.syncPhotoBar(); }));
+    $('ph-exit').addEventListener('click', () => app.setPhoto(false));
     $('btn-photo').addEventListener('click', () => { this.closeSheets(); app.setPhoto(true); });
     $('btn-clear').addEventListener('click', () => { app.world.clearParticles(); this.toast('Cleared all dust and debris'); });
     for (const r of document.querySelectorAll('input[name=view]')) {
@@ -227,7 +231,7 @@ export class UI {
   setMethod(m) {
     this.app.state.addMethod = m;
     document.querySelectorAll('[data-method]').forEach((b) => b.classList.toggle('on', b.dataset.method === m));
-    this.toast(m === 'orbit' ? 'Orbit: tap to drop it into a circular orbit' : 'Place: tap to drop it at rest; drag to fling');
+    this.toast(m === 'orbit' ? 'Orbit: tap to drop it into a circular orbit' : m === 'binary' ? 'Binary: tap to drop a pair orbiting each other' : 'Place: tap to drop it at rest; drag to fling');
   }
 
   setLaserPower(v) {
@@ -339,6 +343,31 @@ export class UI {
     if (el) el.checked = s[key];
     if (key === 'collisions') this.app.world.collisions = s.collisions;
     this.app.saveSettings();
+  }
+
+  // Find: every object in the scene, filtered by name or kind, biggest first; tap to fly to it.
+  renderSearch() {
+    const q = $('search-q').value.trim().toLowerCase();
+    const list = $('search-list');
+    list.textContent = '';
+    const bodies = this.app.world.bodies.slice().sort((a, b) => b.m - a.m)
+      .filter((b) => !q || b.name.toLowerCase().includes(q) || typeName(b).toLowerCase().includes(q)).slice(0, 60);
+    for (const b of bodies) {
+      const el = document.createElement('button');
+      el.type = 'button';
+      el.className = 'search-item';
+      const c = b.color || [200, 200, 200];
+      el.innerHTML = `<i style="background:rgb(${c.join(',')})"></i><b></b><small></small>`;
+      el.querySelector('b').textContent = b.name;
+      el.querySelector('small').textContent = typeName(b);
+      el.addEventListener('click', () => { this.closeSheets(); this.app.doubleTap(b); });
+      list.appendChild(el);
+    }
+    if (!bodies.length) list.innerHTML = '<p class="about">Nothing matches.</p>';
+  }
+
+  syncPhotoBar() {
+    document.querySelectorAll('[data-ph]').forEach((b) => b.classList.toggle('on', !!this.app.settings[b.dataset.ph]));
   }
 
   setSpeed(yr) {
