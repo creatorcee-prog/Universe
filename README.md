@@ -113,6 +113,12 @@ Switch in **Settings → View**.
 - **Pixel**: the Realistic scene rendered at low resolution with a limited palette and ordered (Bayer)
   dithering, for screenshots. **Photo mode** (Settings, or the `p` key) hides every control; tap to bring
   them back.
+- **Sound** (Settings → Sound effects): interface blips, and deep rumbles for giant impacts, tidal
+  disruptions, star mergers and supernovae, loud when they happen where you're looking and faint far away.
+  A drone swells as you approach a black hole (deeper for heavier holes, louder while it feeds). The
+  rumbles are almost all below 150 Hz, which phone speakers can't play, so a harmonic bass enhancer adds
+  overtones the ear hears as the low pitch (+14 dB in the 200 Hz–1 kHz band). Headphones still sound best.
+  Sound starts on the first tap (a browser rule) and follows the iPhone's silent switch.
 - **Surface view**: select a rocky world and tap **Stand on the surface** (Realistic or Pixel view). You stand
   on the ground and turn with the planet; pick the day side, night side or either pole, and drag to look
   around. Time slows so a local day lasts about two minutes. The sky is computed from what is in the

@@ -8,12 +8,13 @@ import { Camera } from './camera.js';
 import { Renderer } from './render.js';
 import { Renderer3D } from './render3d.js';
 import { Input } from './input.js';
+import { Sound } from './audio.js';
 import { UI } from './ui.js';
 
 const SETTINGS_KEY = 'universe-pocket-settings';
 
 function loadSettings() {
-  const defaults = { trails: true, labels: true, grid: true, stars: true, trailsRelative: true, collisions: true, view: 'realistic', bloom: true, trailColor: 'body', orbits: false, trueSize: false };
+  const defaults = { trails: true, labels: true, grid: true, stars: true, trailsRelative: true, collisions: true, sound: true, view: 'realistic', bloom: true, trailColor: 'body', orbits: false, trueSize: false };
   try {
     return { ...defaults, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') };
   } catch {
@@ -32,6 +33,7 @@ class App {
     this.state = { tool: 'view', addItem: 'earth', selected: null, paused: false, speed: 0.1, preset: null, addMethod: 'orbit' };
     this.adding = null;
     this.rate = 0;
+    this.audio = new Sound(this.settings);
     this.ui = new UI(this);
     this.input = new Input(this.canvas, this);
     this.glCanvas = document.getElementById('gl');
@@ -70,8 +72,9 @@ class App {
   // ---------- surface view ----------
 
   enterSurface(b, where = 'day') {
-    if (!this.r3d || !this.renderer.overlay) { this.ui.toast('Switch to the Realistic or Pixel view to stand on a surface.'); return; }
-    if (b.kind !== 'rocky') { this.ui.toast(`${b.name} has no solid surface to stand on.`); return; }
+    if (!this.r3d || !this.renderer.overlay) { this.audio.ui('denied2'); this.ui.toast('Switch to the Realistic or Pixel view to stand on a surface.'); return; }
+    if (b.kind !== 'rocky') { this.audio.ui('denied2'); this.ui.toast(`${b.name} has no solid surface to stand on.`); return; }
+    this.audio.ui('seq6');
     const keep = this.surface ? this.surface.prevSpeed : this.state.speed;
     this.surface = { body: b, where, lat: 0, lon: 0, yaw: 0, pitch: 0.15, place: true, up: [0, 1, 0], sun: [1, 0, 0], sunPower: 0, prevSpeed: keep };
     // Slow time so one local day lasts about two minutes and the Sun can be watched crossing the sky.
@@ -83,6 +86,7 @@ class App {
   }
 
   exitSurface() {
+    if (this.surface) this.audio.ui('bleep1');
     const b = this.surface && this.surface.body;
     if (this.surface) this.ui.setSpeed(this.surface.prevSpeed);
     this.surface = null;
@@ -167,6 +171,7 @@ class App {
       Object.assign(this.settings, this.prePhoto);
     }
     this.photo = on;
+    if (on) this.audio.ui('seq3');
     this.ui.syncPhotoBar();
     document.getElementById('app').classList.toggle('photo', on);
     this.renderer.photo = on;
@@ -217,7 +222,8 @@ class App {
     this.ui.hideHint();
   }
 
-  select(body) {
+  select(body, quiet = false) {
+    if (body && !quiet && body !== this.state.selected) this.audio.ui('bleep4');
     this.state.selected = body;
     this.ui.showInfo(body);
   }
@@ -245,7 +251,7 @@ class App {
       const d = this.renderer.dpr;
       target = this.renderer.pickBody((this.canvas.clientWidth / 2) * d, (this.canvas.clientHeight / 2) * d, 2000);
     }
-    if (!target) { this.ui.toast('Nothing to lock onto. Tap an object first.'); return; }
+    if (!target) { this.audio.ui('denied2'); this.ui.toast('Nothing to lock onto. Tap an object first.'); return; }
     this.follow(target);
     this.ui.toast(`Camera locked on ${target.name}`);
   }
@@ -256,6 +262,7 @@ class App {
     const tilt = this.r3d.look(b).tilt || 0;
     const icy = b.kind === 'gas' || !b.th || b.th.Ts < 170;
     ring(this.world, b, b.r * (b.kind === 'gas' ? 1.24 : 1.4), b.r * (b.kind === 'gas' ? 2.27 : 2.5), b.kind === 'gas' ? 16000 : 9000, tilt, icy ? PK.ICE : PK.ROCK);
+    this.audio.ui('complete');
     this.ui.toast(`${b.name} now has ${icy ? 'icy' : 'rocky'} rings`);
   }
 
@@ -270,6 +277,7 @@ class App {
   }
 
   deleteBody(b) {
+    this.audio.ui('denied3');
     if (this.cam.follow === b) this.cam.follow = null;
     if (this.state.selected === b) this.select(null);
     this.zones.delete(b);
@@ -281,7 +289,7 @@ class App {
   // Paints into the body's surface map (equirectangular RGBA: R land, G mountains, B ice, A land override).
 
   paintAt(sx, sy, first) {
-    if (!this.r3d) { if (first) this.ui.toast('Painting needs the Realistic or Pixel view.'); return; }
+    if (!this.r3d) { if (first) { this.audio.ui('denied2'); this.ui.toast('Painting needs the Realistic or Pixel view.'); } return; }
     const d = this.renderer.dpr, cam = this.cam;
     const dir = cam.ray(sx * d, sy * d);
     const E = [cam.tx + cam.ox, cam.ty + cam.oy, cam.tz + cam.oz];
@@ -295,7 +303,7 @@ class App {
       const t = -bq - Math.sqrt(disc);
       if (t > 0 && t < best) { best = t; hit = b; }
     }
-    if (!hit) { if (first) this.ui.toast('Touch a rocky world to paint it'); return; }
+    if (!hit) { if (first) { this.audio.ui('denied3'); this.ui.toast('Touch a rocky world to paint it'); } return; }
     const b = hit;
     const P = [E[0] + dir[0] * best - b.x, E[1] + dir[1] * best - b.y, E[2] + dir[2] * best - b.z];
     const R = this.r3d.bodyRotation(b); // column-major object -> world; object = Rᵀ · world
@@ -347,7 +355,7 @@ class App {
     const d = this.renderer.dpr;
     const body = this.renderer.pickBody(sx * d, sy * d, 44);
     this.laser = { body, sx, sy };
-    if (!body) this.ui.toast('Missed: hold on an object');
+    if (!body) { this.audio.ui('denied3'); this.ui.toast('Missed: hold on an object'); }
   }
 
   laserMove(sx, sy) {
@@ -422,6 +430,7 @@ class App {
         this.world.addParticle(x + s * Math.cos(t) * r, y + u * r * 0.3, z + s * Math.sin(t) * r,
           vx + (Math.random() - 0.5) * j, vy + (Math.random() - 0.5) * j, vz + (Math.random() - 0.5) * j, mEach, PK.DUST);
       }
+      this.audio.ui('execute');
       this.ui.toast('Released a dust cloud');
       return;
     }
@@ -459,6 +468,7 @@ class App {
     }
     thermalStep(this.world, 0);
     const where = a.parent ? (a.bound ? ` orbiting ${a.parent.name}` : ` on an escape path from ${a.parent.name}`) : '';
+    this.audio.ui('execute');
     this.ui.toast(`Added ${b.name}${where}. Tap it for details.`);
   }
 
@@ -563,6 +573,21 @@ class App {
 
   // ---------- main loop ----------
 
+  // The black-hole drone swells as a hole fills more of the view, more so while it is feeding; heavier
+  // holes sound deeper.
+  blackHoleDrone() {
+    const c = this.cam;
+    let level = 0, rate = 1;
+    for (const b of this.world.bodies) {
+      if (b.kind !== 'bh') continue;
+      const d = Math.hypot(b.x - c.tx - c.ox, b.y - c.ty - c.oy, b.z - c.tz - c.oz) || 1e-12;
+      const ang = (b.r * 40) / d; // the hole with its inner disk
+      const l = Math.max(0, Math.min(1, (Math.log10(ang) + 2.5) / 2)) * (0.6 + 0.4 * Math.min(1, b.heat * 3));
+      if (l > level) { level = l; rate = Math.max(0.6, Math.min(1.25, 1.1 - 0.12 * Math.log10(b.m / 10))); }
+    }
+    this.audio.ambient(level, rate);
+  }
+
   frame(now) {
     requestAnimationFrame(this.frame);
     try {
@@ -600,9 +625,9 @@ class App {
     }
     if (this.state.selected && !this.state.selected.alive) {
       const r = w.resolve(this.state.selected);
-      this.select(r);
+      this.select(r, true);
     }
-    while (w.events.length) this.ui.event(w.events.shift());
+    while (w.events.length) { const ev = w.events.shift(); this.audio.event(ev, this.cam); this.ui.event(ev); }
     // Moon-forming impact: once Theia has hit, speed up so the disk can be watched clumping into the Moon
     // (about two weeks), at a rate where the debris orbits are still followed accurately.
     if (this.state.preset && this.state.preset.id === 'impact' && !this.impactSped && !w.findByName('Theia')) {
@@ -627,6 +652,7 @@ class App {
       this.slBody = fb; this.slAng = sp ? sp.ang : undefined;
     } else this.slBody = null;
     this.cam.tick(now, dtReal);
+    this.blackHoleDrone();
     this.updateAddPreview();
     const a = this.adding;
     const preview = a && a.v ? { x: a.P[0], y: a.P[1], z: a.P[2], path: a.path, bound: a.bound, hit: a.hit, dragTo: a.dragTo } : a ? { x: a.P[0], y: a.P[1], z: a.P[2] } : null;

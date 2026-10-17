@@ -304,14 +304,14 @@ function evolveLife(b, world, dt) {
     th.stress = core ? 0 : th.stress + dt;
     if (th.stress > 1e3 * yr) {
       b.life = false;
-      world.events.push({ text: `Life on ${b.name} has died out`, body: b, big: true });
+      world.events.push({ text: `Life on ${b.name} has died out`, body: b, big: true, snd: 'denied', power: 1 });
     }
   } else {
     th.habTime = core ? th.habTime + dt : 0;
     if (th.habTime > 3e8 * yr) {
       b.life = true;
       b.lifeAge = 0;
-      world.events.push({ text: `Simple life has emerged on ${b.name} after 300 million habitable years`, body: b, big: true });
+      world.events.push({ text: `Simple life has emerged on ${b.name} after 300 million habitable years`, body: b, big: true, snd: 'complete', power: 1 });
     }
   }
 }

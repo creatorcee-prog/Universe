@@ -148,7 +148,7 @@ export function coagulate(world, dt) {
     const d = Math.hypot(host.x - b.x, host.y - b.y, host.z - b.z) / host.r;
     const oldName = b.name;
     if (/Earth/.test(host.name) && !world.findByName('Moon')) b.name = 'Moon';
-    world.events.push({ text: `${oldName} has grown into a moon of ${host.name}${b.name !== oldName ? ', now called the Moon' : ''}: ${(b.m / 3.694e-8).toFixed(2)} lunar masses, ${d.toFixed(1)} ${host.name} radii out`, body: b, big: true });
+    world.events.push({ text: `${oldName} has grown into a moon of ${host.name}${b.name !== oldName ? ', now called the Moon' : ''}: ${(b.m / 3.694e-8).toFixed(2)} lunar masses, ${d.toFixed(1)} ${host.name} radii out`, body: b, big: true, snd: 'complete', power: 1 });
   }
   remove.sort((a, b) => b - a);
   for (const i of remove) world.removeParticle(i);

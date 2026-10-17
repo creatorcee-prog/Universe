@@ -65,6 +65,8 @@ export class UI {
   }
 
   bind() {
+    // Every button and switch clicks, unless its handler already played a sound of its own.
+    document.addEventListener('click', (e) => { if (e.target.closest('button, label, .tool-card')) setTimeout(() => this.app.audio.ui('click', true), 0); });
     const app = this.app;
     $('speed').addEventListener('input', (e) => {
       app.state.speed = fromSlider(+e.target.value);
@@ -184,7 +186,7 @@ export class UI {
       r.addEventListener('change', () => { if (r.checked) { app.setView(r.value); this.toast({ realistic: 'Realistic view', classic: 'Classic view', pixel: 'Pixel view' }[r.value]); } });
     }
     this.onView(app.settings.view);
-    for (const key of ['bloom', 'trails', 'labels', 'grid', 'stars', 'trailsRelative', 'collisions', 'orbits', 'trueSize']) {
+    for (const key of ['bloom', 'trails', 'labels', 'grid', 'stars', 'trailsRelative', 'collisions', 'orbits', 'trueSize', 'sound']) {
       const el = $('set-' + key);
       el.checked = !!app.settings[key];
       el.addEventListener('change', () => this.toggleSetting(key, el.checked));
@@ -259,6 +261,7 @@ export class UI {
     let next;
     if (dir > 0) next = LADDER.find((v) => v > cur * 1.01) ?? LADDER[LADDER.length - 1];
     else next = [...LADDER].reverse().find((v) => v < cur * 0.99) ?? LADDER[0];
+    this.app.audio.ui('bleep7');
     this.setSpeed(next);
     if (this.app.state.paused && dir > 0) this.setPaused(false);
   }
@@ -269,6 +272,7 @@ export class UI {
   }
 
   setTab(t) {
+    if (this.tab !== t) this.app.audio.ui('data1');
     this.tab = t;
     document.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === t));
     document.querySelectorAll('[data-pane]').forEach((p) => { p.hidden = p.dataset.pane !== t; });
@@ -295,6 +299,7 @@ export class UI {
     this.updateSpeedLabel();
     this.showInfo(null);
     document.querySelectorAll('.scenario').forEach((el) => el.classList.toggle('current', el.id === 'scn-' + p.id));
+    this.app.audio.ui('confirm7');
     this.toast(p.blurb);
   }
 
@@ -312,6 +317,7 @@ export class UI {
   }
 
   setPaused(p) {
+    if (p !== this.app.state.paused) this.app.audio.ui(p ? 'bleep1' : 'confirm2');
     this.app.state.paused = p;
     $('btn-play').classList.toggle('paused', p);
     $('btn-play').setAttribute('aria-label', p ? 'Play' : 'Pause');
@@ -319,6 +325,7 @@ export class UI {
 
   setTool(t) {
     const app = this.app;
+    app.audio.ui('data5');
     if (t === 'surface') {
       const b = app.state.selected;
       if (b && b.kind === 'rocky') app.enterSurface(b, 'day');
@@ -351,6 +358,8 @@ export class UI {
   toggleSetting(key, value) {
     const s = this.app.settings;
     s[key] = value === undefined ? !s[key] : value;
+    if (key === 'sound') this.app.audio.setEnabled(s.sound);
+    this.app.audio.ui(s[key] ? 'confirm5' : 'bleep4');
     const el = $('set-' + key);
     if (el) el.checked = s[key];
     if (key === 'collisions') this.app.world.collisions = s.collisions;
@@ -395,7 +404,8 @@ export class UI {
   }
 
   openSheet(id) {
-    this.closeSheets();
+    this.closeSheets(true);
+    this.app.audio.ui('bleep6');
     $(id).hidden = false;
     // Side panels on wide screens leave the simulation usable; phones get a modal sheet.
     $('scrim').hidden = false;
@@ -404,7 +414,8 @@ export class UI {
     requestAnimationFrame(() => $(id).classList.add('open'));
   }
 
-  closeSheets() {
+  closeSheets(quiet = false) {
+    if (!quiet && [...document.querySelectorAll('.sheet')].some((s) => !s.hidden)) this.app.audio.ui('bleep1');
     document.querySelectorAll('.sheet').forEach((s) => { s.classList.remove('open'); s.hidden = true; });
     document.querySelectorAll('[data-panel]').forEach((b) => b.classList.remove('on'));
     $('scrim').hidden = true;

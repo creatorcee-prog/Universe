@@ -190,7 +190,7 @@ export class World {
         const d = Math.hypot(b.x - host.x, b.y - host.y, b.z - host.z);
         if (d < lim + b.r) {
           this.releaseOrphanRings(host);
-          this.events.push({ text: `${b.name} ploughed into ${host.name}'s rings. The debris is now flying free.`, body: host, big: true });
+          this.events.push({ text: `${b.name} ploughed into ${host.name}'s rings. The debris is now flying free.`, body: host, big: true, snd: 'impact', power: 0.35, at: [host.x, host.y, host.z] });
           break;
         }
       }
@@ -433,13 +433,15 @@ export class World {
         this.spawnParticle(s.x + u[0] * rr, s.y + u[1] * rr, s.z + u[2] * rr, s.vx + u[0] * sp, s.vy + u[1] * sp, s.vz + u[2] * sp, gas / Math.max(1, nGas), PK.SN_H);
       }
       s.m -= gas;
-      this.events.push({ text: `${s.name} and ${o.name} merged in a luminous red nova`, body: s, big: true });
+      this.events.push({ text: `${s.name} and ${o.name} merged in a luminous red nova`, body: s, big: true, snd: 'nova', power: 1, at: [s.x, s.y, s.z] });
     }
     const ev = reclassify(s);
     this.flashes.push({ x: ix, y: iy, z: iz, r: Math.max(o.r * 4, s.r * Math.min(3, 0.5 + 8 * ratio)), born: performance.now(), life: 900 + 1400 * Math.min(1, ratio * 10), color: kind === PK.HOT ? [255, 230, 190] : [255, 170, 90] });
     const what = s.kind === 'bh' ? 'swallowed' : 'collided with';
-    this.events.push({ text: `${s.name} ${what} ${o.name}`, body: s });
-    if (ev) this.events.push({ text: `${s.name}: ${ev}`, body: s, big: true });
+    // Loudness for the sound: a giant impact (Theia, a tenth of Earth's mass) is near full volume, a pebble silent.
+    const power = Math.min(1, 3 * Math.sqrt(ratio) * (0.4 + 0.6 * Math.min(1, violence || 0)));
+    this.events.push({ text: `${s.name} ${what} ${o.name}`, body: s, snd: s.kind === 'bh' ? 'swallow' : 'impact', power: s.kind === 'bh' ? Math.min(1, 0.3 + 3 * Math.sqrt(ratio)) : power, at: [ix, iy, iz] });
+    if (ev) this.events.push({ text: `${s.name}: ${ev}`, body: s, big: true, snd: 'transform', power: 0.7, at: [s.x, s.y, s.z] });
   }
 
   disrupt(small, big) {
@@ -462,7 +464,7 @@ export class World {
     small.alive = false;
     small.mergedInto = null;
     this.flashes.push({ x: small.x, y: small.y, z: small.z, r: small.r * 6, born: performance.now(), life: 1500, color: [255, 210, 160] });
-    this.events.push({ text: `${small.name} crossed ${big.name}'s Roche limit and was torn apart by tides`, body: big, big: true });
+    this.events.push({ text: `${small.name} crossed ${big.name}'s Roche limit and was torn apart by tides`, body: big, big: true, snd: 'tidal', power: small.kind === 'star' ? 1 : 0.6, at: [small.x, small.y, small.z] });
   }
 
   // Blow a body apart when it holds more heat than its gravitational binding energy (3/5 GM²/R):
@@ -482,7 +484,7 @@ export class World {
     b.alive = false;
     b.mergedInto = null;
     this.flashes.push({ x: b.x, y: b.y, z: b.z, r: b.r * 10, born: performance.now(), life: 2500, color: [255, 230, 200] });
-    this.events.push({ text: `${b.name} ${cause}: it absorbed more energy than holds it together and blew apart`, body: b, big: true });
+    this.events.push({ text: `${b.name} ${cause}: it absorbed more energy than holds it together and blew apart`, body: b, big: true, snd: 'impact', power: 1, at: [b.x, b.y, b.z] });
   }
 
   // ---------- time stepping ----------
@@ -826,7 +828,7 @@ export class World {
     }
     for (const b of touched) {
       const ev = reclassify(b);
-      if (ev) this.events.push({ text: `${b.name}: ${ev}`, body: b, big: true });
+      if (ev) this.events.push({ text: `${b.name}: ${ev}`, body: b, big: true, snd: 'transform', power: 0.7, at: [b.x, b.y, b.z] });
       this.dirty = true;
     }
   }
@@ -843,7 +845,7 @@ export class World {
       if (due !== false) {
         const text = stellarDeath(this, b, typeof due === 'string' ? due : null);
         delete b.pendingDeath;
-        if (text) this.events.push({ text, body: b.alive ? b : null, big: true });
+        if (text) this.events.push({ text, body: b.alive ? b : null, big: true, snd: 'death', power: 1, at: [b.x, b.y, b.z] });
         died = true;
       }
     }
@@ -895,7 +897,7 @@ export class World {
     if (!b.alive) this.bodies = this.bodies.filter((o) => o.alive);
     this.dirty = true;
     this.flushPending();
-    if (text) this.events.push({ text, body: b.alive ? b : null, big: true });
+    if (text) this.events.push({ text, body: b.alive ? b : null, big: true, snd: 'death', power: 1, at: [b.x, b.y, b.z] });
     return text;
   }
 

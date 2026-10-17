@@ -155,3 +155,13 @@ Next:
 - Standing on moons of giant planets: the giant drawn at its true apparent size in the sky.
 - Ice-crystal halos and rainbows (22° halo where cirrus clouds are present).
 - Gas-giant skies (a "float in the clouds" view).
+
+## Sound: what is next
+
+Done: UI sounds, event rumbles scaled by impact energy and distance, a black-hole drone, bass enhancement
+for phone speakers, a mute switch.
+
+Next:
+- Stereo panning by where on screen the event is.
+- A quiet space ambience, and wind in the Surface view scaled by air pressure (none on airless worlds).
+- Check the licence of the supplied sound packs before publishing the app widely.

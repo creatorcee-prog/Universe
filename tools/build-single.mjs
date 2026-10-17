@@ -1,7 +1,7 @@
 // Bundles the app into one self-contained HTML file (no server or service worker needed).
 // Usage: node tools/build-single.mjs [out.html] [--fragment]
 //   --fragment  omit <!doctype>/<html>/<head>/<body> (for hosts that supply their own page skeleton)
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -9,10 +9,15 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const fragment = args.includes('--fragment');
 const out = args.find((a) => !a.startsWith('--')) || join(root, 'dist', 'pocket-universe.html');
-const ORDER = ['units', 'bodies', 'stellar', 'thermal', 'geography', 'ias15', 'tree', 'coagulate', 'physics', 'presets', 'camera', 'render', 'shaders', 'optics', 'render3d', 'input', 'facts', 'book', 'thumbs', 'ui', 'main'];
+const ORDER = ['units', 'bodies', 'stellar', 'thermal', 'geography', 'ias15', 'tree', 'coagulate', 'physics', 'presets', 'camera', 'render', 'shaders', 'optics', 'render3d', 'input', 'facts', 'book', 'thumbs', 'audio', 'ui', 'main'];
 
 // Each ES module becomes a function scope; imports read from a shared registry.
 let js = 'window.__SINGLE_FILE__ = true;\nconst __m = {};\n';
+// Sounds are inlined as data URIs (js/audio.js looks here first).
+const audioDir = join(root, 'assets', 'audio');
+const sounds = {};
+for (const f of readdirSync(audioDir)) if (f.endsWith('.mp3')) sounds[f.slice(0, -4)] = 'data:audio/mpeg;base64,' + readFileSync(join(audioDir, f)).toString('base64');
+js += `window.__AUDIO__ = ${JSON.stringify(sounds)};\n`;
 for (const name of ORDER) {
   let src = readFileSync(join(root, 'js', name + '.js'), 'utf8');
   src = src.replace(/^import\s*\{([\s\S]*?)\}\s*from\s*['"]\.\/([\w-]+)\.js['"];?/gm, (_, names, mod) => {
