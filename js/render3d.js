@@ -2,7 +2,8 @@ import { PK } from './physics.js';
 import { isLuminous, tempToRGB } from './bodies.js';
 import { transientLum } from './stellar.js';
 import { EARTH_MASS } from './units.js';
-import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS } from './shaders.js';
+import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS } from './shaders.js';
+import { heatOutput } from './thermal.js';
 
 // Realistic view: WebGL2 spheres with procedural, physically driven surfaces.
 // Positions are taken relative to the camera in double precision before going to the GPU,
@@ -178,6 +179,7 @@ export class Renderer3D {
     this.pComp = this.program(FULL_VS, COMPOSITE_FS);
     this.pPixel = this.program(FULL_VS, PIXEL_FS);
     this.pSurfSky = this.program(FULL_VS, SURFACE_SKY_FS);
+    this.pField = this.program(FULL_VS, TEMP_FIELD_FS);
     this.hdr = !!gl.getExtension('EXT_color_buffer_float');
     this.post = null;
   }
@@ -344,6 +346,39 @@ export class Renderer3D {
     gl.disable(gl.BLEND);
   }
 
+  // Temperature field across the plane of the first chosen source, from the eight strongest heat sources.
+  drawTempField(world, zones) {
+    const gl = this.gl, p = this.pField, u = p.u, cam = this.cam;
+    const src = [];
+    for (const b of world.bodies) { const L = heatOutput(b); if (L) src.push([b, L]); }
+    if (!src.length) return;
+    src.sort((a, b) => b[1] - a[1]);
+    const n = Math.min(8, src.length), arr = new Float32Array(32);
+    for (let i = 0; i < n; i++) {
+      const [b, L] = src[i];
+      arr.set([b.x - this.ex, b.y - this.ey, b.z - this.ez, L], i * 4);
+    }
+    const ref = zones.values().next().value;
+    // Habitable-zone fluxes for the brightest star's temperature (Kopparapu et al. 2013).
+    const T = Math.max(2600, Math.min(7200, src[0][0].temp || 5780)) - 5780;
+    const hz = (s0, a, b2, c, d) => s0 + a * T + b2 * T * T + c * T ** 3 + d * T ** 4;
+    const t = Math.tan(cam.fov / 2);
+    gl.disable(gl.DEPTH_TEST);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.useProgram(p.p);
+    gl.uniformMatrix3fv(u.uView, false, this.V);
+    gl.uniform2f(u.uTan, t * (this.canvas.width / this.canvas.height), t);
+    gl.uniform1f(u.uPlaneY, ref.y - this.ey);
+    gl.uniform4fv(u.uSrc, arr);
+    gl.uniform1i(u.uN, n);
+    gl.uniform2f(u.uHZ, hz(1.107, 1.332e-4, 1.58e-8, -8.308e-12, -1.931e-15), hz(0.356, 6.171e-5, 1.698e-9, -3.198e-12, -5.575e-16));
+    gl.uniform1f(u.uAlpha, 0.85);
+    gl.bindVertexArray(this.quad);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.disable(gl.BLEND);
+  }
+
   drawMilkyWay() {
     const gl = this.gl, s = this.pMilky, u = s.u, cam = this.cam;
     const t = Math.tan(cam.fov / 2);
@@ -498,6 +533,7 @@ export class Renderer3D {
       this.drawSky();
     }
     if (this.surface) this.drawSurfaceSky(this.surface);
+    if (ui.zones && ui.zones.size && !this.surface) this.drawTempField(world, ui.zones);
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
     gl.depthMask(true);
@@ -625,7 +661,7 @@ export class Renderer3D {
     const tide = l.kind === 0 || l.kind === 1 || l.kind === 2 ? this.tideFor(b) : { tau: 0, dir: [0, 1, 0] };
 
     // Impacts: convert new hits into the body's own rotating frame so the scar turns with the surface.
-    const imp = new Float32Array(32), impB = new Float32Array(32);
+    const imp = new Float32Array(64), impB = new Float32Array(64);
     let nImp = 0;
     if (b.impacts) {
       for (const h of b.impacts) {

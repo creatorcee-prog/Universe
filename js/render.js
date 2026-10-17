@@ -25,6 +25,19 @@ const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
 const mix = (c, k) => [Math.round(c[0] * k), Math.round(c[1] * k), Math.round(c[2] * k)];
 const lighten = (c, k) => [Math.round(c[0] + (255 - c[0]) * k), Math.round(c[1] + (255 - c[1]) * k), Math.round(c[2] + (255 - c[2]) * k)];
 
+// Cool-to-hot ramp used by colour-coded trails: blue, cyan, green, yellow, red.
+function heatRamp(t) {
+  t = Math.max(0, Math.min(1, t));
+  const stops = [[0, [60, 110, 255]], [0.3, [40, 220, 230]], [0.55, [80, 235, 90]], [0.78, [250, 225, 60]], [1, [255, 70, 50]]];
+  for (let i = 1; i < stops.length; i++) {
+    if (t <= stops[i][0]) {
+      const [t0, a] = stops[i - 1], [t1, c] = stops[i], k = (t - t0) / (t1 - t0);
+      return [a[0] + (c[0] - a[0]) * k | 0, a[1] + (c[1] - a[1]) * k | 0, a[2] + (c[2] - a[2]) * k | 0];
+    }
+  }
+  return stops[stops.length - 1][1];
+}
+
 export class Renderer {
   constructor(canvas, world, cam, settings) {
     this.canvas = canvas;
@@ -117,6 +130,7 @@ export class Renderer {
       this.drawZones(ui);
       this.drawBodies(now, ui);
       this.drawFlashes(now);
+      if (ui.laser) this.drawLaser(ui.laser, now);
       if (ui.preview) this.drawPreview(ui.preview);
       if (this.settings.labels) this.drawLabels(ui);
       return;
@@ -135,6 +149,7 @@ export class Renderer {
     this.drawBodies(now, ui);
     this.drawFrontRings();
     this.drawFlashes(now);
+    if (ui.laser) this.drawLaser(ui.laser, now);
     if (ui.preview && !this.photo) this.drawPreview(ui.preview);
     if (this.settings.labels && !this.photo) this.drawLabels(ui);
   }
@@ -256,7 +271,7 @@ export class Renderer {
         if (inner) addRing(path, inner, true);
         const [r, g, bl] = zone.col;
         ctx.fillStyle = `rgba(${r},${g},${bl},${zone.fade ? 0.05 : zone.name === 'Habitable zone' ? 0.16 : 0.1})`;
-        ctx.fill(path, 'evenodd');
+        if (!this.overlay) ctx.fill(path, 'evenodd');
         ctx.strokeStyle = `rgba(${r},${g},${bl},0.55)`;
         ctx.lineWidth = dpr;
         ctx.setLineDash(zone.fade ? [4 * dpr, 4 * dpr] : []);
@@ -275,6 +290,35 @@ export class Renderer {
     }
   }
 
+  // Laser beam from the bottom of the screen (the "tool position") to the target, with a hot spot.
+  drawLaser(L, now) {
+    const { ctx, cam, dpr } = this;
+    const b = L.body, p = this.tmp;
+    if (!b || cam.project(b.x, b.y, b.z, p) <= 0) return;
+    const W = this.canvas.width, H = this.canvas.height;
+    const sx = W * 0.5, sy = H + 10 * dpr;
+    const sc = this.screen.get(b);
+    const rr = sc ? sc.r : 4 * dpr;
+    // End the beam on the near face of the object.
+    const dx = p.x - sx, dy = p.y - sy, l = Math.hypot(dx, dy) || 1;
+    const ex = p.x - (dx / l) * rr * 0.6, ey = p.y - (dy / l) * rr * 0.6;
+    const flick = 0.85 + 0.15 * Math.sin(now / 37);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    for (const [w, a, c] of [[14, 0.12, '255,40,30'], [6, 0.35, '255,60,40'], [2, 0.95, '255,210,200']]) {
+      ctx.strokeStyle = `rgba(${c},${a * flick})`;
+      ctx.lineWidth = w * dpr;
+      ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke();
+    }
+    const g = ctx.createRadialGradient(ex, ey, 0, ex, ey, 26 * dpr);
+    g.addColorStop(0, `rgba(255,240,220,${0.95 * flick})`);
+    g.addColorStop(0.3, 'rgba(255,120,60,.55)');
+    g.addColorStop(1, 'rgba(255,40,20,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(ex, ey, 26 * dpr, 0, Math.PI * 2); ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
   drawTrails() {
     const { ctx, cam } = this;
     const G = this.g, p = this.tmp;
@@ -286,6 +330,22 @@ export class Renderer {
     const CH = 6;
     // With crowded scenes, only the heaviest bodies (plus the selection) keep a trail.
     let list = this.world.bodies;
+    // Optional colour coding (like Universe Sandbox): orbital speed or surface temperature.
+    const mode = this.settings.trailColor || 'body';
+    const hier = mode === 'velocity' ? this.world.hierarchy() : null;
+    const colorOf = (b) => {
+      if (mode === 'velocity') {
+        const par = hier.get(b)?.parent;
+        const v = Math.hypot(b.vx - (par ? par.vx : 0), b.vy - (par ? par.vy : 0), b.vz - (par ? par.vz : 0)) / 0.2108; // km/s
+        // 0.3 km/s (slow, blue) to 100 km/s (fast, red), log scale.
+        return heatRamp(Math.log10(Math.max(v, 0.3) / 0.3) / Math.log10(100 / 0.3));
+      }
+      if (mode === 'temperature') {
+        const T = b.th ? b.th.Ts : b.temp || 0;
+        return heatRamp(T > 0 ? Math.log10(Math.max(T, 30) / 30) / Math.log10(3000 / 30) : 0);
+      }
+      return b.kind === 'bh' ? [255, 160, 90] : b.color || [200, 200, 200];
+    };
     if (list.length > 80) list = list.slice().sort((a, b) => b.m - a.m).slice(0, 80).concat(this.selected ? [this.selected] : []);
     for (const b of list) {
       const t = this.trails.get(b);
@@ -293,7 +353,7 @@ export class Renderer {
       let g0 = Math.max(t.start, G - TRAIL_LEN + 1);
       if (rel) g0 = Math.max(g0, rel.start);
       if (G - g0 < 2) continue;
-      const col = b.kind === 'bh' ? [255, 160, 90] : b.color || [200, 200, 200];
+      const col = colorOf(b);
       const span = G - g0;
       for (let c = 0; c < CH; c++) {
         const ga = g0 + Math.floor((span * c) / CH), gb = g0 + Math.floor((span * (c + 1)) / CH);

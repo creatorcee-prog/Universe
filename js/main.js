@@ -1,7 +1,7 @@
 import { G } from './units.js';
 import { World, circularSpeed, captureRadius, PK } from './physics.js';
 import { makeBody, catalogItem, reclassify } from './bodies.js';
-import { thermalStep } from './thermal.js';
+import { thermalStep, localTemp } from './thermal.js';
 import { PRESETS } from './presets.js';
 import { Camera } from './camera.js';
 import { Renderer } from './render.js';
@@ -12,7 +12,7 @@ import { UI } from './ui.js';
 const SETTINGS_KEY = 'universe-pocket-settings';
 
 function loadSettings() {
-  const defaults = { trails: true, labels: true, grid: true, stars: true, trailsRelative: true, collisions: true, view: 'realistic', bloom: true };
+  const defaults = { trails: true, labels: true, grid: true, stars: true, trailsRelative: true, collisions: true, view: 'realistic', bloom: true, trailColor: 'body' };
   try {
     return { ...defaults, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') };
   } catch {
@@ -28,7 +28,7 @@ class App {
     this.settings = loadSettings();
     this.renderer = new Renderer(this.canvas, this.world, this.cam, this.settings);
     this.zones = new Set(); // heat sources showing their temperature zones
-    this.state = { tool: 'view', addItem: 'earth', selected: null, paused: false, speed: 0.1, preset: null };
+    this.state = { tool: 'view', addItem: 'earth', selected: null, paused: false, speed: 0.1, preset: null, addMethod: 'orbit' };
     this.adding = null;
     this.rate = 0;
     this.ui = new UI(this);
@@ -143,14 +143,7 @@ class App {
     const th = b.th;
     const elev = Math.asin(Math.max(-1, Math.min(1, sun[0] * n[0] + sun[1] * n[1] + sun[2] * n[2])));
     if (th) {
-      const p = b.atm.p + th.steam;
-      // Air carries heat round to the night side; airless ground is near radiative balance with the Sun
-      // overhead (sub-solar ~1.41x the mean) and freezes at night (the Moon swings ~390 K to ~95 K).
-      const base = th.Ts + th.latSpan * (0.33 - Math.sin(sv.lat) ** 2);
-      const se = Math.max(0, Math.sin(elev));
-      const dn = p > 10 ? 0.01 : 0.06;
-      const w = 1 / (1 + p / 0.004);
-      sv.localT = base * ((1 - w) * (1 + dn * (Math.sqrt(se) - 0.45)) + w * Math.max(0.4, 1.414 * Math.pow(se, 0.25)));
+      sv.localT = localTemp(b, sv.lat, Math.sin(elev));
     }
     sv.elev = elev;
   }
@@ -249,6 +242,60 @@ class App {
     }
   }
 
+  deleteBody(b) {
+    if (this.cam.follow === b) this.cam.follow = null;
+    if (this.state.selected === b) this.select(null);
+    this.zones.delete(b);
+    this.world.removeBody(b);
+    this.ui.toast(`Removed ${b.name}`);
+  }
+
+  // ---------- Laser tool ----------
+  // A beam from the camera pours power into the target: it heats (impact-style internal heat in the
+  // climate model) and is pushed by radiation pressure, F = P / c.
+
+  laserStart(sx, sy) {
+    const d = this.renderer.dpr;
+    const body = this.renderer.pickBody(sx * d, sy * d, 44);
+    this.laser = { body, sx, sy };
+    if (!body) this.ui.toast('Missed: hold on an object');
+  }
+
+  laserMove(sx, sy) {
+    if (!this.laser) return;
+    this.laser.sx = sx; this.laser.sy = sy;
+    if (!this.laser.body) {
+      const d = this.renderer.dpr;
+      this.laser.body = this.renderer.pickBody(sx * d, sy * d, 44);
+    }
+  }
+
+  laserStop() {
+    this.laser = null;
+  }
+
+  laserStep(dtYears) {
+    const L = this.laser;
+    if (!L || !L.body) return;
+    const b = this.world.resolve(L.body);
+    if (!b || !b.alive) { this.laser = null; return; }
+    L.body = b;
+    const P = this.laserPower || 1e26;
+    const dt = dtYears * 3.15576e7;
+    if (dt <= 0) return;
+    const mKg = b.m * 1.98847e30;
+    if (b.th) {
+      b.th.Eint += P * dt;
+      const R = b.r * 1.495978707e11, Eb = (0.6 * 6.674e-11 * mKg * mKg) / R;
+      if (b.th.Eint > Eb) { this.world.vaporize(b, b.th.Eint - Eb, 'was vaporised by the laser'); this.laser = null; return; }
+    }
+    // Radiation pressure along the beam (camera forward), m/s converted to AU/yr.
+    const dv = ((P / 2.998e8) / mKg) * dt / 4740.47;
+    const c = this.cam;
+    b.vx += c.fx * dv; b.vy += c.fy * dv; b.vz += c.fz * dv;
+    L.firing = true;
+  }
+
   // ---------- Add tool ----------
 
   addBegin(sx, sy) {
@@ -313,7 +360,7 @@ class App {
     if (parent) { rx = x - parent.x; ry = y - parent.y; rz = z - parent.z; d = Math.hypot(rx, ry, rz); }
     const ref = parent && d > 0 ? circularSpeed(parent, d, m) : (this.cam.dist / Math.max(this.state.speed, 1e-12)) / 6;
     if (drag < 12) {
-      if (parent && d > 0) {
+      if (parent && d > 0 && this.state.addMethod !== 'place') {
         // Tap without dragging: circular orbit, prograde about world "up".
         let tx = rz, tz = -rx;
         const tl = Math.hypot(tx, tz);
@@ -419,6 +466,7 @@ class App {
       this.rate = this.rate * 0.85 + (done / frameDt) * 0.15;
       w.limited = w.limited || this.rate < this.state.speed * 0.9;
       if (done > 0) this.renderer.sampleTrails();
+      this.laserStep(done);
     } else {
       w.limited = false;
     }
@@ -443,6 +491,13 @@ class App {
       if (age > 50) this.snZoom = null;
     }
     if (this.surface) this.updateSurface();
+    // Surface lock: turn the camera with the locked body's spin so its surface stays put.
+    const fb = this.cam.follow;
+    if (this.surfaceLock && fb && this.r3d && !this.surface) {
+      const sp = this.r3d.spin.get(fb);
+      if (sp && this.slBody === fb && this.slAng !== undefined) this.cam.yaw += sp.ang - this.slAng;
+      this.slBody = fb; this.slAng = sp ? sp.ang : undefined;
+    } else this.slBody = null;
     this.cam.tick(now, dtReal);
     this.updateAddPreview();
     const a = this.adding;
@@ -452,7 +507,7 @@ class App {
       this.zones.delete(b);
       if (r && r.alive) this.zones.add(r);
     }
-    const ui = { selected: this.state.selected, preview, surface: this.surface, zones: this.zones };
+    const ui = { selected: this.state.selected, preview, surface: this.surface, zones: this.zones, laser: this.laser && this.laser.body ? this.laser : null };
     if (this.renderer.overlay) this.r3d.draw(now, ui, dtReal, done);
     this.renderer.draw(now, ui);
     this.ui.tick(now);

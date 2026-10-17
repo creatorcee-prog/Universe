@@ -62,3 +62,25 @@ Still open:
 - **Sound.** Deferred at your request.
 - **NASA models view.** Archived above.
 - **UI.** A Universe-Sandbox-style bottom control bar, and undo.
+
+## To do (from the Universe Sandbox UI references)
+
+Done: bottom bar with « » speed steps and Create/Sim/View/Tools panels, a thumbnail gallery with Orbit/Place
+methods, a tabbed object panel with surface temperature and habitability maps, Seed/Kill life, the laser tool,
+the temperature field, velocity- and temperature-coloured trails, surface lock, and richer impacts: scorched
+basins, rays, shock rings, steam plumes and meteor craters.
+
+Still open:
+
+- **Create gallery.** Named presets per category, like Universe Sandbox's lists of real moons, planets and
+  stars (Phobos, Io, Europa and so on), plus "Random moon" generators and a search box.
+- **Placement methods.** *Binary* (two bodies orbiting each other) and *Launch* (aim and power), and a
+  "Balance motion" option that keeps the total momentum at zero.
+- **Debris.** Tumbling, glowing rock chunks as meshes instead of points; impact plumes as true 3D volumes.
+- **Overlays.** Measurement lines between bodies with distances; orbit ellipses (not just trails); a search
+  tool.
+- **Data views.** More surface maps: elevation, ocean depth, life species.
+- **Laser.** Beam radius, wavelength and intensity settings, plus ablation pushing the target harder than
+  light pressure.
+- **Photo mode toolbar.** Toggles for labels, trails, orbits, zones, grid, background, light and colours
+  without leaving Photo mode.

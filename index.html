@@ -25,25 +25,26 @@
   <canvas id="view" aria-label="Simulation view"></canvas>
 
   <header class="topbar">
-    <button id="btn-scenarios" class="pill" type="button" aria-label="Choose scenario">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2.6"/><ellipse cx="12" cy="12" rx="9" ry="3.6" transform="rotate(-24 12 12)"/></svg>
-      <span>Scenarios</span>
+    <button id="btn-scenarios" class="icon-btn" type="button" aria-label="Menu: scenarios">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
     </button>
     <div class="clock">
       <span id="scn-name" class="clock-name">Solar System</span>
-      <span id="sim-time" class="clock-time">T + 0 days</span>
       <span id="limit" class="limit" hidden></span>
-      <button id="lock-chip" class="lock-chip" type="button" hidden aria-label="Unlock camera">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
-        <span>Locked on <b id="lock-name"></b></span>
-      </button>
+      <div class="chips">
+        <button id="lock-chip" class="lock-chip" type="button" hidden aria-label="Unlock camera">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+          <span>Locked on <b id="lock-name"></b></span>
+        </button>
+        <button id="surf-lock" class="lock-chip surf" type="button" hidden aria-pressed="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M4 12h16M12 4c3 3 3 13 0 16M12 4c-3 3-3 13 0 16"/></svg>
+          <span>Surface lock</span>
+        </button>
+      </div>
     </div>
     <div class="top-right">
       <button id="btn-book" class="icon-btn" type="button" aria-label="Open the book">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6.5C10 5 7 4.5 3.5 5v13c3.5-.5 6.5 0 8.5 1.5 2-1.5 5-2 8.5-1.5V5C17 4.5 14 5 12 6.5z"/><path d="M12 6.5v13"/></svg>
-      </button>
-      <button id="btn-settings" class="icon-btn" type="button" aria-label="Settings">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
       </button>
     </div>
   </header>
@@ -59,29 +60,83 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6.5C10 5 7 4.5 3.5 5v13c3.5-.5 6.5 0 8.5 1.5 2-1.5 5-2 8.5-1.5V5C17 4.5 14 5 12 6.5z"/><path d="M12 6.5v13"/></svg>
         <span>Read</span>
       </button>
-      <button id="i-close" class="icon-btn small" type="button" aria-label="Close details">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
-      </button>
+      <button id="i-close" class="icon-btn small" type="button" aria-label="Close details"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     </div>
-    <dl class="stats">
-      <div><dt>Mass</dt><dd id="i-mass">—</dd></div>
-      <div><dt>Radius</dt><dd id="i-radius">—</dd></div>
-      <div><dt id="i-temp-label">Temperature</dt><dd id="i-temp">—</dd></div>
-      <div><dt>Orbiting</dt><dd id="i-parent">—</dd></div>
-      <div><dt>Distance</dt><dd id="i-dist">—</dd></div>
-      <div><dt>Orbital speed</dt><dd id="i-speed">—</dd></div>
-      <div><dt>Period</dt><dd id="i-period">—</dd></div>
-      <div><dt>Eccentricity</dt><dd id="i-ecc">—</dd></div>
-    </dl>
-    <div class="info-actions">
-      <button id="i-follow" type="button">Lock view</button>
-      <button id="i-half" type="button">Mass ½</button>
-      <button id="i-double" type="button">Mass ×2</button>
-      <button id="i-delete" class="danger" type="button">Delete</button>
+    <nav class="info-tabs" role="tablist" aria-label="Object details">
+      <button type="button" role="tab" data-tab="overview" class="on">Overview</button>
+      <button type="button" role="tab" data-tab="motion">Motion</button>
+      <button type="button" role="tab" data-tab="surface" id="tab-surface">Surface</button>
+      <button type="button" role="tab" data-tab="comp" id="tab-comp">Composition</button>
+      <button type="button" role="tab" data-tab="star" id="tab-star">Star</button>
+    </nav>
+    <div class="info-body">
+      <div class="tab-pane" data-pane="overview">
+        <dl class="stats">
+          <div><dt>Mass</dt><dd id="i-mass">—</dd></div>
+          <div><dt>Radius</dt><dd id="i-radius">—</dd></div>
+          <div><dt id="i-temp-label">Temperature</dt><dd id="i-temp">—</dd></div>
+          <div><dt>Density</dt><dd id="i-density">—</dd></div>
+          <div><dt>Surface gravity</dt><dd id="i-gravity">—</dd></div>
+          <div><dt>Escape velocity</dt><dd id="i-vesc">—</dd></div>
+        </dl>
+        <div class="info-actions">
+          <button id="i-follow" type="button">Lock view</button>
+          <button id="i-half" type="button">Mass ½</button>
+          <button id="i-double" type="button">Mass ×2</button>
+          <button id="i-delete" class="danger" type="button">Delete</button>
+        </div>
+        <button id="i-zones" class="info-extra zones" type="button" hidden>Show temperature zones</button>
+      </div>
+      <div class="tab-pane" data-pane="motion" hidden>
+        <dl class="stats">
+          <div><dt>Orbiting</dt><dd id="i-parent">—</dd></div>
+          <div><dt>Distance</dt><dd id="i-dist">—</dd></div>
+          <div><dt>Orbital speed</dt><dd id="i-speed">—</dd></div>
+          <div><dt>Period</dt><dd id="i-period">—</dd></div>
+          <div><dt>Eccentricity</dt><dd id="i-ecc">—</dd></div>
+          <div><dt>Day length</dt><dd id="i-day">—</dd></div>
+        </dl>
+      </div>
+      <div class="tab-pane" data-pane="surface" hidden>
+        <div class="map-head">
+          <div class="seg" role="group" aria-label="Map">
+            <button type="button" data-map="temp" class="on">Temperature</button>
+            <button type="button" data-map="hab">Habitability</button>
+          </div>
+        </div>
+        <canvas id="i-map" class="map" width="240" height="120" aria-label="Surface map"></canvas>
+        <div class="legend"><span id="map-lo"></span><i id="map-bar"></i><span id="map-hi"></span></div>
+        <dl class="stats">
+          <div><dt>Air pressure</dt><dd id="i-press">—</dd></div>
+          <div><dt>Albedo</dt><dd id="i-albedo">—</dd></div>
+          <div><dt>Oceans</dt><dd id="i-ocean">—</dd></div>
+          <div><dt>Ice cover</dt><dd id="i-icecov">—</dd></div>
+        </dl>
+        <div class="info-actions two">
+          <button id="i-seed" type="button">Seed life</button>
+          <button id="i-kill" class="danger" type="button">Kill all life</button>
+        </div>
+        <button id="i-stand" class="info-extra stand" type="button" hidden>Stand on the surface</button>
+      </div>
+      <div class="tab-pane" data-pane="comp" hidden>
+        <p class="pane-label">Interior and surface, by mass</p>
+        <div id="comp-bar" class="bar"></div>
+        <div id="comp-legend" class="bar-legend"></div>
+        <p class="pane-label">Atmosphere</p>
+        <div id="atm-bar" class="bar"></div>
+        <div id="atm-legend" class="bar-legend"></div>
+      </div>
+      <div class="tab-pane" data-pane="star" hidden>
+        <dl class="stats">
+          <div><dt>Luminosity</dt><dd id="i-lum">—</dd></div>
+          <div><dt>Age</dt><dd id="i-age">—</dd></div>
+          <div><dt>Stage</dt><dd id="i-stage">—</dd></div>
+          <div><dt>Time left</dt><dd id="i-left">—</dd></div>
+        </dl>
+        <p id="i-fate" class="pane-note"></p>
+        <button id="i-death" class="info-extra" type="button" hidden>End of life</button>
+      </div>
     </div>
-    <button id="i-death" class="info-extra" type="button" hidden>End of life</button>
-    <button id="i-stand" class="info-extra stand" type="button" hidden>Stand on the surface</button>
-    <button id="i-zones" class="info-extra zones" type="button" hidden>Show temperature zones</button>
   </section>
 
   <section id="surface-bar" class="surface-bar" hidden aria-label="Surface view">
@@ -104,40 +159,53 @@
 
   <footer class="dock">
     <div class="readout"><span id="stat-objects"></span><span id="stat-grid"></span></div>
-    <div id="tray" class="tray" hidden>
-      <div id="tray-list" class="tray-list"></div>
+    <div id="tray" class="addbar" hidden>
+      <span id="add-swatch" class="swatch"></span>
+      <span class="addbar-text">Adding <b id="add-current">Earth</b></span>
+      <div class="seg" role="group" aria-label="Placement">
+        <button type="button" data-method="orbit" class="on">Orbit</button>
+        <button type="button" data-method="place">Place</button>
+      </div>
+      <button id="add-more" class="icon-btn small" type="button" aria-label="Choose another object">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></svg>
+      </button>
+      <button id="add-done" class="icon-btn small" type="button" aria-label="Stop adding"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     </div>
-    <div class="timebar">
+    <div id="laserbar" class="addbar laser" hidden>
+      <span class="addbar-text">Laser · hold on an object</span>
+      <label class="laser-power"><span class="sr">Power</span><input id="laser-power" type="range" min="15" max="32" step="0.25" value="26"></label>
+      <output id="laser-label" class="laser-label">1e26 W</output>
+      <button id="laser-done" class="icon-btn small" type="button" aria-label="Put the laser away"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="bar-main">
       <button id="btn-play" class="icon-btn play" type="button" aria-label="Pause">
         <svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6v12M15 6v12"/></svg>
         <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5l11 6.5-11 6.5z"/></svg>
       </button>
-      <label class="speed">
-        <span class="sr">Time speed</span>
-        <input id="speed" type="range" min="0" max="1000" step="1" value="500">
-      </label>
-      <output id="speed-label" for="speed">1 month/s</output>
-    </div>
-    <nav class="tools" aria-label="Tools">
-      <button class="tool active" data-tool="view" type="button">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M21 4v5h-5"/><circle cx="12" cy="12" r="2"/></svg>
-        <span>View</span>
+      <button id="btn-slower" class="step" type="button" aria-label="Slower">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6l-6 6 6 6M19 6l-6 6 6 6"/></svg>
       </button>
-      <button class="tool" data-tool="add" type="button">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-        <span>Add <em id="add-current">Earth</em></span>
+      <div class="timebox">
+        <span id="sim-time" class="clock-time">0 days</span>
+        <output id="speed-label">1 month/s</output>
+      </div>
+      <button id="btn-faster" class="step" type="button" aria-label="Faster">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6l6 6-6 6M12 6l6 6-6 6"/></svg>
       </button>
       <span class="spacer"></span>
-      <button id="btn-trails" class="toggle" type="button" aria-label="Toggle orbit trails">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17c4-9 10-11 18-10" stroke-dasharray="2 2.6"/><circle cx="20" cy="7" r="1.8"/></svg>
+      <button id="btn-create" class="create" type="button" aria-label="Create">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
       </button>
-      <button id="btn-lock" class="toggle" type="button" aria-label="Lock camera on object" aria-pressed="false">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+      <button class="panel-btn" data-panel="sheet-sim" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg><span>Sim</span>
       </button>
-      <button id="btn-home" class="icon-btn" type="button" aria-label="Reset camera">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
+      <button class="panel-btn" data-panel="sheet-view" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4l9 4.5-9 4.5-9-4.5z"/><path d="M3 12.5l9 4.5 9-4.5M3 16.5l9 4.5 9-4.5"/></svg><span>View</span>
       </button>
-    </nav>
+      <button class="panel-btn" data-panel="sheet-tools" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 6.5a4 4 0 0 0 5 5L12 19a2.1 2.1 0 0 1-3-3l7.5-7.5a4 4 0 0 0-2-2z"/><path d="M14.5 6.5L17 4"/></svg><span>Tools</span>
+      </button>
+    </div>
   </footer>
 
   <div id="scrim" class="scrim" hidden></div>
@@ -176,35 +244,89 @@
     <div id="scenario-list" class="scenario-list"></div>
   </section>
 
-  <section id="sheet-settings" class="sheet" hidden aria-label="Settings">
+  <section id="sheet-create" class="sheet" hidden aria-label="Create">
     <div class="sheet-head">
-      <h2>Settings</h2>
-      <button class="icon-btn small" type="button" data-close aria-label="Close">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
-      </button>
+      <h2>Create</h2>
+      <button class="icon-btn small" type="button" data-close aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="cat-tabs" role="tablist" aria-label="Categories">
+      <button type="button" data-cat="all" class="on">All</button>
+      <button type="button" data-cat="small">Small bodies</button>
+      <button type="button" data-cat="planet">Planets</button>
+      <button type="button" data-cat="star">Stars</button>
+      <button type="button" data-cat="exotic">Exotic</button>
+    </div>
+    <div id="create-grid" class="create-grid"></div>
+    <p class="about">Pick an object, then tap the view. <b>Orbit</b> drops it into a circular orbit around whatever pulls hardest there; <b>Place</b> drops it at rest relative to that body. Drag instead of tapping to fling it.</p>
+  </section>
+
+  <section id="sheet-sim" class="sheet" hidden aria-label="Simulation">
+    <div class="sheet-head">
+      <h2>Simulation</h2>
+      <button class="icon-btn small" type="button" data-close aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="settings">
+      <div class="field">
+        <span class="field-label">Time speed <output id="speed-label2"></output></span>
+        <label class="speed"><span class="sr">Time speed</span><input id="speed" type="range" min="0" max="1000" step="1" value="500"></label>
+      </div>
+      <label class="switch"><input id="set-collisions" type="checkbox"><span>Collisions and mergers</span></label>
+      <div class="settings-actions">
+        <button id="btn-reset" type="button">Restart scenario</button>
+        <button id="btn-clear" type="button">Clear dust &amp; debris</button>
+        <button id="btn-menu2" type="button" class="wide">Scenarios…</button>
+      </div>
+      <p class="about">Newtonian N-body gravity in units of AU, solar masses and years. Sizes are true to scale, so small worlds show as dots until you zoom in. Bodies merge on contact and break apart inside the Roche limit. Climate, atmospheres and stellar ageing run alongside.</p>
+    </div>
+  </section>
+
+  <section id="sheet-view" class="sheet" hidden aria-label="View">
+    <div class="sheet-head">
+      <h2>View</h2>
+      <button class="icon-btn small" type="button" data-close aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     </div>
     <div class="settings">
       <fieldset class="views">
-        <legend>View</legend>
+        <legend>Style</legend>
         <label class="view-opt"><input type="radio" name="view" value="realistic" id="view-realistic"><span><b>Realistic</b><small>3D worlds that heat up, scar, freeze and stretch under real forces</small></span></label>
         <label class="view-opt"><input type="radio" name="view" value="classic" id="view-classic"><span><b>Classic</b><small>The original lightweight 2D look, easiest on battery</small></span></label>
         <label class="view-opt"><input type="radio" name="view" value="pixel" id="view-pixel"><span><b>Pixel</b><small>Retro pixel art with a dithered palette, made for screenshots</small></span></label>
         <label class="view-opt disabled"><input type="radio" name="view" value="nasa" id="view-nasa" disabled><span><b>NASA models</b><small>Planned: real 3D models of spacecraft, asteroids and comets</small></span></label>
       </fieldset>
-      <label class="switch"><input id="set-bloom" type="checkbox"><span>Glow around bright and hot objects (Realistic view)</span></label>
+      <label class="switch"><input id="set-bloom" type="checkbox"><span>Glow around bright and hot objects</span></label>
       <label class="switch"><input id="set-trails" type="checkbox"><span>Orbit trails</span></label>
-      <label class="switch"><input id="set-trailsRelative" type="checkbox"><span>Draw trails relative to the followed object</span></label>
+      <div class="field row">
+        <span class="field-label">Trail colours</span>
+        <div class="seg" role="group" aria-label="Trail colours">
+          <button type="button" data-tcolor="body">Object</button>
+          <button type="button" data-tcolor="velocity">Velocity</button>
+          <button type="button" data-tcolor="temperature">Temperature</button>
+        </div>
+      </div>
+      <label class="switch"><input id="set-trailsRelative" type="checkbox"><span>Trails relative to the followed object</span></label>
       <label class="switch"><input id="set-labels" type="checkbox"><span>Name labels</span></label>
       <label class="switch"><input id="set-grid" type="checkbox"><span>Reference grid</span></label>
       <label class="switch"><input id="set-stars" type="checkbox"><span>Background stars</span></label>
-      <label class="switch"><input id="set-collisions" type="checkbox"><span>Collisions and mergers</span></label>
       <div class="settings-actions">
-        <button id="btn-reset" type="button">Restart scenario</button>
-        <button id="btn-clear" type="button">Clear dust &amp; debris</button>
+        <button id="btn-lock" type="button" aria-pressed="false">Lock camera</button>
+        <button id="btn-home" type="button">Reset camera</button>
         <button id="btn-photo" type="button" class="wide">Photo mode: hide the interface</button>
       </div>
-      <p class="about">The camera lock keeps the view centred on one object: orbit, pinch and twist all work around it, and two-finger drags no longer pull the camera away. Double-tap an object, use its Lock view button, or the padlock in the toolbar.</p>
-      <p class="about">Newtonian N-body gravity in units of AU, solar masses and years. Sizes are true to scale, so small worlds show as dots until you zoom in. Bodies merge on contact and break apart inside the Roche limit.</p>
+      <p class="about">Double-tap an object to lock the camera on it. Surface lock turns the camera with a locked planet, so the ground below stays still.</p>
+    </div>
+  </section>
+
+  <section id="sheet-tools" class="sheet" hidden aria-label="Tools">
+    <div class="sheet-head">
+      <h2>Tools</h2>
+      <button class="icon-btn small" type="button" data-close aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="tool-list">
+      <button class="tool-card" data-tool="view" type="button"><b>Select &amp; look</b><small>Tap objects for details, drag to orbit the camera, pinch to zoom.</small></button>
+      <button class="tool-card" data-tool="add" type="button"><b>Create</b><small>Drop planets, stars, black holes and dust into the scene.</small></button>
+      <button class="tool-card" data-tool="laser" type="button"><b>Laser</b><small>Hold on an object to pour energy into it: watch it heat, melt and glow. Its light also pushes gently.</small></button>
+      <button class="tool-card" data-tool="delete" type="button"><b>Delete</b><small>Tap objects to remove them.</small></button>
+      <button class="tool-card" data-tool="surface" type="button"><b>Surface view</b><small>Stand on the selected rocky world and look at its sky.</small></button>
     </div>
   </section>
 </div>

@@ -430,3 +430,28 @@ export function tempZones(b) {
   }
   return out.length ? { L, zones: out } : null;
 }
+
+// Local surface temperature at a latitude for a given sine of the Sun's elevation (negative at night).
+// Air carries heat round to the night side; airless ground is near radiative balance with the Sun
+// overhead (sub-solar ~1.41x the mean) and freezes at night (the Moon swings ~390 K to ~95 K).
+export function localTemp(b, lat, sinElev) {
+  const th = b.th;
+  if (!th) return null;
+  const p = (b.atm ? b.atm.p : 0) + th.steam;
+  const base = th.Ts + th.latSpan * (0.33 - Math.sin(lat) ** 2);
+  const se = Math.max(0, sinElev);
+  const dn = p > 10 ? 0.01 : 0.06;
+  const w = 1 / (1 + p / 0.004);
+  return base * ((1 - w) * (1 + dn * (Math.sqrt(se) - 0.45)) + w * Math.max(0.4, 1.414 * Math.pow(se, 0.25)));
+}
+
+// Habitability of one spot, 0..1, from its local temperature and the planet-wide conditions.
+export function localHab(b, T) {
+  const th = b.th, c = b.comp;
+  if (!th || b.kind !== 'rocky' || !c || c.water <= 0) return 0;
+  const p = (b.atm ? b.atm.p : 0) + th.steam;
+  if (p < 0.006 || p > 200 || (th.exposed || 0) > 0.2) return 0;
+  // Peak around 288-300 K, nothing below freezing-with-brines (~250 K) or above ~330 K.
+  const warm = T < 250 ? 0 : T < 288 ? (T - 250) / 38 : T < 305 ? 1 : T < 330 ? (330 - T) / 25 : 0;
+  return warm * Math.min(1, p / 0.05);
+}

@@ -39,11 +39,15 @@ export class Input {
       } else if (this.app.state.tool === 'add') {
         this.mode = 'add';
         this.app.addBegin(x, y);
+      } else if (this.app.state.tool === 'laser') {
+        this.mode = 'laser';
+        this.app.laserStart(x, y);
       } else {
         this.mode = 'tap';
       }
     } else if (this.pointers.size === 2) {
       if (this.mode === 'add') this.app.addCancel();
+      if (this.mode === 'laser') this.app.laserStop();
       this.startPinch();
     }
   }
@@ -80,6 +84,8 @@ export class Input {
       this.pan(dx, dy);
     } else if (this.mode === 'add') {
       this.app.addMove(x, y);
+    } else if (this.mode === 'laser') {
+      this.app.laserMove(x, y);
     } else if (this.mode === 'pinch' && this.app.surface) {
       // no zoom while standing on a surface
     } else if (this.mode === 'pinch' && this.pointers.size >= 2) {
@@ -114,6 +120,7 @@ export class Input {
     this.pointers.delete(e.pointerId);
     if (this.mode === 'tap' && performance.now() - p.t0 < 400) this.tap(x, y);
     if (this.mode === 'add') this.app.addEnd(x, y);
+    if (this.mode === 'laser') this.app.laserStop();
     if (this.pointers.size === 0) this.mode = 'idle';
     else if (this.mode === 'pinch') this.mode = 'rotate'; // keep orbiting with the remaining finger
   }
@@ -121,12 +128,14 @@ export class Input {
   cancel(e) {
     this.pointers.delete(e.pointerId);
     if (this.mode === 'add') this.app.addCancel();
+    if (this.mode === 'laser') this.app.laserStop();
     if (this.pointers.size === 0) this.mode = 'idle';
   }
 
   tap(x, y) {
     const now = performance.now();
     const body = this.app.renderer.pickBody(x * this.app.renderer.dpr, y * this.app.renderer.dpr, 26);
+    if (this.app.state.tool === 'delete') { if (body) this.app.deleteBody(body); return; }
     const lt = this.lastTap;
     if (lt && now - lt.t < 330 && Math.hypot(x - lt.x, y - lt.y) < 32) {
       this.lastTap = null;

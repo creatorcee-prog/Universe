@@ -64,8 +64,8 @@ uniform vec3 uTideDir;  // world axes
 uniform float uTide;    // prolate stretch toward the strongest tidal pull
 uniform float uLumpy;   // irregular shape for small bodies
 uniform float uSeed;
-uniform vec4 uImp[8];   // impact direction (body frame) and strength
-uniform vec4 uImpB[8];  // x: angular size
+uniform vec4 uImp[16];   // impact direction (body frame) and strength
+uniform vec4 uImpB[16];  // x: angular size
 uniform int uImpN;
 out vec3 vObj;
 out vec3 vViewPos;
@@ -76,7 +76,7 @@ void main() {
   float h = 0.0;
   if (uLumpy > 0.0) h += uLumpy * (fbm(p * 1.3 + uSeed, 4) - 0.5) * 2.2;
   // Impact craters dent the surface: a bowl with a raised rim.
-  for (int i = 0; i < 8; i++) {
+  for (int i = 0; i < 16; i++) {
     if (i >= uImpN) break;
     float a = acos(clamp(dot(p, uImp[i].xyz), -1.0, 1.0));
     float w = uImpB[i].x;
@@ -119,8 +119,8 @@ uniform vec4 uStorm;      // body-frame direction and size of a great storm
 uniform vec3 uL0, uLc0, uL1, uLc1;   // two strongest lights: view-space direction, colour * intensity
 uniform vec3 uAtmo;
 uniform float uAtmoK;
-uniform vec4 uImp[8];
-uniform vec4 uImpB[8];    // x: angular size, y: age (s)
+uniform vec4 uImp[16];
+uniform vec4 uImpB[16];    // x: angular size, y: age (s)
 uniform int uImpN;
 out vec4 outColor;
 
@@ -153,16 +153,34 @@ void main() {
   }
   float mu = max(dot(N, V), 0.0);
 
-  // Impacts: fresh ones glow, all leave a scar.
-  float glow = 0.0, scar = 0.0;
-  for (int i = 0; i < 8; i++) {
+  // Impacts: fresh ones glow, all leave a scar. Around each: a scorched basin with a lighter rim,
+  // radial ejecta rays, a shock ring racing outward, and a plume of vapour over the site.
+  float glow = 0.0, scar = 0.0, rays = 0.0, rimL = 0.0, shock = 0.0, plume = 0.0, core = 0.0;
+  for (int i = 0; i < 16; i++) {
     if (i >= uImpN) break;
-    float a = acos(clamp(dot(vObj, uImp[i].xyz), -1.0, 1.0));
-    float w = uImpB[i].x;
-    scar += uImp[i].w * smoothstep(w * 1.25, w * 0.4, a);
-    glow += uImp[i].w * exp(-a * a / (w * w * 0.7)) * exp(-uImpB[i].y / 6.0);
+    vec3 dI = uImp[i].xyz;
+    float a = acos(clamp(dot(vObj, dI), -1.0, 1.0));
+    float w = uImpB[i].x, t = uImpB[i].y, e = uImp[i].w;
+    // Ragged edge: the basin outline wobbles with azimuth.
+    vec3 t1 = normalize(cross(dI, abs(dI.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
+    vec3 t2 = cross(dI, t1);
+    float az = atan(dot(vObj, t2), dot(vObj, t1));
+    float rag = 1.0 + 0.18 * (vnoise(vec3(cos(az) * 3.0, sin(az) * 3.0, float(i) * 7.0 + uSeed)) - 0.5);
+    float aa = a / rag;
+    scar += e * smoothstep(w * 1.15, w * 0.55, aa);
+    rimL += e * exp(-pow((aa - w * 1.05) / (w * 0.16), 2.0));
+    float ray = pow(vnoise(vec3(az * 5.0, float(i) * 3.1, uSeed)), 3.0);
+    rays += e * ray * smoothstep(w * 3.2, w * 1.1, a) * step(w, a);
+    glow += e * exp(-a * a / (w * w * 0.7)) * exp(-t / 6.0);
+    core += e * exp(-aa * aa / (w * w * 0.12)) * exp(-t / 45.0);
+    float rr = w + 0.5 * t;
+    shock += e * exp(-pow((a - rr) / (0.02 + 0.03 * t), 2.0)) * exp(-t / 2.2);
+    float pr = w * (1.3 + 0.35 * sqrt(t));
+    plume += e * smoothstep(pr, pr * 0.3, a) * smoothstep(0.0, 0.8, t) * exp(-t / 30.0);
   }
   scar = clamp(scar, 0.0, 1.0);
+  rays = clamp(rays, 0.0, 1.0);
+  rimL = clamp(rimL, 0.0, 1.0);
 
   if (uKind == 4) { outColor = vec4(0.0, 0.0, 0.0, 1.0); ` + WRITE_DEPTH + ` return; }
 
@@ -239,7 +257,11 @@ void main() {
       float rim = smoothstep(0.42, 0.5, c) * smoothstep(0.6, 0.5, c);
       col *= mix(1.0, 0.84 + 0.18 * bowl + 0.1 * rim, uCraters);
     }
-    col *= 1.0 - 0.5 * scar;
+    // Scorched basin: charred brown with radial streaks, a light ejecta rim, and rays splashed outward.
+    vec3 burnt = mix(vec3(0.09, 0.06, 0.045), vec3(0.26, 0.17, 0.11), vnoise(q * 18.0) * 0.6 + rays * 0.4);
+    col = mix(col, burnt, scar * 0.85);
+    col = mix(col, vec3(0.55, 0.48, 0.4), rimL * 0.35);
+    col = mix(col, col * 0.6 + vec3(0.12, 0.1, 0.08), rays * 0.5);
   }
 
   // Lighting.
@@ -275,10 +297,22 @@ void main() {
       outc += lc * hot * (lava * (1.4 + 1.4 * core) + rim * 0.9) * (0.85 + 0.15 * fbm(q * 6.0 + uTime * 0.05, 2));
     }
   }
-  // Fresh impact sites glow white-hot and fade to a dull red as they cool.
+  // Fresh impact sites glow white-hot and fade to a dull red as they cool; the molten centre lingers.
   if (glow > 0.01) {
     float g = clamp(glow, 0.0, 1.0);
     outc += blackbody(1200.0 + 3000.0 * g) * g * 2.6;
+  }
+  if (core > 0.01 && uKind == 0) {
+    float c = clamp(core, 0.0, 1.0);
+    outc += blackbody(1000.0 + 900.0 * c) * c * (1.2 + 0.4 * vnoise(q * 9.0 + uTime * 0.3));
+  }
+  // Shock ring racing across the surface.
+  outc += vec3(1.0, 0.85, 0.65) * clamp(shock, 0.0, 1.0) * 1.4;
+  // Vapour plume: rock vapour and, where there is water, a billowing steam cloud lit by the Sun.
+  if (plume > 0.01) {
+    float pf = clamp(plume, 0.0, 1.0) * smoothstep(0.35, 0.7, fbm(vObj * 9.0 + uSeed + vec3(0.0, uTime * 0.05, 0.0), 4));
+    vec3 pc = mix(vec3(0.75, 0.68, 0.6), vec3(0.95), clamp(uOcean * 1.5, 0.0, 1.0));
+    outc = mix(outc, pc * (lightTerm(N, uL0) * 0.9 + 0.12) * uLc0 + pc * 0.04, pf * 0.85);
   }
   // Tidal stress opens glowing fissures before the body breaks apart.
   if (uCrack > 0.0) {
@@ -659,5 +693,57 @@ void main() {
   vec3 col = sky * a + vec3(1.0, 0.92, 0.8) * glow * day * min(uDensity, 1.0);
   // Below the horizon the ground covers this, but keep a faint haze line.
   outColor = vec4(col, max(a, glow * day));
+}
+`;
+
+// Temperature field on the orbital plane: for each pixel, intersect the view ray with the plane and add
+// up the light from every heat source there (S = Σ L/d², Earth = 1). The colour shows what a dark body
+// would feel: red too hot for liquid water, green habitable (Kopparapu et al. 2013 flux limits),
+// blue cold, fading out where it is far colder than the snow line.
+export const TEMP_FIELD_FS = HEAD + `
+in vec2 vUV;
+uniform mat3 uView;
+uniform vec2 uTan;
+uniform float uPlaneY;       // plane height relative to the eye
+uniform vec4 uSrc[8];        // xyz relative to the eye (AU), w = luminosity (L☉)
+uniform int uN;
+uniform vec2 uHZ;            // flux at the inner and outer habitable-zone edges
+uniform float uAlpha;
+out vec4 outColor;
+void main() {
+  vec3 dv = normalize(vec3((vUV.x * 2.0 - 1.0) * uTan.x, (vUV.y * 2.0 - 1.0) * uTan.y, -1.0));
+  vec3 d = transpose(uView) * dv;
+  if (abs(d.y) < 1e-6) discard;
+  float t = uPlaneY / d.y;
+  if (t <= 0.0) discard;
+  vec3 p = d * t;
+  float S = 0.0;
+  for (int i = 0; i < 8; i++) {
+    if (i >= uN) break;
+    vec3 q = p - uSrc[i].xyz;
+    S += uSrc[i].w / max(dot(q, q), 1e-12);
+  }
+  float l = log(S) / log(10.0);
+  float lIn = log(uHZ.x) / log(10.0), lOut = log(uHZ.y) / log(10.0);
+  vec3 col; float a;
+  if (l > lIn) {
+    // too hot: deep red, turning orange then white-hot where rock melts (~600x Earth's flux)
+    float k = clamp((l - lIn) / 2.76, 0.0, 1.0);
+    col = mix(vec3(0.55, 0.06, 0.03), vec3(1.0, 0.55, 0.15), smoothstep(0.55, 1.0, k));
+    col = mix(col, vec3(1.0, 0.95, 0.85), smoothstep(0.97, 1.3, (l - lIn) / 2.76));
+    a = 0.55;
+  } else if (l > lOut) {
+    float k = (l - lOut) / (lIn - lOut);
+    col = mix(vec3(0.1, 0.55, 0.2), vec3(0.25, 0.75, 0.25), k);
+    a = 0.5;
+  } else {
+    float k = clamp((lOut - l) / 3.0, 0.0, 1.0);
+    col = mix(vec3(0.05, 0.4, 0.55), vec3(0.02, 0.06, 0.3), k);
+    a = 0.5 * (1.0 - smoothstep(0.6, 1.0, k));
+  }
+  // Soft blend between bands.
+  float edge = min(abs(l - lIn), abs(l - lOut));
+  col *= 0.85 + 0.15 * smoothstep(0.0, 0.05, edge);
+  outColor = vec4(col * a * uAlpha, a * uAlpha);
 }
 `;

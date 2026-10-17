@@ -373,7 +373,7 @@ export class World {
         size: Math.min(1.2, Math.asin(Math.min(1, o.r / Math.max(s.r, 1e-12))) * 1.4 + 0.04),
         t: performance.now(),
       });
-      if (s.impacts.length > 8) s.impacts.shift();
+      if (s.impacts.length > 16) s.impacts.shift();
     }
     const ev = reclassify(s);
     this.flashes.push({ x: ix, y: iy, z: iz, r: Math.max(o.r * 4, s.r * Math.min(3, 0.5 + 8 * ratio)), born: performance.now(), life: 900 + 1400 * Math.min(1, ratio * 10), color: kind === PK.HOT ? [255, 230, 190] : [255, 170, 90] });
@@ -401,6 +401,26 @@ export class World {
     small.mergedInto = null;
     this.flashes.push({ x: small.x, y: small.y, z: small.z, r: small.r * 6, born: performance.now(), life: 1500, color: [255, 210, 160] });
     this.events.push({ text: `${small.name} crossed ${big.name}'s Roche limit and was torn apart by tides`, body: big, big: true });
+  }
+
+  // Blow a body apart when it holds more heat than its gravitational binding energy (3/5 GM²/R):
+  // the excess becomes the debris' outward speed.
+  vaporize(b, excessJ, cause) {
+    const free = PCAP - this.np - this.pending.length;
+    const count = Math.min(free, b.m > 1e-7 ? 1200 : 400);
+    const vesc = Math.sqrt((2 * G * b.m) / b.r);
+    const vEx = Math.sqrt((2 * Math.max(excessJ, 0)) / (b.m * 1.98847e30)) / 4740.47; // m/s -> AU/yr
+    const vmax = Math.min(Math.max(vEx, vesc * 1.2), 0.05 * 63241); // at most 5% of light speed
+    for (let k = 0; k < count; k++) {
+      const u = randUnit();
+      const rr = b.r * Math.cbrt(rand());
+      const sp = vmax * (0.4 + 0.6 * rand());
+      this.spawnParticle(b.x + u[0] * rr, b.y + u[1] * rr, b.z + u[2] * rr, b.vx + u[0] * sp, b.vy + u[1] * sp, b.vz + u[2] * sp, b.m / Math.max(1, count), rand() < 0.6 ? PK.HOT : PK.ROCK);
+    }
+    b.alive = false;
+    b.mergedInto = null;
+    this.flashes.push({ x: b.x, y: b.y, z: b.z, r: b.r * 10, born: performance.now(), life: 2500, color: [255, 230, 200] });
+    this.events.push({ text: `${b.name} ${cause}: it absorbed more energy than holds it together and blew apart`, body: b, big: true });
   }
 
   // ---------- time stepping ----------
@@ -661,6 +681,18 @@ export class World {
         const dvx = this.pvx[i] - b.vx, dvy = this.pvy[i] - b.vy, dvz = this.pvz[i] - b.vz;
         accreteHeat(b, m, dvx * dvx + dvy * dvy + dvz * dvz);
         accreteMaterial(b, m, this.pk[i]);
+        // Meteors leave craters too (rate-limited so a shower doesn't wipe older scars at once).
+        if (b.kind === 'rocky' && this.pk[i] !== PK.GAS && this.pk[i] !== PK.SN_H) {
+          const now = performance.now();
+          const recent = b.impacts ? b.impacts.filter((h) => now - h.t < 400).length : 0;
+          if (recent < 6) {
+            const nx = this.px[i] - b.x, ny = this.py[i] - b.y, nz = this.pz[i] - b.z, d = Math.hypot(nx, ny, nz) || 1;
+            const ratio = m / b.m, v2 = dvx * dvx + dvy * dvy + dvz * dvz, ve2 = (2 * G * b.m) / b.r;
+            b.impacts = b.impacts || [];
+            b.impacts.push({ x: nx / d, y: ny / d, z: nz / d, e: Math.min(1, 0.55 + 2e4 * ratio * (1 + v2 / ve2)), size: 0.03 + Math.min(0.3, 15 * Math.cbrt(ratio)), t: now });
+            if (b.impacts.length > 16) b.impacts.shift();
+          }
+        }
         b.vx = (b.vx * b.m + this.pvx[i] * m) / M;
         b.vy = (b.vy * b.m + this.pvy[i] * m) / M;
         b.vz = (b.vz * b.m + this.pvz[i] * m) / M;

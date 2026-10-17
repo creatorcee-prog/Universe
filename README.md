@@ -27,11 +27,44 @@ including straight from the Files app in some browsers.
 | Two-finger drag / twist | Pan / turn |
 | Tap | Inspect an object: mass, radius, temperature, orbit, period, eccentricity |
 | Double-tap | Lock the camera on an object and zoom to it |
-| Padlock button / chip | Lock onto the selection (or what's in the centre), or unlock. While locked, two-finger drags never pull the view off the object, and you can't zoom inside it |
-| **Read** (info card) or book button | Open the book: real-world facts and figures, live numbers from your simulation, an explainer for its kind of object, and sources |
-| **Add** tool, tap | Drop the chosen object into a circular orbit around whatever dominates that spot |
-| **Add** tool, drag | Fling it. A dashed line predicts its path; a red X marks an impact |
-| Time slider | 1 second per second up to 300 million years per second |
+| Lock chip (top) | Unlock. While locked, two-finger drags never pull the view off the object, and you can't zoom inside it. **Surface lock** turns the camera with the planet so the ground stays still |
+| **Read** (object panel) or book button | Open the book: real-world facts and figures, live numbers from your simulation, an explainer for its kind of object, and sources |
+
+The layout follows Universe Sandbox's:
+
+- **Bottom bar**
+  - Play/pause.
+  - Elapsed time and time speed, with « » to step the speed.
+  - **＋ Create**, **Sim**, **View** and **Tools**.
+
+  On phones the panels open as sheets above the bar; on tablets and desktops they open as a side panel, so the
+  simulation stays usable.
+- **Create**: a gallery of every object with rendered thumbnails, filtered by category.
+  - Pick one, then tap the view.
+  - **Orbit** drops it into a circular orbit around whatever dominates that spot; **Place** drops it at rest
+    relative to that body.
+  - Drag instead of tapping to fling it. A dashed line predicts its path; a red X marks an impact.
+- **Sim**: the fine time-speed slider (1 second per second up to 300 million years per second), collisions,
+  restart, clear debris and scenarios.
+- **View**: style (Realistic, Classic, Pixel), glow, trails, trail colours (by object, orbital velocity or
+  temperature), labels, grid, stars, camera lock and reset, and Photo mode.
+- **Tools**:
+  - Select and look.
+  - Create.
+  - **Laser**: hold on an object to pour 10¹⁵–10³² W into it. It heats up and melts, its light pushes it
+    gently (F = P/c), and once it absorbs more energy than its gravitational binding energy (3GM²/5R) it blows
+    apart.
+  - Delete.
+  - Surface view.
+- **Object panel tabs**:
+  - *Overview*: mass, radius, temperature, density, surface gravity, escape velocity, and actions.
+  - *Motion*: orbit and day length.
+  - *Surface* (planets):
+    - a live equirectangular map of local temperature or habitability, with the sub-solar point marked;
+    - pressure, albedo, oceans and ice;
+    - **Seed life** and **Kill all life** buttons.
+  - *Composition*: interior and atmosphere as stacked bars.
+  - *Star*: luminosity, age, stage, time left and fate.
 
 On a desktop browser: mouse drag, wheel zoom, shift-drag or right-drag to pan, <kbd>Space</kbd> pause,
 <kbd>A</kbd> add tool, <kbd>L</kbd> lock camera, <kbd>B</kbd> open the book, <kbd>,</kbd>/<kbd>.</kbd> slower/faster, <kbd>Delete</kbd> removes the selection.
@@ -172,7 +205,9 @@ source list on every entry.
 
   Select a star and use **Go supernova** to skip ahead.
 - **Temperature zones**: select a star, or any object glowing with its own heat (for example a planet melted
-  by a giant impact), and tap **Show temperature zones**. Rings in the orbital plane show:
+  by a giant impact), and tap **Show temperature zones**. In the Realistic and Pixel views this paints a
+  temperature field across the orbital plane, adding up the light of every heat source, so binary stars give
+  correctly shaped zones: red too hot, green habitable, blue cold. Rings in the orbital plane show:
   - *molten rock*: equilibrium temperature above 1,400 K;
   - *too hot for liquid water*;
   - *the habitable zone*: Kopparapu et al. 2013 edges, adjusted for the star's temperature, 0.95–1.68 AU for
