@@ -146,6 +146,12 @@ Switch in **Settings → View**.
   headphones); Settings → "Bass boost for the phone speaker" turns it on.
   Sound starts on the first tap (a browser rule). It plays even with the iPhone on silent, unless
   Settings → "Quiet when the iPhone is on silent" is on (that mode also lets your music keep playing).
+- **Image maps** (assets/maps, equirectangular, 0° longitude at the centre): Venus uses the Magellan
+  radar mosaic and Titan the brightness of its haze top. They are stored as brightness relative to their
+  mean, so the shaders keep physically chosen colours: Venus's radar brightness (roughness and
+  elevation, not colour) shades its dark basalt ground and relief, seen in the surface view or if its
+  clouds are stripped; Titan's tints its haze (darker northern hood). A haze thicker than optical depth
+  3 (Titan's is ~5) now hides the ground from space, as a cloud deck does.
 - **Surface view terrain**: standing on a world you see real ground around you, a mesh from your feet to
   ~150 km built from the same continental noise as the globe (Earth's real continents line up), with
   rolling hills, mountain ridges, dunes and crater fields. Ground cover follows the globe's climate

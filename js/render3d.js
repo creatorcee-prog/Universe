@@ -9,6 +9,30 @@ import { earthMap, moonMap } from './geography.js';
 
 let EARTH_MAP = null, MOON_MAP = null; // built once, on first use
 
+// Image maps (equirectangular, 0° longitude at the centre, east to the right), stored as brightness
+// relative to the map's mean (0.5 = average) so the shaders keep their own physically chosen colours:
+//   mode 3 — Venus: Magellan radar mosaic (shown in false orange in the source). Radar brightness
+//            tracks roughness and elevation (tesserae and highlands bright, smooth lava plains dark),
+//            so it shades the ground and its relief; the rock colour stays dark basalt.
+//   mode 4 — Titan: brightness of the haze top (darker northern polar hood); tints the haze only.
+const PHOTO = [[/^Venus( \d+)?$/, 'venus', 3], [/^Titan( \d+)?$/, 'titan', 4]];
+const photoImg = {};
+function photoMap(b) {
+  if (b.kind !== 'rocky') return null;
+  const p = PHOTO.find(([re]) => re.test(b.name));
+  if (!p) return null;
+  const [, file, mode] = p;
+  let e = photoImg[file];
+  if (!e) {
+    e = photoImg[file] = { img: null };
+    const inline = typeof window !== 'undefined' && window.__MAPS__ && window.__MAPS__[file];
+    const im = new Image();
+    im.onload = () => { e.img = im; };
+    im.src = inline || `assets/maps/${file}.jpg`;
+  }
+  return e.img ? { mode, img: e.img, W: e.img.width, H: e.img.height, ver: 1 } : null;
+}
+
 // Realistic view: WebGL2 spheres with procedural, physically driven surfaces.
 // Positions are taken relative to the camera in double precision before going to the GPU,
 // so the same scene works from a few kilometres up to galaxy scale.
@@ -23,7 +47,8 @@ const c3 = (r, g, b) => [r / 255, g / 255, b / 255];
 const LOOKS = {
   Sun: { kind: 2, spots: 1, tilt: 7.25, day: 609 },
   Mercury: { colA: c3(128, 122, 115), colB: c3(92, 87, 82), craters: 1, tilt: 0.03, day: 1407.6 },
-  Venus: { colA: c3(200, 160, 100), colB: c3(160, 120, 80), cloud: 1, colC: c3(236, 214, 160), atmo: c3(255, 220, 150), atmoK: 0.7, tilt: 177.4, day: 5832.5 },
+  // Venus's rock is dark grey basalt; the orange in lander photos is the light filtered by the air.
+  Venus: { colA: c3(118, 108, 96), colB: c3(84, 78, 72), cloud: 1, colC: c3(236, 214, 160), atmo: c3(255, 220, 150), atmoK: 0.7, tilt: 177.4, day: 5832.5 },
   Earth: { aurora: 1, colA: c3(120, 100, 70), colB: c3(150, 130, 95), ocean: 0.7, life: 1, cloud: 0.62, atmo: c3(90, 150, 255), atmoK: 1, tilt: 23.4, day: 23.93 },
   Moon: { colA: c3(160, 156, 150), colB: c3(92, 90, 88), craters: 1, tilt: 6.7, day: 655.7, locked: 1 },
   Mars: { profile: 5, aurora: 0, colA: c3(196, 112, 64), colB: c3(150, 82, 48), craters: 0.35, atmo: c3(230, 140, 90), atmoK: 0.25, tilt: 25.2, day: 24.6 },
@@ -965,7 +990,11 @@ export class Renderer3D {
     gl.uniform3fv(u.uColB, l.colB || [0.4, 0.4, 0.4]);
     gl.uniform3fv(u.uColC, l.colC || [0.95, 0.96, 1]);
     gl.uniform1f(u.uOcean, th ? th.ocean : 0);
-    gl.uniform1f(u.uCloud, th && l.kind === 0 ? th.cloud : 0); // giants show their bands, not a rocky planet's cloud deck
+    // Giants show their bands, not a rocky planet's cloud deck. A haze too thick to see through (Titan's,
+    // optical depth ~5) hides the ground from space just as a full cloud deck does.
+    let cover = th && l.kind === 0 ? th.cloud : 0;
+    if (l.kind === 0 && cover < 1) { const o = atmosphereOptics(b); if (o && o.tauM > 3) cover = 1; }
+    gl.uniform1f(u.uCloud, cover);
     gl.uniform1f(u.uCraters, l.craters || 0);
     gl.uniform1f(u.uLife, b.life ? 1 : 0);
     gl.uniform1f(u.uBands, l.bands || 6);
@@ -997,6 +1026,7 @@ export class Renderer3D {
     // Surface maps: Earth's geography and the Moon's maria are built in; painting adds one to any world.
     if (!b.surfaceMap && /^Earth( \d+)?$/.test(b.name) && b.kind === 'rocky') b.surfaceMap = { mode: 1, W: 512, H: 256, data: (EARTH_MAP ||= earthMap()).slice(), ver: 1 };
     if (!b.surfaceMap && /^Moon( \d+)?$/.test(b.name) && b.kind === 'rocky') b.surfaceMap = { mode: 2, W: 512, H: 256, data: (MOON_MAP ||= moonMap()).slice(), ver: 1 };
+    if (!b.surfaceMap) b.surfaceMap = photoMap(b) || undefined;
     const sm = b.surfaceMap;
     if (sm) {
       let t = this.mapTex.get(b);
@@ -1012,7 +1042,12 @@ export class Renderer3D {
       gl.activeTexture(gl.TEXTURE5);
       gl.bindTexture(gl.TEXTURE_2D, t.tex);
       if (t.ver !== sm.ver) {
-        if (t.ver < 0 || !sm.dirtyRows) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, sm.W, sm.H, 0, gl.RGBA, gl.UNSIGNED_BYTE, sm.data);
+        if (sm.img) {
+          // Image maps are only ever shown whole, often small on screen: mipmapped against shimmer.
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, sm.img);
+          gl.generateMipmap(gl.TEXTURE_2D);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+        } else if (t.ver < 0 || !sm.dirtyRows) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, sm.W, sm.H, 0, gl.RGBA, gl.UNSIGNED_BYTE, sm.data);
         else {
           const [y0, y1] = sm.dirtyRows;
           gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y0, sm.W, y1 - y0 + 1, gl.RGBA, gl.UNSIGNED_BYTE, sm.data.subarray(y0 * sm.W * 4, (y1 + 1) * sm.W * 4));

@@ -427,7 +427,7 @@ void main() {
     float landMask = uOcean > 0.0 ? smoothstep(sea, sea + 0.012, h) : 1.0;
     // Surface map (equirectangular, east-positive longitude): real or painted geography.
     vec4 MP = vec4(0.0);
-    float coast = 0.5, mapW = 0.0;
+    float coast = 0.5, mapW = 0.0, mapH = 0.0;
     if (uMapMode > 0.5) {
       vec2 uvM = vec2(atan(-vObj.z, vObj.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(vObj.y, -1.0, 1.0)) / 3.14159265);
       MP = texture(uMap, uvM);
@@ -444,8 +444,10 @@ void main() {
         mtn = max(mtn, rg * rg * (0.35 + 0.65 * rg2) * MP.g * 1.7);
         landMask = max(landMask, smoothstep(0.15, 0.35, MP.g));
       }
+      // Radar map (Venus): bright = rough highlands, dark = smooth plains; R is brightness / (2 × mean).
+      else if (uMapMode > 2.5 && uMapMode < 3.5) mapH = 0.3 * (MP.r - 0.5);
     }
-    float Hgt = (uOcean > 0.0 ? max(e, 0.0) : h - 0.5) + 0.14 * mtn + 0.006 * vnoise(q * 38.0);
+    float Hgt = (uOcean > 0.0 ? max(e, 0.0) : h - 0.5) + 0.14 * mtn + 0.006 * vnoise(q * 38.0) + mapH;
     // Relief shading: tilt the normal by the slope of the height field (screen-space bump mapping),
     // so mountain ranges and valleys show, most of all near the terminator.
     {
@@ -534,8 +536,9 @@ void main() {
     cityLand = landMask; cityE = e; cityIce = MP.b;
     // Mapped ice sheets (Greenland, Antarctica) and painted ice.
     col = mix(col, ice * (0.92 + 0.08 * rg2), (uMapMode < 1.5 ? 1.0 : 0.0) * smoothstep(0.35, 0.6, MP.b));
+    if (uMapMode > 2.5 && uMapMode < 3.5) col *= 0.6 + 0.8 * MP.r;
     // Albedo maps: dark basaltic maria and bright ray systems on the Moon.
-    if (uMapMode > 1.5) {
+    if (uMapMode > 1.5 && uMapMode < 2.5) {
       // Maria: irregular, lobed edges and darker and lighter lava flows within; ray systems on top.
       float mare = smoothstep(0.15, 0.8, MP.r + (fbm(q * 5.0 + 1.0, 4) - 0.5) * 0.35 + (vnoise(q * 30.0) - 0.5) * 0.1);
       vec3 mc = mix(vec3(0.21, 0.21, 0.22), vec3(0.31, 0.3, 0.29), fbm(q * 9.0 + 4.0, 3));
@@ -616,6 +619,8 @@ void main() {
     col *= 1.0 - 0.45 * cs * (1.0 - cloud) * uCloud;
     // Thick cloud tops are brighter, thin edges greyer.
     vec3 cc = uColC * (0.72 + 0.32 * smoothstep(thr, thr + 0.25, cl));
+    // Haze map (Titan): the real brightness pattern of the haze top, relative to its mean.
+    if (uMapMode > 3.5 && uMapMode < 4.5) cc *= 2.0 * texture(uMap, vec2(atan(-vObj.z, vObj.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(vObj.y, -1.0, 1.0)) / 3.14159265)).r;
     col = mix(col, cc, cloud);
   }
   vec3 Hv = normalize(uL0 + V);
@@ -751,6 +756,7 @@ vec2 bigTerrain(vec3 d) {
     e = mix(e, (coast - 0.5) * 0.12, MP.a) + 0.22 * MP.g;
     mtn = max(mtn, rg * rg * (0.35 + 0.65 * rg2) * MP.g * 1.7);
   }
+  if (uMapMode > 2.5 && uMapMode < 3.5) e += 0.25 * (texture(uMap, vec2(atan(-d.z, d.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(d.y, -1.0, 1.0)) / 3.14159265)).r - 0.5);
   return vec2(e, mtn);
 }
 // Height above sea level (m). Real topography scales roughly as 1/g (uRelief: ~4 km on Earth).
@@ -949,6 +955,7 @@ void main() {
     soil = mix(soil, soil * vec3(1.15, 1.0, 0.8), desert * 0.5);
     vec3 rock = mix(vec3(0.33, 0.31, 0.29), uColB * 0.85, uOcean > 0.0 ? 0.35 : 0.75) * (0.8 + 0.4 * n2);
     col = soil;
+    if (uMapMode > 2.5 && uMapMode < 3.5) col *= 0.6 + 0.8 * texture(uMap, vec2(atan(-vDir.z, vDir.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(vDir.y, -1.0, 1.0)) / 3.14159265)).r;
     if (uLife > 0.0) {
       float warm = smoothstep(255.0, 280.0, T) * smoothstep(335.0, 305.0, T);
       float veg = uLife * warm * smoothstep(0.36, 0.56, moist) * (1.0 - smoothstep(0.35, 0.6, slope));
