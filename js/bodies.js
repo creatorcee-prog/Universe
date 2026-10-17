@@ -154,7 +154,7 @@ export function refresh(b) {
     b.lum = starLuminosity(b.m);
     b.color = tempToRGB(b.temp);
   } else if (b.kind === 'wd') {
-    b.temp = 25000; b.lum = 0.01; b.color = tempToRGB(b.temp);
+    if (b.wdAge === undefined) { b.temp = 25000; b.lum = 0.01; b.color = tempToRGB(b.temp); }
   } else if (b.kind === 'ns') {
     b.temp = 600000; b.lum = 0.05; b.color = [190, 220, 255];
   } else if (b.kind === 'bh') {
@@ -173,7 +173,7 @@ export function refresh(b) {
 export function reclassify(b) {
   let event = null;
   const before = b.kind;
-  if (b.kind === 'wd' && b.m > 1.44) { b.kind = 'ns'; b.r = km(12); event = 'Chandrasekhar limit exceeded: collapsed into a neutron star'; }
+  if (b.kind === 'wd' && b.m > 1.44) { b.pendingDeath = 'Passed the Chandrasekhar limit of 1.44 M☉'; }
   if (b.kind === 'ns' && b.m > 2.3) { b.kind = 'bh'; event = 'Neutron star collapsed into a black hole'; }
   if (b.kind === 'star' && b.m > 150) { b.kind = 'bh'; event = 'Star too massive: collapsed into a black hole'; }
   if (b.kind === 'rocky' && b.m > 10 * EARTH_MASS) { b.kind = 'gas'; b.r = Math.max(b.r, gasRadius(b.m)); if (!b.band) { b.color = [200, 170, 130]; b.band = [160, 110, 80]; } }

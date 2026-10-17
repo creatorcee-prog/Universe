@@ -46,7 +46,8 @@ class App {
   // Realistic: WebGL draws the scene and the 2D canvas overlays trails, labels and markers.
   // Classic: the 2D canvas draws everything.
   setView(view, quiet = false) {
-    if (view === 'realistic' && !this.r3d) {
+    if (this.surface && view === 'classic') this.exitSurface();
+    if ((view === 'realistic' || view === 'pixel') && !this.r3d) {
       try {
         this.r3d = new Renderer3D(this.glCanvas, this.world, this.cam, this.settings);
       } catch (err) {
@@ -55,7 +56,7 @@ class App {
         view = 'classic';
       }
     }
-    const real = view === 'realistic';
+    const real = view === 'realistic' || view === 'pixel';
     this.settings.view = view;
     this.renderer.overlay = real;
     this.glCanvas.hidden = !real;
@@ -64,11 +65,114 @@ class App {
     this.ui?.onView?.(view);
   }
 
+  // ---------- surface view ----------
+
+  enterSurface(b, where = 'day') {
+    if (!this.r3d || !this.renderer.overlay) { this.ui.toast('Switch to the Realistic or Pixel view to stand on a surface.'); return; }
+    if (b.kind !== 'rocky') { this.ui.toast(`${b.name} has no solid surface to stand on.`); return; }
+    const keep = this.surface ? this.surface.prevSpeed : this.state.speed;
+    this.surface = { body: b, where, lat: 0, lon: 0, yaw: 0, pitch: 0.15, place: true, up: [0, 1, 0], sun: [1, 0, 0], sunPower: 0, prevSpeed: keep };
+    // Slow time so one local day lasts about two minutes and the Sun can be watched crossing the sky.
+    const day = Math.abs(this.r3d.look(b).day || 24) / 8766;
+    this.ui.setSpeed(Math.min(keep, day / 120));
+    this.cam.follow = b;
+    this.select(null);
+    this.ui.showSurface(this.surface);
+  }
+
+  exitSurface() {
+    const b = this.surface && this.surface.body;
+    if (this.surface) this.ui.setSpeed(this.surface.prevSpeed);
+    this.surface = null;
+    this.cam.override = null;
+    if (b && b.alive) { this.cam.follow = b; this.cam.dist = this.cam.distGoal = b.r * 6; }
+    this.cam.update();
+    this.ui.showSurface(null);
+  }
+
+  updateSurface() {
+    const sv = this.surface;
+    const b = this.world.resolve(sv.body);
+    if (!b || b.kind !== 'rocky') { this.ui.toast('The ground you were standing on is gone.', true); this.exitSurface(); return; }
+    sv.body = b;
+    const R = this.r3d.bodyRotation(b); // column-major object -> world
+    const toW = (v) => [R[0] * v[0] + R[3] * v[1] + R[6] * v[2], R[1] * v[0] + R[4] * v[1] + R[7] * v[2], R[2] * v[0] + R[5] * v[1] + R[8] * v[2]];
+    const toO = (v) => [R[0] * v[0] + R[1] * v[1] + R[2] * v[2], R[3] * v[0] + R[4] * v[1] + R[5] * v[2], R[6] * v[0] + R[7] * v[1] + R[8] * v[2]];
+    // Brightest star as seen from here.
+    let star = null, best = 0;
+    for (const s of this.world.bodies) {
+      if (s === b || !(s.lum > 0)) continue;
+      const f = s.lum / ((s.x - b.x) ** 2 + (s.y - b.y) ** 2 + (s.z - b.z) ** 2);
+      if (f > best) { best = f; star = s; }
+    }
+    let sun = [1, 0, 0];
+    if (star) { const d = Math.hypot(star.x - b.x, star.y - b.y, star.z - b.z); sun = [(star.x - b.x) / d, (star.y - b.y) / d, (star.z - b.z) / d]; }
+    if (sv.place) {
+      sv.place = false;
+      const so = toO(sun);
+      if (sv.where === 'north') { sv.lat = 1.3; sv.lon = 0; }
+      else if (sv.where === 'south') { sv.lat = -1.3; sv.lon = 0; }
+      else {
+        const sgn = sv.where === 'night' ? -1 : 1;
+        sv.lat = Math.asin(Math.max(-1, Math.min(1, so[1] * sgn)));
+        sv.lon = Math.atan2(so[2] * sgn, so[0] * sgn);
+        // Face the Sun's side of the sky on the day side, away from it at night.
+        sv.yaw = 0;
+      }
+    }
+    const no = [Math.cos(sv.lat) * Math.cos(sv.lon), Math.sin(sv.lat), Math.cos(sv.lat) * Math.sin(sv.lon)];
+    const n = toW(no);
+    const pole = toW([0, 1, 0]);
+    const dp = pole[0] * n[0] + pole[1] * n[1] + pole[2] * n[2];
+    let north = [pole[0] - dp * n[0], pole[1] - dp * n[1], pole[2] - dp * n[2]];
+    let nl = Math.hypot(...north);
+    if (nl < 1e-6) { north = toW([1, 0, 0]); nl = Math.hypot(...north); }
+    north = north.map((v) => v / nl);
+    const east = [north[1] * n[2] - north[2] * n[1], north[2] * n[0] - north[0] * n[2], north[0] * n[1] - north[1] * n[0]];
+    const cp = Math.cos(sv.pitch), sp = Math.sin(sv.pitch), cy = Math.cos(sv.yaw), sy = Math.sin(sv.yaw);
+    const f = [0, 1, 2].map((i) => cp * (cy * north[i] + sy * east[i]) + sp * n[i]);
+    let r = [f[1] * n[2] - f[2] * n[1], f[2] * n[0] - f[0] * n[2], f[0] * n[1] - f[1] * n[0]];
+    const rl = Math.hypot(...r) || 1; r = r.map((v) => v / rl);
+    const u = [r[1] * f[2] - r[2] * f[1], r[2] * f[0] - r[0] * f[2], r[0] * f[1] - r[1] * f[0]];
+    const h = b.r * 1.0012; // eye a little above the ground
+    this.cam.override = { eye: [b.x + n[0] * h, b.y + n[1] * h, b.z + n[2] * h], f, r, u };
+    this.cam.dist = this.cam.distGoal = b.r * 0.01;
+    sv.up = n; sv.sun = sun; sv.sunPower = star ? 1 : 0;
+    // Local conditions for the readout.
+    const th = b.th;
+    const elev = Math.asin(Math.max(-1, Math.min(1, sun[0] * n[0] + sun[1] * n[1] + sun[2] * n[2])));
+    if (th) {
+      const p = b.atm.p + th.steam;
+      // Air carries heat round to the night side; airless ground is near radiative balance with the Sun
+      // overhead (sub-solar ~1.41x the mean) and freezes at night (the Moon swings ~390 K to ~95 K).
+      const base = th.Ts + th.latSpan * (0.33 - Math.sin(sv.lat) ** 2);
+      const se = Math.max(0, Math.sin(elev));
+      const dn = p > 10 ? 0.01 : 0.06;
+      const w = 1 / (1 + p / 0.004);
+      sv.localT = base * ((1 - w) * (1 + dn * (Math.sqrt(se) - 0.45)) + w * Math.max(0.4, 1.414 * Math.pow(se, 0.25)));
+    }
+    sv.elev = elev;
+  }
+
+  // Photo mode: hide every control and label for clean screenshots; tap to come back.
+  setPhoto(on) {
+    this.photo = on;
+    document.getElementById('app').classList.toggle('photo', on);
+    this.renderer.photo = on;
+    if (on) {
+      const h = document.getElementById('photo-hint');
+      h.classList.remove('fade');
+      void h.offsetWidth;
+      h.classList.add('fade');
+    }
+  }
+
   saveSettings() {
     try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(this.settings)); } catch { /* storage unavailable */ }
   }
 
   loadPreset(id) {
+    if (this.surface) this.exitSurface();
     const p = PRESETS.find((x) => x.id === id) || PRESETS[0];
     this.world.reset();
     this.world.collisions = this.settings.collisions;
@@ -301,14 +405,17 @@ class App {
   }
 
   step(now) {
-    const dtReal = Math.min(0.1, (now - this.last) / 1000);
+    const dtReal = Math.min(0.25, (now - this.last) / 1000);
     this.last = now;
     const w = this.world;
     let done = 0;
     if (!this.state.paused && dtReal > 0) {
-      const want = this.state.speed * Math.min(dtReal, 1 / 20);
+      // Simulated time follows real time even at low frame rates, so the time-speed label stays true.
+      const frameDt = Math.min(dtReal, 0.25);
+      const want = this.state.speed * frameDt;
       done = w.advance(want, 8);
-      this.rate = this.rate * 0.9 + (done / Math.min(dtReal, 1 / 20)) * 0.1;
+      this.rate = this.rate * 0.85 + (done / frameDt) * 0.15;
+      w.limited = w.limited || this.rate < this.state.speed * 0.9;
       if (done > 0) this.renderer.sampleTrails();
     } else {
       w.limited = false;
@@ -327,11 +434,18 @@ class App {
       this.select(r);
     }
     while (w.events.length) this.ui.event(w.events.shift());
+    // After a supernova, pull the camera back to keep the expanding shell in view.
+    if (this.snZoom && this.cam.follow === this.snZoom.body) {
+      const age = w.t - this.snZoom.t0;
+      if (age > 0) this.cam.distGoal = Math.max(this.cam.distGoal, Math.min(this.snZoom.limit, 3 * this.snZoom.v * age));
+      if (age > 50) this.snZoom = null;
+    }
+    if (this.surface) this.updateSurface();
     this.cam.tick(now, dtReal);
     this.updateAddPreview();
     const a = this.adding;
     const preview = a && a.v ? { x: a.P[0], y: a.P[1], z: a.P[2], path: a.path, bound: a.bound, hit: a.hit, dragTo: a.dragTo } : a ? { x: a.P[0], y: a.P[1], z: a.P[2] } : null;
-    const ui = { selected: this.state.selected, preview };
+    const ui = { selected: this.state.selected, preview, surface: this.surface };
     if (this.renderer.overlay) this.r3d.draw(now, ui, dtReal, done);
     this.renderer.draw(now, ui);
     this.ui.tick(now);

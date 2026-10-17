@@ -53,6 +53,7 @@
       <div>
         <h2 id="i-name">—</h2>
         <p id="i-type">—</p>
+        <p id="i-hab" class="hab" hidden></p>
       </div>
       <button id="i-book" class="book-btn" type="button">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6.5C10 5 7 4.5 3.5 5v13c3.5-.5 6.5 0 8.5 1.5 2-1.5 5-2 8.5-1.5V5C17 4.5 14 5 12 6.5z"/><path d="M12 6.5v13"/></svg>
@@ -78,9 +79,22 @@
       <button id="i-double" type="button">Mass ×2</button>
       <button id="i-delete" class="danger" type="button">Delete</button>
     </div>
+    <button id="i-death" class="info-extra" type="button" hidden>End of life</button>
+    <button id="i-stand" class="info-extra stand" type="button" hidden>Stand on the surface</button>
   </section>
 
+  <section id="surface-bar" class="surface-bar" hidden aria-label="Surface view">
+    <div class="surface-head"><span>Standing on <b id="sv-name"></b></span><button id="sv-leave" type="button">Leave</button></div>
+    <div class="surface-where" role="group" aria-label="Where to stand">
+      <button type="button" data-where="day">Day side</button>
+      <button type="button" data-where="night">Night side</button>
+      <button type="button" data-where="north">North pole</button>
+      <button type="button" data-where="south">South pole</button>
+    </div>
+    <p id="sv-readout" class="surface-readout"></p>
+  </section>
   <div id="toast" class="toast" hidden role="status"></div>
+  <div id="photo-hint" class="photo-hint" aria-hidden="true">Photo mode · tap anywhere to return</div>
 
   <div id="hint" class="hint">
     <p><b>Drag</b> to orbit · <b>Pinch</b> to zoom · <b>Two fingers</b> to pan</p>
@@ -173,6 +187,7 @@
         <legend>View</legend>
         <label class="view-opt"><input type="radio" name="view" value="realistic" id="view-realistic"><span><b>Realistic</b><small>3D worlds that heat up, scar, freeze and stretch under real forces</small></span></label>
         <label class="view-opt"><input type="radio" name="view" value="classic" id="view-classic"><span><b>Classic</b><small>The original lightweight 2D look, easiest on battery</small></span></label>
+        <label class="view-opt"><input type="radio" name="view" value="pixel" id="view-pixel"><span><b>Pixel</b><small>Retro pixel art with a dithered palette, made for screenshots</small></span></label>
         <label class="view-opt disabled"><input type="radio" name="view" value="nasa" id="view-nasa" disabled><span><b>NASA models</b><small>Planned: real 3D models of spacecraft, asteroids and comets</small></span></label>
       </fieldset>
       <label class="switch"><input id="set-bloom" type="checkbox"><span>Glow around bright and hot objects (Realistic view)</span></label>
@@ -185,6 +200,7 @@
       <div class="settings-actions">
         <button id="btn-reset" type="button">Restart scenario</button>
         <button id="btn-clear" type="button">Clear dust &amp; debris</button>
+        <button id="btn-photo" type="button" class="wide">Photo mode: hide the interface</button>
       </div>
       <p class="about">The camera lock keeps the view centred on one object: orbit, pinch and twist all work around it, and two-finger drags no longer pull the camera away. Double-tap an object, use its Lock view button, or the padlock in the toolbar.</p>
       <p class="about">Newtonian N-body gravity in units of AU, solar masses and years. Sizes are true to scale, so small worlds show as dots until you zoom in. Bodies merge on contact and break apart inside the Roche limit.</p>

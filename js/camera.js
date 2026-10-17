@@ -10,6 +10,7 @@ export class Camera {
     this.follow = null;
     this.W = 1; this.H = 1;
     this.trans = null; // smooth hand-off between targets
+    this.override = null; // surface view: an explicit eye position and orientation
     this.update();
   }
 
@@ -59,6 +60,14 @@ export class Camera {
   }
 
   update() {
+    if (this.override) {
+      // Surface view: eye and basis supplied directly (target = eye, no orbit offset).
+      const o = this.override;
+      this.tx = o.eye[0]; this.ty = o.eye[1]; this.tz = o.eye[2];
+      this.ox = 0; this.oy = 0; this.oz = 0;
+      [this.fx, this.fy, this.fz] = o.f; [this.rx, this.ry, this.rz] = o.r; [this.ux, this.uy, this.uz] = o.u;
+      return;
+    }
     const cp = Math.cos(this.pitch), sp = Math.sin(this.pitch), cy = Math.cos(this.yaw), sy = Math.sin(this.yaw);
     // Offset from target to camera.
     this.ox = this.dist * cp * sy; this.oy = this.dist * sp; this.oz = this.dist * cp * cy;
@@ -77,7 +86,7 @@ export class Camera {
     const dx = x - this.tx - this.ox, dy = y - this.ty - this.oy, dz = z - this.tz - this.oz;
     const cz = dx * this.fx + dy * this.fy + dz * this.fz;
     if (cz <= this.dist * 1e-6) return -1;
-    const cx = dx * this.rx + dz * this.rz;
+    const cx = dx * this.rx + dy * this.ry + dz * this.rz;
     const cy = dx * this.ux + dy * this.uy + dz * this.uz;
     const s = this.F / cz;
     out.x = this.W / 2 + cx * s;
@@ -88,7 +97,7 @@ export class Camera {
 
   // Camera-space components of a direction vector.
   dirToCam(x, y, z, out) {
-    out.x = x * this.rx + z * this.rz;
+    out.x = x * this.rx + y * this.ry + z * this.rz;
     out.y = x * this.ux + y * this.uy + z * this.uz;
     out.z = x * this.fx + y * this.fy + z * this.fz;
     return out;
@@ -98,7 +107,7 @@ export class Camera {
   ray(sx, sy) {
     const cx = (sx - this.W / 2) / this.F, cy = -(sy - this.H / 2) / this.F;
     const x = this.fx + cx * this.rx + cy * this.ux;
-    const y = this.fy + cy * this.uy;
+    const y = this.fy + cx * this.ry + cy * this.uy;
     const z = this.fz + cx * this.rz + cy * this.uz;
     const l = Math.hypot(x, y, z);
     return [x / l, y / l, z / l];

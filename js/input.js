@@ -28,6 +28,7 @@ export class Input {
 
   down(e) {
     e.preventDefault();
+    if (this.app.photo) { this.app.setPhoto(false); return; }
     this.canvas.setPointerCapture?.(e.pointerId);
     const [x, y] = this.pos(e);
     this.pointers.set(e.pointerId, { x, y, x0: x, y0: y, t0: performance.now() });
@@ -67,13 +68,20 @@ export class Input {
     p.x = x; p.y = y;
     const cam = this.app.cam;
     if (this.mode === 'tap' && Math.hypot(x - p.x0, y - p.y0) > 6) this.mode = 'rotate';
-    if (this.mode === 'rotate') {
+    if (this.mode === 'rotate' && this.app.surface) {
+      // Surface view: drag to look around.
+      const sv = this.app.surface;
+      sv.yaw -= dx * 0.005;
+      sv.pitch = Math.max(-0.7, Math.min(1.5, sv.pitch + dy * 0.005));
+    } else if (this.mode === 'rotate') {
       cam.yaw -= dx * 0.006;
       cam.pitch = Math.max(-1.54, Math.min(1.54, cam.pitch + dy * 0.006));
     } else if (this.mode === 'pan') {
       this.pan(dx, dy);
     } else if (this.mode === 'add') {
       this.app.addMove(x, y);
+    } else if (this.mode === 'pinch' && this.app.surface) {
+      // no zoom while standing on a surface
     } else if (this.mode === 'pinch' && this.pointers.size >= 2) {
       const [a, b] = [...this.pointers.values()];
       const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;

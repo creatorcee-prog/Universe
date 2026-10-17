@@ -605,3 +605,59 @@ void main() {
   outColor = vec4(c, 1.0);
 }
 `;
+
+// Pixel view: nearest-neighbour upscale of a low-resolution render, posterised to a small palette
+// with 4x4 ordered (Bayer) dithering, like hand-made pixel art.
+export const PIXEL_FS = HEAD + `
+in vec2 vUV;
+uniform sampler2D uScene, uBloom;
+uniform vec2 uLow;
+uniform float uScale, uBloomK, uLevels;
+out vec4 outColor;
+const float BAYER[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
+void main() {
+  vec2 p = floor(gl_FragCoord.xy / uScale);
+  vec2 uv = (p + 0.5) / uLow;
+  vec3 c = texelFetch(uScene, ivec2(min(p, uLow - 1.0)), 0).rgb + texture(uBloom, uv).rgb * uBloomK;
+  float l = max(c.r, max(c.g, c.b));
+  if (l > 0.82) { float m = 0.82 + 0.18 * (1.0 - exp(-(l - 0.82) / 0.18)); c *= m / l; }
+  int i = int(mod(p.y, 4.0)) * 4 + int(mod(p.x, 4.0));
+  float d = BAYER[i] / 16.0; // 0..0.94: near-black stays black, so the sky has no dot grid
+  c = pow(max(c, 0.0), vec3(0.85));
+  c = max(c - 0.05, 0.0) * 1.05; // faint glow (Milky Way, bloom haze) drops to black instead of dithering into dots
+  c = floor(c * uLevels + d) / uLevels;
+  outColor = vec4(pow(c, vec3(1.0 / 0.85)), 1.0);
+}
+`;
+
+// Sky seen from a planet's surface. Colour and brightness come from the atmosphere (pressure and
+// composition): Rayleigh-blue for nitrogen and oxygen, butterscotch for thick CO2, orange for methane
+// haze, white for steam. Sunsets redden near the horizon; airless worlds show black sky and stars.
+export const SURFACE_SKY_FS = HEAD + `
+in vec2 vUV;
+uniform mat3 uView;
+uniform vec2 uTan;
+uniform vec3 uUp, uSun;      // world directions: local up, toward the brightest star
+uniform vec3 uSkyCol;
+uniform float uDensity;      // 0 airless .. ~1.5 very thick
+uniform float uSunPower;     // sunlight strength (0 with no star)
+out vec4 outColor;
+void main() {
+  vec3 dv = normalize(vec3((vUV.x * 2.0 - 1.0) * uTan.x, (vUV.y * 2.0 - 1.0) * uTan.y, -1.0));
+  vec3 d = transpose(uView) * dv;
+  float h = dot(d, uUp);
+  float e = dot(uSun, uUp);
+  float day = smoothstep(-0.18, 0.12, e) * uSunPower;
+  float horizon = pow(1.0 - max(h, 0.0), 4.0);
+  vec3 sky = uSkyCol * (0.55 + 0.9 * horizon);
+  // Sunset: long light paths at low sun scatter away blue, leaving orange and red.
+  float low = pow(1.0 - abs(e), 6.0) * pow(1.0 - max(h, 0.0), 2.0);
+  sky = mix(sky, vec3(1.0, 0.45, 0.18), clamp(low * 0.9, 0.0, 0.85));
+  float cosA = max(dot(d, uSun), 0.0);
+  float glow = pow(cosA, 600.0) * 4.0 + pow(cosA, 12.0) * 0.35 * uDensity;
+  float a = clamp(uDensity * day, 0.0, 1.0);
+  vec3 col = sky * a + vec3(1.0, 0.92, 0.8) * glow * day * min(uDensity, 1.0);
+  // Below the horizon the ground covers this, but keep a faint haze line.
+  outColor = vec4(col, max(a, glow * day));
+}
+`;

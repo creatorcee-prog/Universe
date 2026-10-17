@@ -1,9 +1,10 @@
 import { G } from './units.js';
 import { reclassify, refresh, isLuminous } from './bodies.js';
-import { thermalStep, mergeThermal, finishMerge, accreteHeat } from './thermal.js';
+import { thermalStep, mergeThermal, finishMerge, accreteHeat, accreteMaterial } from './thermal.js';
+import { evolveStar, stellarDeath, transientLum } from './stellar.js';
 
 // Particle kinds (purely visual categories; particles carry mass but do not attract each other).
-export const PK = { DEBRIS: 0, HOT: 1, STAR_BLUE: 2, STAR_GOLD: 3, ICE: 4, DUST: 5, GAS: 6, ROCK: 7 };
+export const PK = { DEBRIS: 0, HOT: 1, STAR_BLUE: 2, STAR_GOLD: 3, ICE: 4, DUST: 5, GAS: 6, ROCK: 7, SN_H: 8, SN_O: 9, SN_SI: 10, SN_FE: 11 };
 
 const PCAP = 16000; // free particles
 const RCAP = 12000; // ring particles locked to a host body
@@ -18,6 +19,16 @@ function randUnit() {
   const t = rand() * Math.PI * 2;
   const s = Math.sqrt(1 - u * u);
   return [s * Math.cos(t), u, s * Math.sin(t)];
+}
+
+// Does the segment from (ax,ay,az) to (bx,by,bz) pass within sqrt(r2) of (cx,cy,cz)?
+function segHit(ax, ay, az, bx, by, bz, cx, cy, cz, r2) {
+  const ex = bx - ax, ey = by - ay, ez = bz - az;
+  const wx = cx - ax, wy = cy - ay, wz = cz - az;
+  const e2 = ex * ex + ey * ey + ez * ez;
+  const t = e2 > 0 ? Math.max(0, Math.min(1, (wx * ex + wy * ey + wz * ez) / e2)) : 0;
+  const dx = wx - ex * t, dy = wy - ey * t, dz = wz - ez * t;
+  return dx * dx + dy * dy + dz * dz < r2;
 }
 
 export function captureRadius(b) {
@@ -48,6 +59,7 @@ export class World {
     this.nr = 0;
     this.pending = [];
     this.ringOuter = new Map(); // host body -> outer ring radius
+    this.transients = []; // supernova light, fading
     this.events = [];
     this.flashes = [];
     this.dirty = true;
@@ -439,6 +451,7 @@ export class World {
 
     this.stepParticles(att, steps, t0, done);
     this.flushPending();
+    this.evolveStars(done);
     thermalStep(this, done);
     this.releaseOrphanRings();
     if (this.ringOuter.size) this.disturbRings();
@@ -489,8 +502,8 @@ export class World {
     const na = att.length, stride = na * 4;
     const cp = this.cp, cpT = this.cpT;
     // Precompute attractor states at the midpoints used by 1, 2, 4, ... 32 sub-steps.
-    const LEVELS = 6;
-    if (!this.samp || this.samp.length < 64 * MAX_ATTRACTORS * 4) this.samp = new Float64Array(64 * MAX_ATTRACTORS * 4);
+    const LEVELS = 8; // up to 128 sub-steps for particles diving close to compact objects
+    if (!this.samp || this.samp.length < 256 * MAX_ATTRACTORS * 4) this.samp = new Float64Array(256 * MAX_ATTRACTORS * 4);
     const samp = this.samp;
     const levelOff = [];
     let off = 0, seg = 0;
@@ -522,6 +535,13 @@ export class World {
       cap2[a] = c * c;
       soft2[a] = att[a].soft * att[a].soft + 1e-30;
     }
+    // Compact objects (black holes, neutron stars, white dwarfs) get the finest sub-steps,
+    // but only for particles that are actually close to one.
+    const compact = [];
+    for (let a = 0; a < na; a++) {
+      const k = att[a].kind;
+      if (k === 'bh' || k === 'ns' || k === 'wd') compact.push(a);
+    }
     const px = this.px, py = this.py, pz = this.pz, vx = this.pvx, vy = this.pvy, vz = this.pvz, ptl = this.ptl;
     const absorbed = [];
     for (let i = 0; i < np; i++) {
@@ -541,7 +561,12 @@ export class World {
       }
       let L = Math.ceil(Math.log2(span / (0.08 * tl)));
       if (!(L > 0)) L = 0;
-      if (L >= LEVELS) L = LEVELS - 1;
+      let Lmax = 5;
+      for (const a of compact) {
+        const dx = cp[a * 4] - x, dy = cp[a * 4 + 1] - y, dz = cp[a * 4 + 2] - z;
+        if (dx * dx + dy * dy + dz * dz < cap2[a] * 4e6) { Lmax = LEVELS - 1; break; }
+      }
+      if (L > Lmax) L = Lmax;
       const ns = 1 << L, hh = span / ns;
       let minT2 = Infinity, hitA = -1;
       // First sub-step sums every attractor and notes the dominant one (the "host").
@@ -549,7 +574,9 @@ export class World {
       // re-evaluate only the host and hold the other bodies' (nearly uniform) pull fixed.
       let host = -1, extx = 0, exty = 0, extz = 0;
       for (let k = 0; k < ns && hitA < 0; k++) {
+        const sx = x, sy = y, sz = z;
         x += ux * hh * 0.5; y += uy * hh * 0.5; z += uz * hh * 0.5;
+        const mx = x, my = y, mz = z;
         const base = levelOff[L] + k * na * 4;
         let ax = 0, ay = 0, az = 0;
         if (k === 0 || host < 0) {
@@ -587,6 +614,37 @@ export class World {
         }
         ux += ax * hh; uy += ay * hh; uz += az * hh;
         x += ux * hh * 0.5; y += uy * hh * 0.5; z += uz * hh * 0.5;
+        // Swept capture: did this sub-step's path pass through the host (or, on the first
+        // sub-step, any attractor)? Without this, fast particles skip over small black holes.
+        if (hitA < 0) {
+          const a0 = k === 0 || host < 0 ? 0 : host, a1 = k === 0 || host < 0 ? na : host + 1;
+          for (let a = a0; a < a1 && hitA < 0; a++) {
+            const q = base + a * 4;
+            const m = samp[q + 3];
+            if (m === 0) continue;
+            const hx = samp[q], hy = samp[q + 1], hz = samp[q + 2];
+            // Cheap reject: nothing to hit if the target is further away than this step can travel.
+            const qx = mx - hx, qy = my - hy, qz = mz - hz;
+            const reach = Math.sqrt(ux * ux + uy * uy + uz * uz) * hh + Math.sqrt(cap2[a]);
+            if (qx * qx + qy * qy + qz * qz > 4 * reach * reach && qx * qx + qy * qy + qz * qz > cap2[a] * 1e6) continue;
+            // Both legs of the kick-drift-kick path.
+            if (segHit(sx, sy, sz, mx, my, mz, hx, hy, hz, cap2[a]) || segHit(mx, my, mz, x, y, z, hx, hy, hz, cap2[a])) { hitA = a; break; }
+            // Falling in faster than the step can resolve: if the orbit's closest approach lies inside
+            // the capture radius and the particle reaches it within this step, it is swallowed.
+            const rx = x - hx, ry = y - hy, rz = z - hz;
+            const r = Math.sqrt(rx * rx + ry * ry + rz * rz);
+            const rv = rx * ux + ry * uy + rz * uz;
+            if (rv < 0 && r < 1e3 * Math.sqrt(cap2[a])) {
+              const mu = G * m, v2 = ux * ux + uy * uy + uz * uz;
+              const hxv = ry * uz - rz * uy, hyv = rz * ux - rx * uz, hzv = rx * uy - ry * ux;
+              const h2 = hxv * hxv + hyv * hyv + hzv * hzv;
+              const en = v2 / 2 - mu / r;
+              const ecc = Math.sqrt(Math.max(0, 1 + (2 * en * h2) / (mu * mu)));
+              const peri = h2 / (mu * (1 + ecc));
+              if (peri < Math.sqrt(cap2[a]) && r / Math.sqrt(v2) < hh * 2) { hitA = a; break; }
+            }
+          }
+        }
       }
       px[i] = x; py[i] = y; pz[i] = z; vx[i] = ux; vy[i] = uy; vz[i] = uz;
       ptl[i] = minT2 < Infinity ? Math.sqrt(minT2) : tl;
@@ -602,6 +660,7 @@ export class World {
         const M = b.m + m;
         const dvx = this.pvx[i] - b.vx, dvy = this.pvy[i] - b.vy, dvz = this.pvz[i] - b.vz;
         accreteHeat(b, m, dvx * dvx + dvy * dvy + dvz * dvz);
+        accreteMaterial(b, m, this.pk[i]);
         b.vx = (b.vx * b.m + this.pvx[i] * m) / M;
         b.vy = (b.vy * b.m + this.pvy[i] * m) / M;
         b.vz = (b.vz * b.m + this.pvz[i] * m) / M;
@@ -617,6 +676,42 @@ export class World {
       if (ev) this.events.push({ text: `${b.name}: ${ev}`, body: b, big: true });
       this.dirty = true;
     }
+  }
+
+  // ---------- stars ----------
+
+  evolveStars(dt) {
+    let died = false;
+    for (const b of this.bodies) {
+      if (!b.alive) continue;
+      const before = b.m;
+      const due = b.pendingDeath || (evolveStar(b, dt) === 'die' ? null : false);
+      if (b.m !== before) this.dirty = true;
+      if (due !== false) {
+        const text = stellarDeath(this, b, typeof due === 'string' ? due : null);
+        delete b.pendingDeath;
+        if (text) this.events.push({ text, body: b.alive ? b : null, big: true });
+        died = true;
+      }
+    }
+    if (died) {
+      this.bodies = this.bodies.filter((b) => b.alive);
+      this.dirty = true;
+      this.flushPending();
+    }
+    this.transients = this.transients.filter((t) => transientLum(t, this.t) > t.peak * 1e-4);
+    for (const t of this.transients) { t.x += t.vx * dt; t.y += t.vy * dt; t.z += t.vz * dt; }
+  }
+
+  // Trigger a star's death now (the "End of life" button).
+  killStar(b) {
+    if (b.kind !== 'star' && b.kind !== 'wd') return null;
+    const text = stellarDeath(this, b, 'was pushed to the end of its life');
+    if (!b.alive) this.bodies = this.bodies.filter((o) => o.alive);
+    this.dirty = true;
+    this.flushPending();
+    if (text) this.events.push({ text, body: b.alive ? b : null, big: true });
+    return text;
   }
 
   // ---------- orbital helpers ----------

@@ -1,7 +1,8 @@
 import { PK } from './physics.js';
 import { isLuminous, tempToRGB } from './bodies.js';
+import { transientLum } from './stellar.js';
 import { EARTH_MASS } from './units.js';
-import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS } from './shaders.js';
+import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS } from './shaders.js';
 
 // Realistic view: WebGL2 spheres with procedural, physically driven surfaces.
 // Positions are taken relative to the camera in double precision before going to the GPU,
@@ -84,6 +85,7 @@ function tiltSpin(tilt, ang) {
 }
 
 function sphere(seg, rings) {
+  const big = (seg + 1) * (rings + 1) > 65535;
   const pos = [], idx = [];
   for (let j = 0; j <= rings; j++) {
     const v = j / rings, th = v * Math.PI;
@@ -96,14 +98,17 @@ function sphere(seg, rings) {
     const a = j * (seg + 1) + i, b = a + seg + 1;
     idx.push(a, a + 1, b, b, a + 1, b + 1);
   }
-  return { pos: new Float32Array(pos), idx: new Uint16Array(idx) };
+  return { pos: new Float32Array(pos), idx: big ? new Uint32Array(idx) : new Uint16Array(idx), big };
 }
 
 const PARTICLE_RGB = {
   [PK.DEBRIS]: c3(150, 120, 96), [PK.HOT]: c3(255, 170, 90), [PK.STAR_BLUE]: c3(150, 180, 255), [PK.STAR_GOLD]: c3(255, 214, 160),
   [PK.ICE]: c3(214, 206, 190), [PK.DUST]: c3(150, 126, 100), [PK.GAS]: c3(214, 184, 146), [PK.ROCK]: c3(120, 112, 104),
+  // Supernova and nebula materials, coloured like their emission lines: hydrogen-alpha red,
+  // oxygen teal, silicon/sulfur gold, iron white-hot.
+  [PK.SN_H]: c3(255, 70, 90), [PK.SN_O]: c3(70, 230, 210), [PK.SN_SI]: c3(255, 200, 80), [PK.SN_FE]: c3(230, 225, 255),
 };
-const GLOW_KINDS = new Set([PK.HOT, PK.STAR_BLUE, PK.STAR_GOLD]);
+const GLOW_KINDS = new Set([PK.HOT, PK.STAR_BLUE, PK.STAR_GOLD, PK.SN_H, PK.SN_O, PK.SN_SI, PK.SN_FE]);
 
 export class Renderer3D {
   static supported() {
@@ -140,7 +145,8 @@ export class Renderer3D {
     this.pPoints = this.program(POINTS_VS, POINTS_FS);
     this.pLines = this.program(LINES_VS, LINES_FS);
     this.pSky = this.program(SKY_VS, SKY_FS);
-    this.spheres = [sphere(16, 12), sphere(40, 28), sphere(96, 64)].map((g) => {
+    // Level-of-detail spheres; the last (very fine) one is only used for the ground in the surface view.
+    this.spheres = [sphere(16, 12), sphere(40, 28), sphere(96, 64), sphere(400, 260)].map((g) => {
       const vao = gl.createVertexArray();
       gl.bindVertexArray(vao);
       const vb = gl.createBuffer();
@@ -152,7 +158,7 @@ export class Renderer3D {
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
       gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, g.idx, gl.STATIC_DRAW);
       gl.bindVertexArray(null);
-      return { vao, n: g.idx.length };
+      return { vao, n: g.idx.length, type: g.big ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT };
     });
     this.quad = gl.createVertexArray();
     gl.bindVertexArray(this.quad);
@@ -170,6 +176,8 @@ export class Renderer3D {
     this.pDown = this.program(FULL_VS, DOWN_FS);
     this.pUp = this.program(FULL_VS, UP_FS);
     this.pComp = this.program(FULL_VS, COMPOSITE_FS);
+    this.pPixel = this.program(FULL_VS, PIXEL_FS);
+    this.pSurfSky = this.program(FULL_VS, SURFACE_SKY_FS);
     this.hdr = !!gl.getExtension('EXT_color_buffer_float');
     this.post = null;
   }
@@ -284,12 +292,56 @@ export class Renderer3D {
         low = dst;
       }
     }
-    gl.useProgram(this.pComp.p);
-    this.bindTex(0, p.scene.tex, this.pComp.u.uScene);
-    this.bindTex(1, p.up[0].tex, this.pComp.u.uBloom);
-    gl.uniform1f(this.pComp.u.uBloomK, bloom ? (this.hdr ? 0.32 : 0.22) : 0);
-    this.fullscreen(this.pComp, null, p.W, p.H);
+    if (this.pixelScale > 1) {
+      const px = this.pPixel;
+      gl.useProgram(px.p);
+      this.bindTex(0, p.scene.tex, px.u.uScene);
+      this.bindTex(1, p.up[0].tex, px.u.uBloom);
+      gl.uniform2f(px.u.uLow, p.W, p.H);
+      gl.uniform1f(px.u.uScale, this.pixelScale);
+      gl.uniform1f(px.u.uBloomK, bloom ? 0.4 : 0);
+      gl.uniform1f(px.u.uLevels, 5);
+      this.fullscreen(px, null, this.canvas.width, this.canvas.height);
+    } else {
+      gl.useProgram(this.pComp.p);
+      this.bindTex(0, p.scene.tex, this.pComp.u.uScene);
+      this.bindTex(1, p.up[0].tex, this.pComp.u.uBloom);
+      gl.uniform1f(this.pComp.u.uBloomK, bloom ? (this.hdr ? 0.32 : 0.22) : 0);
+      this.fullscreen(this.pComp, null, p.W, p.H);
+    }
     gl.depthMask(true);
+  }
+
+  // Orientation (object -> world) the 3D view gives a body: axial tilt and current spin.
+  bodyRotation(b) {
+    const l = this.look(b), s = this.spin.get(b);
+    return tiltSpin((l.tilt || 0) * D2R, s ? s.ang : 0);
+  }
+
+  // Atmospheric sky over the surface view, blended over the stars by its brightness.
+  drawSurfaceSky(sv) {
+    const gl = this.gl, p = this.pSurfSky, u = p.u, cam = this.cam, b = sv.body;
+    const atm = b.atm, th = b.th;
+    const pTot = atm ? atm.p + (th ? th.steam : 0) : 0;
+    const dens = pTot > 0 ? Math.max(0, Math.min(1.5, (Math.log10(pTot) + 3) / 2.5)) : 0;
+    let col = [0.3, 0.55, 1.0]; // nitrogen/oxygen: Rayleigh blue
+    if (th && th.steam > 1) col = [0.85, 0.88, 0.92];
+    else if (atm && atm.gases.ch4 > 0.01 * pTot) col = [0.9, 0.6, 0.3];
+    else if (atm && atm.co2 > 0.5) col = pTot > 5 ? [0.95, 0.72, 0.42] : [0.82, 0.6, 0.45]; // Venus haze / Martian dust
+    const t = Math.tan(cam.fov / 2);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); // shader output is premultiplied
+    gl.useProgram(p.p);
+    gl.uniformMatrix3fv(u.uView, false, this.V);
+    gl.uniform2f(u.uTan, t * (this.canvas.width / this.canvas.height), t);
+    gl.uniform3fv(u.uUp, sv.up);
+    gl.uniform3fv(u.uSun, sv.sun);
+    gl.uniform3fv(u.uSkyCol, col);
+    gl.uniform1f(u.uDensity, dens);
+    gl.uniform1f(u.uSunPower, sv.sunPower);
+    gl.bindVertexArray(this.quad);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.disable(gl.BLEND);
   }
 
   drawMilkyWay() {
@@ -414,8 +466,15 @@ export class Renderer3D {
   draw(now, ui, dtReal, simDt) {
     if (this.lost) return;
     const gl = this.gl, cam = this.cam, world = this.world;
-    const W = this.canvas.width, H = this.canvas.height;
-    if (W === 0 || H === 0) return;
+    // The Pixel view renders at a fraction of the resolution and is upscaled with hard edges.
+    const scale = this.settings.view === 'pixel' ? Math.max(2, Math.round(3 * this.dpr)) : 1;
+    this.pixelScale = scale;
+    const W = Math.max(1, Math.floor(this.canvas.width / scale)), H = Math.max(1, Math.floor(this.canvas.height / scale));
+    if (this.canvas.width === 0 || this.canvas.height === 0) return;
+    const dprSave = this.dpr;
+    if (scale > 1) this.dpr = Math.max(0.5, this.dpr / scale);
+    this.Hcur = H;
+    try {
     if (!this.post || this.post.W !== W || this.post.H !== H) this.buildPost(W, H);
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.post ? this.post.ms : null);
     gl.viewport(0, 0, W, H);
@@ -431,12 +490,14 @@ export class Renderer3D {
     this.logFC = 2 / Math.log2(far + 1);
     this.ex = cam.tx + cam.ox; this.ey = cam.ty + cam.oy; this.ez = cam.tz + cam.oz;
 
-    if (this.settings.stars) {
+    this.surface = ui.surface || null;
+    if (this.settings.stars || this.surface) {
       gl.disable(gl.DEPTH_TEST);
       gl.disable(gl.BLEND);
       this.drawMilkyWay();
       this.drawSky();
     }
+    if (this.surface) this.drawSurfaceSky(this.surface);
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
     gl.depthMask(true);
@@ -455,8 +516,19 @@ export class Renderer3D {
 
     const glows = [];
     for (const b of world.bodies) this.drawBody(b, now, glows);
+    // Supernova light: a blinding point that fades over weeks.
+    for (const t of world.transients) {
+      const L = transientLum(t, world.t);
+      const [x, y, z] = [(t.x - cam.tx) - cam.ox, (t.y - cam.ty) - cam.oy, (t.z - cam.tz) - cam.oz];
+      const vp = this.viewOf(x, y, z);
+      const depth = -vp[2];
+      if (depth <= 0) continue;
+      const px = Math.min(this.Hcur * 0.6, (12 + 14 * Math.log10(1 + L)) * this.dpr);
+      const rgb = tempToRGB(t.temp).map((v) => (v / 255) * 1.6);
+      glows.push(() => this.sprite(vp, (px * depth) / this.F, rgb, 0, 0, 0));
+    }
     this.drawParticles(false);
-    if (this.settings.grid) this.drawGrid();
+    if (this.settings.grid && !this.surface) this.drawGrid();
 
     // Additive passes: atmospheres, disks, glows, hot particles.
     gl.enable(gl.BLEND);
@@ -468,6 +540,9 @@ export class Renderer3D {
     gl.depthMask(true);
     gl.disable(gl.BLEND);
     if (this.post) this.finish();
+    } finally {
+      this.dpr = dprSave;
+    }
   }
 
   rel(b) {
@@ -490,6 +565,13 @@ export class Renderer3D {
       const f = s.lum / Math.max(d2, 1e-18);
       flux += f;
       L.push({ f, dx, dy, dz, d: Math.sqrt(d2), s });
+    }
+    for (const t of this.world.transients) {
+      const dx = t.x - b.x, dy = t.y - b.y, dz = t.z - b.z;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      const f = transientLum(t, this.world.t) / Math.max(d2, 1e-18);
+      flux += f;
+      L.push({ f, dx, dy, dz, d: Math.sqrt(d2), s: { temp: t.temp } });
     }
     L.sort((a, c) => c.f - a.f);
     const out = [];
@@ -535,7 +617,7 @@ export class Renderer3D {
     const Rpx = R * pxPerAU;
     if (Rpx < minPx) R = minPx / pxPerAU;
     const shownPx = Math.max(Rpx, minPx);
-    const lod = shownPx > (b.impacts ? 60 : 140) ? 2 : shownPx > 22 ? 1 : 0;
+    const lod = this.surface && this.surface.body === b ? 3 : shownPx > (b.impacts ? 60 : 140) ? 2 : shownPx > 22 ? 1 : 0;
 
     const spin = this.spin.get(b);
     const rot = tiltSpin((l.tilt || 0) * D2R, spin ? spin.ang : 0);
@@ -587,7 +669,7 @@ export class Renderer3D {
     gl.uniform1f(u.uOcean, th ? th.ocean : 0);
     gl.uniform1f(u.uCloud, th ? th.cloud : 0);
     gl.uniform1f(u.uCraters, l.craters || 0);
-    gl.uniform1f(u.uLife, l.life || 0);
+    gl.uniform1f(u.uLife, b.life ? 1 : 0);
     gl.uniform1f(u.uBands, l.bands || 6);
     gl.uniform1f(u.uBandK, l.bandK ?? 0.7);
     gl.uniform1f(u.uVolc, l.volc || 0);
@@ -613,7 +695,7 @@ export class Renderer3D {
     if (b.atm && l.kind === 0) {
       const p = b.atm.p + (th ? th.steam : 0);
       atmoK = (l.atmoK ?? 0.8) * Math.max(0, Math.min(1.3, (Math.log10(Math.max(p, 1e-9)) + 3) / 3));
-      if (!atmo && p > 0.01) atmo = th && th.steam > 1 ? [0.92, 0.94, 1] : b.atm.co2 > 0.5 && p > 5 ? [1, 0.85, 0.6] : [0.5, 0.7, 1];
+      if (!atmo && p > 0.01) atmo = th && th.steam > 1 ? [0.92, 0.94, 1] : b.atm.gases.ch4 > 0.01 * p ? [0.95, 0.65, 0.3] : b.atm.co2 > 0.5 && p > 5 ? [1, 0.85, 0.6] : [0.5, 0.7, 1];
       if (atmoK <= 0) atmo = null;
     }
     // A hot world's atmosphere glows orange instead of scattering blue.
@@ -623,10 +705,10 @@ export class Renderer3D {
     gl.uniform1f(u.uAtmoK, atmo ? atmoK : 0);
     const g = this.spheres[lod];
     gl.bindVertexArray(g.vao);
-    gl.drawElements(gl.TRIANGLES, g.n, gl.UNSIGNED_SHORT, 0);
+    gl.drawElements(gl.TRIANGLES, g.n, g.type, 0);
 
     // Glows and other additive layers, drawn after all solid bodies.
-    if (atmo && shownPx > 3) {
+    if (atmo && shownPx > 3 && !(this.surface && this.surface.body === b)) {
       const thick = l.kind === 1 ? 1.015 : 1.035;
       glows.push(() => {
         const a = this.pAtmo, au = a.u;
@@ -647,7 +729,7 @@ export class Renderer3D {
         gl.uniform1f(au.uAtmoK, atmoK);
         gl.uniform3fv(au.uL0, ld[0]);
         gl.bindVertexArray(g.vao);
-        gl.drawElements(gl.TRIANGLES, g.n, gl.UNSIGNED_SHORT, 0);
+        gl.drawElements(gl.TRIANGLES, g.n, g.type, 0);
         gl.cullFace(gl.BACK);
         gl.disable(gl.CULL_FACE);
       });
@@ -739,7 +821,7 @@ export class Renderer3D {
     gl.uniformMatrix4fv(u.uProj, false, this.P);
     gl.uniformMatrix3fv(u.uView, false, this.V);
     gl.uniform1f(u.uF, this.F);
-    gl.uniform1f(u.uMinPx, (glowPass ? 1.6 : 1.1) * this.dpr);
+    gl.uniform1f(u.uMinPx, (glowPass ? 2 : 1.1) * this.dpr);
     gl.uniform1f(u.uMaxPx, 64 * this.dpr);
     gl.uniform1i(u.uGlow, glowPass ? 1 : 0);
     gl.uniform3fv(u.uLight, this.particleLight || [0, 0, 1]);
@@ -761,7 +843,7 @@ export class Renderer3D {
       const v = 0.82 + 0.36 * ((k * 0.61803) % 1);
       if (GLOW_KINDS.has(kind)) {
         glow.pos[ng * 3] = x; glow.pos[ng * 3 + 1] = y; glow.pos[ng * 3 + 2] = z;
-        const a = kind === PK.HOT ? 0.45 : 0.55;
+        const a = kind === PK.HOT ? 0.45 : kind >= PK.SN_H ? 1.1 : 0.55;
         glow.col[ng * 3] = c[0] * a * v; glow.col[ng * 3 + 1] = c[1] * a * v; glow.col[ng * 3 + 2] = c[2] * a * v;
         glow.size[ng] = kind === PK.HOT ? size : 0;
         glow.shade[ng] = 1;

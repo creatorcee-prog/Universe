@@ -6,6 +6,7 @@ const TRAIL_LEN = 360;
 const PARTICLE_RGB = {
   [PK.DEBRIS]: [196, 150, 116], [PK.HOT]: [255, 196, 130], [PK.STAR_BLUE]: [168, 196, 255], [PK.STAR_GOLD]: [255, 218, 168],
   [PK.ICE]: [214, 220, 232], [PK.DUST]: [190, 160, 128], [PK.GAS]: [214, 184, 146], [PK.ROCK]: [164, 148, 132],
+  [PK.SN_H]: [255, 80, 100], [PK.SN_O]: [80, 230, 210], [PK.SN_SI]: [255, 205, 90], [PK.SN_FE]: [230, 228, 255],
 };
 
 // On-screen radius in device pixels that both views give a body (tiny bodies get a minimum size).
@@ -105,6 +106,9 @@ export class Renderer {
     this.selected = ui.selected;
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
+    if (this.photo) {
+      if (this.overlay) { ctx.clearRect(0, 0, W, H); return; }
+    }
     if (this.overlay) {
       ctx.clearRect(0, 0, W, H);
       this.gridSpacing = Math.pow(10, Math.floor(Math.log10(cam.dist / 1.5)));
@@ -128,8 +132,8 @@ export class Renderer {
     this.drawBodies(now, ui);
     this.drawFrontRings();
     this.drawFlashes(now);
-    if (ui.preview) this.drawPreview(ui.preview);
-    if (this.settings.labels) this.drawLabels(ui);
+    if (ui.preview && !this.photo) this.drawPreview(ui.preview);
+    if (this.settings.labels && !this.photo) this.drawLabels(ui);
   }
 
   drawStars() {
@@ -320,6 +324,7 @@ export class Renderer {
     for (const [, b, p] of list) {
       const R = b.r * p.s;
       let shown = R;
+      if (ui.surface && ui.surface.body === b) continue; // the ground we are standing on
       if (this.overlay) {
         shown = shownRadius(b, p, dpr);
         if (b.comet) this.drawCometTail(b, p);

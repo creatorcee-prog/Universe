@@ -39,7 +39,7 @@ On a desktop browser: mouse drag, wheel zoom, shift-drag or right-drag to pan, <
 ## Scenarios
 
 Solar System (with Saturn's rings, the asteroid and Kuiper belts, Ceres and Halley's Comet) · Earth & Moon · Jupiter's Moons ·
-Moon-Forming Impact · Planet Formation · Binary Star · Rogue Black Hole · Tidal Disruption ·
+Moon-Forming Impact · Planet Formation · Binary Star · Rogue Black Hole · Tidal Disruption · Supernova ·
 Galaxy Collision · Empty Star.
 
 ## Views
@@ -65,6 +65,17 @@ Switch in **Settings → View**.
   - Hot rocky worlds grow a dark basalt crust broken by lava pools that spread as the temperature rises.
   - Stars show granulation, limb darkening and sunspots; black holes have a Doppler-brightened
     accretion disk that flares when they feed.
+- **Pixel**: the Realistic scene rendered at low resolution with a limited palette and ordered (Bayer)
+  dithering, for screenshots. **Photo mode** (Settings, or the `p` key) hides every control; tap to bring
+  them back.
+- **Surface view**: select a rocky world and tap **Stand on the surface** (Realistic or Pixel view). You stand
+  on the ground and turn with the planet; pick the day side, night side or either pole, and drag to look
+  around. Time slows so a local day lasts about two minutes. The sky's colour and brightness come from the
+  atmosphere model: blue Rayleigh skies for nitrogen and oxygen, a butterscotch haze for thick CO₂, a dusty
+  pink for thin CO₂, orange for methane haze, white for steam, and black with stars where there is no air.
+  The readout shows latitude, local temperature, the Sun's height and air pressure. Local temperature uses
+  the planet's mean temperature plus latitude, with day/night swings that are small under thick air and large
+  on airless ground (the Moon goes from about 390 K at noon to 95 K at night).
 - **Classic**: the original 2D canvas renderer. Lighter on battery and older phones.
 - **NASA models**: planned, see [docs/ROADMAP.md](docs/ROADMAP.md).
 
@@ -89,11 +100,34 @@ hydrogen/helium) and an **atmosphere** (surface pressure, CO₂ share). Mergers 
   Venus's 92 bar), becoming a steam atmosphere that raises the greenhouse further, and rains back out once
   it cools.
 
+- **Atmospheres** are a mix of N₂, O₂, CO₂, CH₄ and H₂, tracked as partial pressures, and they change over
+  time:
+  - *Escape*: each gas leaks to space according to its Jeans parameter, the ratio of gravitational binding to
+    thermal energy for that molecule. Small or hot worlds lose light gases first, which is why the Moon and
+    Mercury have none.
+  - *Condensation*: CO₂, N₂ and CH₄ freeze onto the cold poles below their frost points and sublimate back as
+    it warms, as Mars's and Pluto's do.
+  - *Volcanoes and weathering*: young or impact-heated worlds outgas CO₂. Liquid water weathers it into
+    rock faster when it is warm, the carbonate–silicate thermostat that keeps Earth temperate.
+  - *Life*: living worlds make O₂ and methane, and that oxygen decays without life.
+  - Comets and supernova ejecta deliver water, ices, gas and metals.
+- **Habitability** checks seven conditions:
+  - liquid water;
+  - 250–330 K;
+  - 0.01–100 bar;
+  - enough gravity to keep air;
+  - 0.2–3× Earth's sunlight;
+  - a solid surface;
+  - rock, water and carbon.
+
+  Simple life appears after 300 million years of continuous liquid water and dies out after a thousand years
+  without it. The book's live page lists each check.
+
 Feedbacks happen on their own: move Earth inward past about 0.9 AU and it enters a runaway greenhouse; out
 to 1.25 AU and ice-albedo feedback freezes it into a snowball. Climate studies put the real thresholds in
 roughly the same places.
 
-Calibration (model / measured mean surface temperature, K): Mercury 419/440, Venus 732/737, Earth 285/288,
+Calibration (model / measured mean surface temperature, K): Mercury 419/440, Venus 732/737, Earth 291/288,
 Moon 269/250, Mars 220/210, Ceres 161/168, Jupiter 127/124, Saturn 95/95, Uranus 58/59, Neptune 58/59,
 Pluto 40/44. Measured values: NASA Planetary Fact Sheets. Threshold references: Kasting et al. (1993),
 *Icarus* 101, 108; Kopparapu et al. (2013), *ApJ* 765, 131.
@@ -121,12 +155,28 @@ source list on every entry.
   per-particle sub-stepping. Ring particles ride analytic circular orbits so they stay stable at any speed,
   and are released as free debris if their planet is destroyed.
 - **Comets** grow a blue ion tail and a dust tail pointing away from the strongest star once they come within a few AU.
-- **Stars** get radius, temperature, luminosity and black-body colour from main-sequence relations.
+- **Stars** get radius, temperature, luminosity and black-body colour from main-sequence relations, and they
+  age:
+  - *Lifetime*: about 10 Gyr × M^−2.5. Main-sequence stars brighten slowly; the Sun is about 30% brighter
+    than at birth.
+  - *Giant phase*: in the last 10% of their lives stars swell into red giants (about 200 R☉, about 2,000 L☉
+    for the Sun) or supergiants (up to about 1,000 R☉ and 10⁵ L☉), losing mass in winds.
+  - *Below 8 M☉*: the star sheds a planetary nebula and leaves a white dwarf that cools from about 100 L☉.
+  - *8 M☉ and above*: the core collapses in a Type II supernova, leaving a neutron star (below about 20 M☉)
+    or a black hole.
+  - *White dwarf pushed past 1.44 M☉*: it detonates as a Type Ia supernova and leaves nothing.
+  - *Ejecta*: thousands of particles of hydrogen, oxygen, silicon and iron, each with mass. The fast hydrogen
+    flies outside and the slower heavy elements stay inside, as in real remnants, and the ejecta enrich
+    whatever they hit.
+  - *The flash*: its light peaks around 10⁹ L☉ and fades over months, heating any planets nearby.
+
+  Select a star and use **Go supernova** to skip ahead.
 
 ### Simplifications
 
-Universe Sandbox also models climate, material composition, rotation and spin, and soft-body
-deformation; Pocket Universe models none of these. Gravity is Newtonian, so there is no relativity,
+Climate, composition and stellar evolution are simple parametric models, not radiative-transfer or
+stellar-structure codes. Rotation is visual only (no spin dynamics or tidal locking), and there is no
+soft-body deformation. Gravity is Newtonian, so there is no relativity,
 gravitational waves or light lensing. Particles do not attract each other. Galaxies are two softened
 mass points with test-particle disks, not self-gravitating dark-matter halos. Planetesimals in
 *Planet Formation* are given inflated radii so they collide on a watchable timescale.

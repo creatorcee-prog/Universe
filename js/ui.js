@@ -61,6 +61,13 @@ export class UI {
       else { app.follow(b); this.toast(`Camera locked on ${b.name}`); }
       this.refreshInfo(true);
     });
+    $('i-death').addEventListener('click', () => {
+      const b = app.state.selected;
+      if (!b) return;
+      app.world.killStar(b);
+      if (!b.alive) app.select(null);
+      this.refreshInfo(true);
+    });
     $('i-half').addEventListener('click', () => this.scaleMass(0.5));
     $('i-double').addEventListener('click', () => this.scaleMass(2));
     $('i-delete').addEventListener('click', () => {
@@ -72,9 +79,17 @@ export class UI {
       this.toast(`Removed ${b.name}`);
     });
     $('btn-reset').addEventListener('click', () => { app.loadPreset(app.state.preset.id); this.closeSheets(); });
+    $('i-stand').addEventListener('click', () => { if (app.state.selected) app.enterSurface(app.state.selected, 'day'); });
+    $('sv-leave').addEventListener('click', () => app.exitSurface());
+    document.querySelectorAll('[data-where]').forEach((btn) => btn.addEventListener('click', () => {
+      if (!app.surface) return;
+      app.surface.where = btn.dataset.where; app.surface.place = true; app.surface.pitch = 0.15;
+      this.showSurface(app.surface);
+    }));
+    $('btn-photo').addEventListener('click', () => { this.closeSheets(); app.setPhoto(true); });
     $('btn-clear').addEventListener('click', () => { app.world.clearParticles(); this.toast('Cleared all dust and debris'); });
     for (const r of document.querySelectorAll('input[name=view]')) {
-      r.addEventListener('change', () => { if (r.checked) { app.setView(r.value); this.toast(r.value === 'realistic' ? 'Realistic view' : 'Classic view'); } });
+      r.addEventListener('change', () => { if (r.checked) { app.setView(r.value); this.toast({ realistic: 'Realistic view', classic: 'Classic view', pixel: 'Pixel view' }[r.value]); } });
     }
     this.onView(app.settings.view);
     for (const key of ['bloom', 'trails', 'labels', 'grid', 'stars', 'trailsRelative', 'collisions']) {
@@ -88,6 +103,7 @@ export class UI {
       if (e.key === 'Escape') { this.closeSheets(); app.select(null); }
       if (e.key === 'a') this.setTool(app.state.tool === 'add' ? 'view' : 'add');
       if (e.key === 'f' || e.key === 'l') app.toggleLock();
+      if (e.key === 'p') app.setPhoto(!app.photo);
       if (e.key === 'b' && app.state.selected) this.book.open(app.state.selected);
       if (e.key === ',' || e.key === '.') {
         const el = $('speed');
@@ -136,6 +152,14 @@ export class UI {
     this.toast(p.blurb);
   }
 
+  showSurface(sv) {
+    $('surface-bar').hidden = !sv;
+    $('app').classList.toggle('on-surface', !!sv);
+    if (!sv) return;
+    $('sv-name').textContent = sv.body.name;
+    document.querySelectorAll('[data-where]').forEach((b) => b.classList.toggle('on', b.dataset.where === sv.where));
+  }
+
   onView(view) {
     const r = document.getElementById('view-' + view);
     if (r) r.checked = true;
@@ -170,6 +194,12 @@ export class UI {
     if (key === 'trails') $('btn-trails').classList.toggle('on', s.trails);
     if (key === 'collisions') this.app.world.collisions = s.collisions;
     this.app.saveSettings();
+  }
+
+  setSpeed(yr) {
+    this.app.state.speed = yr;
+    $('speed').value = toSlider(yr);
+    this.updateSpeedLabel();
   }
 
   updateSpeedLabel() {
@@ -244,6 +274,21 @@ export class UI {
       $('i-period').textContent = '—';
       $('i-ecc').textContent = '—';
     }
+    const hab = $('i-hab');
+    const hv = b.th && b.th.hab && b.kind === 'rocky' ? b.th.hab : null;
+    hab.hidden = !hv;
+    if (hv) {
+      hab.textContent = `${hv.verdict} for life${b.life ? ' · life present' : ''}`;
+      hab.className = 'hab ' + (hv.verdict === 'Habitable' ? 'good' : hv.verdict === 'Marginal' ? 'mid' : '');
+    }
+    $('i-stand').hidden = b.kind !== 'rocky';
+    // Stars and white dwarfs can be pushed to their death; the label says what will happen.
+    const death = $('i-death');
+    death.hidden = !(b.kind === 'star' || b.kind === 'wd');
+    if (!death.hidden) {
+      const m0 = b.m0 || b.m;
+      death.textContent = b.kind === 'wd' ? 'Detonate (Type Ia supernova)' : m0 >= 8 ? 'Go supernova' : 'End of life (planetary nebula)';
+    }
     const following = this.app.cam.follow === b;
     $('i-follow').textContent = following ? 'Unlock' : 'Lock view';
     $('i-follow').classList.toggle('on', following);
@@ -263,6 +308,7 @@ export class UI {
   }
 
   event(ev) {
+    if (/supernova/.test(ev.text) && ev.body) this.app.snZoom = { body: ev.body, t0: this.app.world.t, v: 2500, limit: 2e5 };
     // Routine collisions can arrive many per second; let them through at most every 1.5 s.
     const now = performance.now();
     if (!ev.big && now - (this.lastEvent || 0) < 1500) return;
@@ -272,6 +318,13 @@ export class UI {
 
   tick(now) {
     const app = this.app;
+    const sv = app.surface;
+    if (sv && now - (this.svT || 0) > 300) {
+      this.svT = now;
+      const p = sv.body.atm ? sv.body.atm.p + (sv.body.th ? sv.body.th.steam : 0) : 0;
+      const lat = Math.round((sv.lat * 180) / Math.PI);
+      $('sv-readout').textContent = `${Math.abs(lat)}°${lat >= 0 ? 'N' : 'S'} · ${sv.localT ? Math.round(sv.localT) + ' K (' + Math.round(sv.localT - 273.15) + ' °C)' : ''} · Sun ${Math.round((sv.elev * 180) / Math.PI)}° ${sv.elev >= 0 ? 'above' : 'below'} the horizon · air ${p < 0.001 ? 'none' : p.toPrecision(2) + ' bar'}`;
+    }
     $('sim-time').textContent = 'T + ' + formatDuration(app.world.t);
     const lim = $('limit');
     const limited = app.world.limited && !app.state.paused;

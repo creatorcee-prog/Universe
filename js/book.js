@@ -2,6 +2,7 @@ import { G, formatMass, formatDistance, formatSpeed, formatDuration, formatTemp 
 import { typeName, isLuminous } from './bodies.js';
 import { orbitOf } from './physics.js';
 import { ENTRIES, TYPES, CONTENTS, typeKey } from './facts.js';
+import { lifetime } from './stellar.js';
 
 const MSUN_KG = 1.98847e30, AU_M = 1.495978707e11, G_SI = 6.674e-11;
 const $ = (id) => document.getElementById(id);
@@ -227,6 +228,12 @@ export class Book {
     if (isLuminous(b)) {
       rows.push(['Surface temperature', formatTemp(b.temp)]);
       rows.push(['Luminosity', `${b.lum.toPrecision(3)} × the Sun`]);
+      if (b.kind === 'star' && b.age !== undefined) {
+        const life = lifetime(b.m0 || b.m);
+        rows.push(['Age', `${formatDuration(b.age)} of about ${formatDuration(life)}`]);
+        rows.push(['Stage', b.giant > 0 ? (b.m0 >= 8 ? 'Red supergiant' : 'Red giant') : 'Main sequence (fusing hydrogen)']);
+        rows.push(['Fate', (b.m0 || b.m) >= 8 ? (b.m0 >= 20 ? 'Supernova, then a black hole' : 'Supernova, then a neutron star') : 'Planetary nebula, then a white dwarf']);
+      }
     } else if (b.th) {
       const th = b.th, c = b.comp, atm = b.atm;
       rows.push(['Surface temperature', `${formatTemp(th.Ts)} (${Math.round(th.Ts - 273.15)} °C)`]);
@@ -239,7 +246,12 @@ export class Book {
       rows.push(['Composition', parts.join(', ')]);
       if (b.kind === 'rocky') {
         const p = atm.p + th.steam;
-        rows.push(['Atmosphere', p < 1e-4 ? 'None to speak of' : `${p < 0.01 ? p.toExponential(1) : p.toPrecision(3)} bar${atm.co2 > 0.5 ? ', mostly CO₂' : ''}${th.steam > 1 ? `, ${Math.round(th.steam)} bar of steam` : ''}`]);
+        const g = atm.gases;
+        const names = { n2: 'N₂', o2: 'O₂', co2: 'CO₂', ch4: 'CH₄', h2: 'H₂' };
+        const total = p;
+        const mix = Object.entries({ ...g, steam: th.steam }).filter(([, v]) => v > 0 && v / total > 1e-6).sort((a, z) => z[1] - a[1])
+          .map(([k, v]) => { const pc = (v / total) * 100; return `${pc >= 1 ? Math.round(pc) : pc >= 0.01 ? pc.toPrecision(2) : pc.toExponential(0)}% ${k === 'steam' ? 'H₂O' : names[k]}`; });
+        rows.push(['Atmosphere', p < 1e-6 ? 'None' : `${p < 0.01 ? p.toExponential(1) : p.toPrecision(3)} bar: ${mix.join(', ')}`]);
         if (th.tau > 0.01) rows.push(['Greenhouse optical depth', th.tau.toPrecision(3)]);
         if (c.water > 0) {
           const state = th.steam > 1 && th.liquid < 0.01 ? 'Boiled off into the atmosphere'
@@ -274,6 +286,12 @@ export class Book {
     const entry = ENTRIES[b.name];
     if (entry && b.m0 && Math.abs(b.m / b.m0 - 1) > 0.01) lede += ` Its mass is now ${(b.m / b.m0).toPrecision(3)}× what it started with.`;
     rows.push(['Simulation time', 'T + ' + formatDuration(w.t)]);
+    // Habitability checklist.
+    if (b.th && b.th.hab && b.kind === 'rocky') {
+      const h = b.th.hab;
+      rows.push(['Can life exist here?', `${h.verdict}${b.life ? ' · life present' : ''}`]);
+      for (const [label, ok, detail] of h.checks) rows.push([`${ok ? '✓' : '✗'} ${label}`, detail]);
+    }
     const lEl = $('live-lede'), fEl = $('live-facts');
     if (!lEl || !fEl) return;
     lEl.textContent = lede;

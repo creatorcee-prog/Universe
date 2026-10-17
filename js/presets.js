@@ -60,8 +60,10 @@ function toBarycenter(bodies) {
   for (const b of bodies) { b.vx -= px / M; b.vy -= py / M; b.vz -= pz / M; }
 }
 
-function sun(name = 'Sun') {
-  return makeBody({ kind: 'star', m: 1, r: SUN_RADIUS, name });
+function sun(name = 'Sun', age = 4.6e9) {
+  const s = makeBody({ kind: 'star', m: 1, r: SUN_RADIUS, name });
+  s.age = age; // the Sun is about 4.6 billion years old
+  return s;
 }
 
 const PLANETS = [
@@ -190,7 +192,7 @@ export const PRESETS = [
     speed: 0.4,
     camera: { follow: 'Young Sun', dist: 7, pitch: 0.95, yaw: 0 },
     build(w) {
-      const s = w.addBody(sun('Young Sun'));
+      const s = w.addBody(sun('Young Sun', 2e6));
       for (let k = 0; k < 160; k++) {
         const a = 0.45 + Math.pow(rand(), 1.3) * 3.4;
         const p = makeBody({ kind: 'rocky', m: between(0.05, 0.4) * EARTH_MASS, r: 0.0035, name: 'Planetesimal ' + (k + 1) });
@@ -251,6 +253,19 @@ export const PRESETS = [
       st.x = r0 * Math.cos(nu); st.y = 0; st.z = -r0 * Math.sin(nu);
       st.vx = -vp * Math.sin(nu); st.vy = 0; st.vz = -vp * (1 + Math.cos(nu));
       w.addBody(st);
+    },
+  },
+  {
+    id: 'supernova', name: 'Supernova',
+    blurb: 'A red supergiant like Betelgeuse, 18 times the Sun\'s mass, is about a year from collapse. Watch its core implode and the shell of hydrogen, oxygen, silicon and iron fly out.',
+    speed: 0.08,
+    camera: { follow: 'Betelgeuse', dist: 45, pitch: 0.5, yaw: 0.3 },
+    build(w) {
+      const s = makeBody({ kind: 'star', m: 18, name: 'Betelgeuse' });
+      s.age = 1e10 * Math.pow(18, -2.5) - 1; // one year left
+      w.addBody(s);
+      orbit(w, s, makeBody({ name: 'Cinder', kind: 'gas', m: 2 * 317.8 * EARTH_MASS, r: km(80000), color: [200, 140, 110], band: [150, 90, 70] }), 120, 0.05, 2);
+      for (let k = 0; k < 600; k++) particleOrbit(w, s, between(300, 500), rand() * 0.1, rand() * 20, PK.ICE);
     },
   },
   {
