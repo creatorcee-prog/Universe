@@ -258,6 +258,20 @@ export const PRESETS = [
     },
   },
   {
+    id: 'bhmerger', name: 'Black Hole Merger',
+    blurb: 'Two black holes like those LIGO first heard in 2015 (36 and 29 M☉), 22,000 km apart, losing orbital energy to gravitational waves. They spiral together and merge within a day.',
+    speed: 1 / 8766, // an hour per second
+    camera: { follow: null, dist: 0.0006, pitch: 0.9, yaw: 0 },
+    build(w) {
+      // Circular relative orbit; the gravitational-wave inspiral comes from the 2.5PN radiation reaction.
+      const m1 = 36, m2 = 29, M = m1 + m2, d = km(22000), v = Math.sqrt((G * M) / d);
+      const a = makeBody({ kind: 'bh', m: m1, name: 'Black hole A' }), b = makeBody({ kind: 'bh', m: m2, name: 'Black hole B' });
+      a.x = (-d * m2) / M; b.x = (d * m1) / M;
+      a.vz = (-v * m2) / M; b.vz = (v * m1) / M;
+      w.addBody(a); w.addBody(b);
+    },
+  },
+  {
     id: 'rogue', name: 'Rogue Black Hole',
     blurb: 'A 5 M☉ black hole wanders through the Solar System at 20 km/s.',
     speed: 1,

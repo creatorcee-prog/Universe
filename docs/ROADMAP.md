@@ -184,3 +184,9 @@ Fixed:
   samples. Settings → Show performance displays frame rate, physics and drawing time.
 
 Still to check on a real iPhone: that no black boxes remain, and how much the frame rate improves.
+
+## Gravitational waves: what is next
+Done: 2.5PN inspiral for black-hole and neutron-star pairs, radiated mass and recoil at merger, the
+GW150914 scenario, ellipses for orbits too fast to trail.
+Next: a chirp sound rising in pitch as the pair closes in; neutron-star mergers making a kilonova (gold and
+platinum ejecta) and a short gamma-ray burst; black-hole spin (Kerr) and its effect on the remnant.

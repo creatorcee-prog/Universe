@@ -629,7 +629,7 @@ class App {
       this.physMs = performance.now() - tp;
       this.rate = this.rate * 0.85 + (done / frameDt) * 0.15;
       w.limited = w.limited || this.rate < this.state.speed * 0.9;
-      if (done > 0) this.renderer.sampleTrails();
+      if (done > 0) this.renderer.sampleTrails(done);
       this.laserStep(done);
     } else {
       w.limited = false;

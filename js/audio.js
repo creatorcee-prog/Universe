@@ -203,6 +203,12 @@ export class Sound {
         else this.rumble('decay', 0.2 + 0.4 * p, 1.25, 14);
         break;
       }
+      case 'bhmerge':
+        // Two black holes becoming one: the deepest, longest rumble.
+        if (!ready('bhmerge', 4000)) return;
+        this.rumble('rumble4', 1, 0.7, 13);
+        this.rumble('rumble1', 0.8, 0.6, 25);
+        break;
       case 'transform':
         if (!ready('transform', 3000)) return;
         this.rumble('rumble4', 0.2 + 0.4 * p, 1.2, 6);

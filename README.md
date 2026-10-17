@@ -113,6 +113,14 @@ Switch in **Settings → View**.
 - **Pixel**: the Realistic scene rendered at low resolution with a limited palette and ordered (Bayer)
   dithering, for screenshots. **Photo mode** (Settings, or the `p` key) hides every control; tap to bring
   them back.
+- **Black hole mergers**: black holes and neutron stars emit gravitational waves (the 2.5PN radiation
+  reaction, Kidder 1995), so close pairs spiral together at the rate Peters (1964) predicts (checked to
+  0.2%) and merge. About 5% of the mass is radiated (4.8% for equal masses), and unequal pairs recoil at
+  up to ~175 km/s (González et al. 2007). The *Black Hole Merger* scenario re-creates GW150914: 36 + 29 M☉
+  become a 61.9 M☉ hole after radiating 3.06 M☉ (LIGO measured 62 and 3.0). Pairs orbiting faster
+  than the screen can show are drawn as smooth ellipses about their centre of mass instead of trails. The
+  holes merge when their capture zones touch (15,000 km for stellar holes), not at their real horizons
+  (~200 km), because the final orbits last milliseconds.
 - **Sound** (Settings → Sound effects): interface blips, and deep rumbles for giant impacts, tidal
   disruptions, star mergers and supernovae, loud when they happen where you're looking and faint far away.
   A drone swells as you approach a black hole (deeper for heavier holes, louder while it feeds). The

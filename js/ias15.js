@@ -69,14 +69,15 @@ export const IAS15_NODES = H;
 // bodies in the test-particle limit:
 //   a = GM/(c² r³) [ (4GM/r − v²) r + 4 (r·v) v ]
 // which gives Mercury's extra 43"/century perihelion advance (as used in e.g. REBOUNDx "gr").
-let GRF = null;
+let GRF = null, CPT = null;
 export function accelerations(bs, x, v, a, grOn = true) {
   const n = bs.length;
   a.fill(0, 0, 3 * n);
   let minT2 = Infinity;
   const c2 = C_AU_YR * C_AU_YR;
   if (!GRF || GRF.length < n) GRF = new Uint8Array(Math.max(64, n * 2));
-  for (let i = 0; i < n; i++) { const k = bs[i].kind; GRF[i] = grOn && (k === 'star' || k === 'wd' || k === 'ns' || k === 'bh') ? 1 : 0; }
+  if (!CPT || CPT.length < n) CPT = new Uint8Array(Math.max(64, n * 2));
+  for (let i = 0; i < n; i++) { const k = bs[i].kind; GRF[i] = grOn && (k === 'star' || k === 'wd' || k === 'ns' || k === 'bh') ? 1 : 0; CPT[i] = grOn && (k === 'ns' || k === 'bh') ? 1 : 0; }
   for (let i = 0; i < n; i++) {
     const bi = bs[i], i3 = 3 * i;
     const xi = x[i3], yi = x[i3 + 1], zi = x[i3 + 2];
@@ -104,7 +105,19 @@ export function accelerations(bs, x, v, a, grOn = true) {
         const vx = (v[j3] - v[i3]) * s, vy = (v[j3 + 1] - v[i3 + 1]) * s, vz = (v[j3 + 2] - v[i3 + 2]) * s;
         const GM = G * M, v2 = vx * vx + vy * vy + vz * vz, rv = rx * vx + ry * vy + rz * vz;
         const k = GM / (c2 * d2 * d), A = 4 * GM / d - v2;
-        const gx = k * (A * rx + 4 * rv * vx), gy = k * (A * ry + 4 * rv * vy), gz = k * (A * rz + 4 * rv * vz);
+        let gx = k * (A * rx + 4 * rv * vx), gy = k * (A * ry + 4 * rv * vy), gz = k * (A * rz + 4 * rv * vz);
+        // Gravitational-wave radiation reaction (2.5PN) between two black holes or neutron stars, in the
+        // relative motion (Kidder 1995, eq. 2.2c, harmonic gauge):
+        //   a = (8/5) η (GM)²/(c⁵ r³) [ (18v² + (2/3)GM/r − 25ṙ²) ṙ n − (6v² − 2GM/r − 15ṙ²) v ]
+        // with M the total mass and η = m₁m₂/M². It drains orbital energy at the rate in Peters (1964), so
+        // close binaries spiral together and merge.
+        if (CPT[i] && CPT[j]) {
+          const Mt = mi + bj.m, eta = (mi * bj.m) / (Mt * Mt), GMt = G * Mt;
+          const rdot = rv / d, u = GMt / d;
+          const kr = (1.6 * eta * GMt * GMt) / (c2 * c2 * C_AU_YR * d2 * d);
+          const cn = (18 * v2 + (2 / 3) * u - 25 * rdot * rdot) * rdot / d, cv = -(6 * v2 - 2 * u - 15 * rdot * rdot);
+          gx += kr * (cn * rx + cv * vx); gy += kr * (cn * ry + cv * vy); gz += kr * (cn * rz + cv * vz);
+        }
         // light body gets the full correction; the heavy one the equal-and-opposite share (momentum conserved)
         const fL = M / (M + mt), fH = mt / (M + mt);
         const L3 = heavyI ? j3 : i3, H3 = heavyI ? i3 : j3;

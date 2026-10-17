@@ -96,12 +96,30 @@ export class Renderer {
     this.trails.clear();
   }
 
-  sampleTrails() {
+  // frameDt: simulated time this frame covered. A body that orbits in less than ~8 frames can't be traced
+  // by a once-per-frame trail (it would draw a starburst of chords, as for two black holes orbiting every
+  // few seconds while time runs at an hour per second), so it is flagged, its trail dropped, and its orbit
+  // drawn as a smooth ellipse instead (see drawOrbits).
+  sampleTrails(frameDt = 0) {
     const g = ++this.g;
     const slot = g % TRAIL_LEN;
+    if (frameDt > 0 && g % 10 === 0) {
+      const hier = this.world.hierarchy();
+      for (const b of this.world.bodies) { b._fastOrbit = false; b._fastOwn = false; }
+      for (const b of this.world.bodies) {
+        const par = hier.get(b)?.parent;
+        if (!par || par === b) continue;
+        const r = Math.hypot(b.x - par.x, b.y - par.y, b.z - par.z), mu = G * (b.m + par.m);
+        const v2 = (b.vx - par.vx) ** 2 + (b.vy - par.vy) ** 2 + (b.vz - par.vz) ** 2, en = v2 / 2 - mu / r;
+        if (en < 0 && 2 * Math.PI * Math.sqrt((-mu / (2 * en)) ** 3 / mu) < 8 * frameDt) {
+          b._fastOrbit = true; b._fastOwn = true;
+          if (b.m > 0.05 * par.m) par._fastOrbit = true; // a binary: the partner swings round just as fast
+        }
+      }
+    }
     for (const b of this.world.bodies) {
       let t = this.trails.get(b);
-      if (!t) { t = { buf: new Float64Array(TRAIL_LEN * 3), start: g }; this.trails.set(b, t); }
+      if (!t || b._fastOrbit) { t = { buf: new Float64Array(TRAIL_LEN * 3), start: g }; this.trails.set(b, t); }
       t.buf[slot * 3] = b.x; t.buf[slot * 3 + 1] = b.y; t.buf[slot * 3 + 2] = b.z;
     }
     if (g % 120 === 0) for (const b of this.trails.keys()) if (!b.alive) this.trails.delete(b);
@@ -127,7 +145,7 @@ export class Renderer {
       ctx.clearRect(0, 0, W, H);
       this.gridSpacing = Math.pow(10, Math.floor(Math.log10(cam.dist / 1.5)));
       if (this.settings.trails) this.drawTrails();
-      if (this.settings.orbits) this.drawOrbits(ui);
+      this.drawOrbits(ui, !this.settings.orbits);
       this.drawZones(ui);
       this.drawBodies(now, ui);
       this.drawFlashes(now);
@@ -145,7 +163,7 @@ export class Renderer {
     if (this.settings.stars) this.drawStars();
     if (this.settings.grid) this.drawGrid();
     if (this.settings.trails) this.drawTrails();
-    if (this.settings.orbits) this.drawOrbits(ui);
+    this.drawOrbits(ui, !this.settings.orbits);
     this.drawZones(ui);
     this.drawParticles();
     this.drawBodies(now, ui);
@@ -323,11 +341,15 @@ export class Renderer {
 
   // Orbit lines: the Kepler ellipse each body would follow around what it orbits (its osculating orbit),
   // or the near part of a hyperbola for escaping bodies.
-  drawOrbits(ui) {
+  // Predicted orbit ellipses (Settings → Orbit lines), and always for bodies orbiting too fast for trails.
+  // A fast pair (a binary) is drawn as two ellipses about its centre of mass, each scaled by the other's
+  // mass share, which is where the two bodies really move.
+  drawOrbits(ui, fastOnly = false) {
     const { ctx, cam, dpr, world } = this;
+    if (fastOnly && !world.bodies.some((b) => b._fastOrbit)) return;
     const hier = world.hierarchy();
     const p = this.tmp;
-    let list = world.bodies;
+    let list = fastOnly ? world.bodies.filter((b) => b._fastOwn) : world.bodies;
     if (list.length > 80) list = list.slice().sort((a, b) => b.m - a.m).slice(0, 80);
     ctx.globalCompositeOperation = 'source-over';
     ctx.lineWidth = dpr;
@@ -345,20 +367,26 @@ export class Renderer {
       if (e > 1e-6) { Px = ex / e; Py = ey / e; Pz = ez / e; } else { Px = rx / r; Py = ry / r; Pz = rz / r; }
       const Qx = (hy * Pz - hz * Py) / h, Qy = (hz * Px - hx * Pz) / h, Qz = (hx * Py - hy * Px) / h;
       const thMax = e < 1 ? Math.PI : Math.min(Math.acos(-1 / e) * 0.97, Math.PI);
-      const N = 128, path = new Path2D();
-      let pen = false;
-      for (let k = 0; k <= N; k++) {
-        const th = -thMax + (2 * thMax * k) / N;
-        const rr = sl / (1 + e * Math.cos(th));
-        if (!(rr > 0) || rr > 50 * r) { pen = false; continue; }
-        const c = Math.cos(th) * rr, s = Math.sin(th) * rr;
-        if (cam.project(par.x + c * Px + s * Qx, par.y + c * Py + s * Qy, par.z + c * Pz + s * Qz, p) <= 0) { pen = false; continue; }
-        if (pen) path.lineTo(p.x, p.y); else path.moveTo(p.x, p.y);
-        pen = true;
+      // Comparable masses: draw both bodies' paths about the centre of mass.
+      const M = par.m + b.m, binary = b._fastOrbit && b.m > 0.05 * par.m;
+      const cx = binary ? (par.x * par.m + b.x * b.m) / M : par.x, cy = binary ? (par.y * par.m + b.y * b.m) / M : par.y, cz = binary ? (par.z * par.m + b.z * b.m) / M : par.z;
+      const shapes = binary ? [[b, par.m / M], [par, -b.m / M]] : [[b, 1]];
+      for (const [who, k] of shapes) {
+        const N = 128, path = new Path2D();
+        let pen = false;
+        for (let j = 0; j <= N; j++) {
+          const th = -thMax + (2 * thMax * j) / N;
+          const rr = sl / (1 + e * Math.cos(th));
+          if (!(rr > 0) || rr > 50 * r) { pen = false; continue; }
+          const c = Math.cos(th) * rr * k, s = Math.sin(th) * rr * k;
+          if (cam.project(cx + c * Px + s * Qx, cy + c * Py + s * Qy, cz + c * Pz + s * Qz, p) <= 0) { pen = false; continue; }
+          if (pen) path.lineTo(p.x, p.y); else path.moveTo(p.x, p.y);
+          pen = true;
+        }
+        const col = who.color || [180, 190, 210];
+        ctx.strokeStyle = rgba(col, who === ui.selected ? 0.75 : e < 1 ? (b._fastOrbit ? 0.5 : 0.32) : 0.2);
+        ctx.stroke(path);
       }
-      const col = b.color || [180, 190, 210];
-      ctx.strokeStyle = rgba(col, b === ui.selected ? 0.75 : e < 1 ? 0.32 : 0.2);
-      ctx.stroke(path);
     }
   }
 

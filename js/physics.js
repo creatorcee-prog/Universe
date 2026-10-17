@@ -435,6 +435,23 @@ export class World {
     s.vx = cvx; s.vy = cvy; s.vz = cvz;
     s.m = keep;
     s.r = r;
+    // Two black holes: part of the mass leaves as gravitational waves, and the remnant recoils. Radiated
+    // fraction: ~4.8% of the total for equal masses (numerical relativity), falling to the test-mass limit
+    // 5.7%·η (the binding energy at the innermost stable orbit), fitted as 0.0572η + 0.539η². Recoil from
+    // asymmetric emission: v = 12,000 km/s · η²√(1−4η)(1 − 0.93η) (González et al. 2007), at most ~175 km/s,
+    // zero for equal masses; it points along the orbit at merger.
+    let gw = null;
+    if (s.kind === 'bh' && o.kind === 'bh') {
+      const m2 = o.m, m1 = M - m2, eta = (m1 * m2) / (M * M);
+      const frac = 0.0572 * eta + 0.539 * eta * eta;
+      s.m = keep - frac * M;
+      const vk = (12000 * eta * eta * Math.sqrt(Math.max(0, 1 - 4 * eta)) * (1 - 0.93 * eta)) / 4.74047; // AU/yr
+      const dn = dvx * nx + dvy * ny + dvz * nz;
+      let tx = dvx - dn * nx, ty = dvy - dn * ny, tz = dvz - dn * nz;
+      const tl = Math.hypot(tx, ty, tz);
+      if (tl > 0 && vk > 0) { s.vx += (tx / tl) * vk; s.vy += (ty / tl) * vk; s.vz += (tz / tl) * vk; }
+      gw = { rad: frac * M, kick: vk * 4.74047 };
+    }
     s.heat = Math.min(1.5, s.heat + Math.min(1, 6 * ratio * (0.2 + q)));
     o.alive = false;
     o.mergedInto = s;
@@ -469,6 +486,11 @@ export class World {
     }
     const ev = reclassify(s);
     this.flashes.push({ x: ix, y: iy, z: iz, r: Math.max(o.r * 4, s.r * Math.min(3, 0.5 + 8 * ratio)), born: performance.now(), life: 900 + 1400 * Math.min(1, ratio * 10), color: kind === PK.HOT ? [255, 230, 190] : [255, 170, 90] });
+    if (gw) {
+      const f = (x) => (x >= 100 ? Math.round(x).toLocaleString('en-US') : x.toPrecision(3));
+      this.events.push({ text: `${s.name} and ${o.name} merged into a ${f(s.m)} M☉ black hole. ${f(gw.rad)} M☉ was radiated as gravitational waves${gw.kick > 1 ? `, and the remnant recoiled at ${Math.round(gw.kick)} km/s` : ''}.`, body: s, big: true, snd: 'bhmerge', power: 1, at: [s.x, s.y, s.z] });
+      return;
+    }
     const what = s.kind === 'bh' ? 'swallowed' : 'collided with';
     // Loudness for the sound: a giant impact (Theia, a tenth of Earth's mass) is near full volume, a pebble silent.
     const power = Math.min(1, 3 * Math.sqrt(ratio) * (0.4 + 0.6 * Math.min(1, violence || 0)));
