@@ -78,6 +78,7 @@ export function generateName(kind) {
 
 // Templates the player can drop into the scene.
 export const CATALOG = [
+  { id: 'comet', label: 'Comet', kind: 'rocky', comet: true, m: 1.1e-16, r: km(5.5), color: [196, 204, 214] },
   { id: 'asteroid', label: 'Asteroid', kind: 'rocky', m: 4.7e-10, r: km(470), color: [150, 140, 128] },
   { id: 'moon', label: 'Moon', kind: 'rocky', m: MOON_MASS, r: km(1737), color: [180, 178, 172] },
   { id: 'mars', label: 'Mars', kind: 'rocky', m: 0.107 * EARTH_MASS, r: km(3390), color: [196, 110, 70] },
@@ -106,12 +107,14 @@ export function makeBody(opts) {
     name: opts.name || generateName(opts.kind),
     kind: opts.kind,
     m: opts.m,
+    m0: opts.m,
     r: opts.r || 0,
     x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, ax: 0, ay: 0, az: 0,
     soft: opts.soft || 0,
     color: opts.color ? opts.color.slice() : null,
     band: opts.band ? opts.band.slice() : null,
     atmo: opts.atmo ? opts.atmo.slice() : null,
+    comet: !!opts.comet,
     heat: 0,
     temp: 0,
     lum: 0,
@@ -183,6 +186,7 @@ export function typeName(b) {
   const me = b.m / EARTH_MASS;
   switch (b.kind) {
     case 'rocky':
+      if (b.comet && me < 1e-4) return 'Comet';
       if (me < 1e-4) return 'Asteroid';
       if (me < 0.03) return 'Moon-sized body';
       if (me < 0.3) return 'Small rocky planet';

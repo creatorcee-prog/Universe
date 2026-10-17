@@ -15,7 +15,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Saira+Semi+Condensed:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&family=Saira+Semi+Condensed:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -32,10 +32,19 @@
       <span id="scn-name" class="clock-name">Solar System</span>
       <span id="sim-time" class="clock-time">T + 0 days</span>
       <span id="limit" class="limit" hidden></span>
+      <button id="lock-chip" class="lock-chip" type="button" hidden aria-label="Unlock camera">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+        <span>Locked on <b id="lock-name"></b></span>
+      </button>
     </div>
-    <button id="btn-settings" class="icon-btn" type="button" aria-label="Settings">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
-    </button>
+    <div class="top-right">
+      <button id="btn-book" class="icon-btn" type="button" aria-label="Open the book">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6.5C10 5 7 4.5 3.5 5v13c3.5-.5 6.5 0 8.5 1.5 2-1.5 5-2 8.5-1.5V5C17 4.5 14 5 12 6.5z"/><path d="M12 6.5v13"/></svg>
+      </button>
+      <button id="btn-settings" class="icon-btn" type="button" aria-label="Settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+      </button>
+    </div>
   </header>
 
   <section id="info" class="info" hidden aria-live="polite">
@@ -44,6 +53,10 @@
         <h2 id="i-name">—</h2>
         <p id="i-type">—</p>
       </div>
+      <button id="i-book" class="book-btn" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6.5C10 5 7 4.5 3.5 5v13c3.5-.5 6.5 0 8.5 1.5 2-1.5 5-2 8.5-1.5V5C17 4.5 14 5 12 6.5z"/><path d="M12 6.5v13"/></svg>
+        <span>Read</span>
+      </button>
       <button id="i-close" class="icon-btn small" type="button" aria-label="Close details">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
@@ -51,7 +64,7 @@
     <dl class="stats">
       <div><dt>Mass</dt><dd id="i-mass">—</dd></div>
       <div><dt>Radius</dt><dd id="i-radius">—</dd></div>
-      <div><dt>Temperature</dt><dd id="i-temp">—</dd></div>
+      <div><dt id="i-temp-label">Temperature</dt><dd id="i-temp">—</dd></div>
       <div><dt>Orbiting</dt><dd id="i-parent">—</dd></div>
       <div><dt>Distance</dt><dd id="i-dist">—</dd></div>
       <div><dt>Orbital speed</dt><dd id="i-speed">—</dd></div>
@@ -59,7 +72,7 @@
       <div><dt>Eccentricity</dt><dd id="i-ecc">—</dd></div>
     </dl>
     <div class="info-actions">
-      <button id="i-follow" type="button">Follow</button>
+      <button id="i-follow" type="button">Lock view</button>
       <button id="i-half" type="button">Mass ½</button>
       <button id="i-double" type="button">Mass ×2</button>
       <button id="i-delete" class="danger" type="button">Delete</button>
@@ -102,6 +115,9 @@
       <button id="btn-trails" class="toggle" type="button" aria-label="Toggle orbit trails">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17c4-9 10-11 18-10" stroke-dasharray="2 2.6"/><circle cx="20" cy="7" r="1.8"/></svg>
       </button>
+      <button id="btn-lock" class="toggle" type="button" aria-label="Lock camera on object" aria-pressed="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+      </button>
       <button id="btn-home" class="icon-btn" type="button" aria-label="Reset camera">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
       </button>
@@ -109,6 +125,30 @@
   </footer>
 
   <div id="scrim" class="scrim" hidden></div>
+
+  <section id="book" class="book" hidden aria-label="Book">
+    <header class="book-bar">
+      <button id="book-close" class="icon-btn small" type="button" aria-label="Close the book">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+      <div class="book-tabs">
+        <button id="book-tab-entry" type="button">This object</button>
+        <button id="book-tab-contents" type="button">Contents</button>
+      </div>
+      <span class="book-bar-end"></span>
+    </header>
+    <div id="book-pages" class="book-pages"></div>
+    <div id="book-contents" class="book-contents" hidden></div>
+    <footer id="book-foot" class="book-foot">
+      <button id="book-prev" class="icon-btn small" type="button" aria-label="Previous page">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+      <span id="book-folio" class="book-folio"></span>
+      <button id="book-next" class="icon-btn small" type="button" aria-label="Next page">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+      </button>
+    </footer>
+  </section>
 
   <section id="sheet-scenarios" class="sheet" hidden aria-label="Scenarios">
     <div class="sheet-head">
@@ -138,6 +178,7 @@
         <button id="btn-reset" type="button">Restart scenario</button>
         <button id="btn-clear" type="button">Clear dust &amp; debris</button>
       </div>
+      <p class="about">The camera lock keeps the view centred on one object: orbit, pinch and twist all work around it, and two-finger drags no longer pull the camera away. Double-tap an object, use its Lock view button, or the padlock in the toolbar.</p>
       <p class="about">Newtonian N-body gravity in units of AU, solar masses and years. Sizes are true to scale, so small worlds show as dots until you zoom in. Bodies merge on contact and break apart inside the Roche limit.</p>
     </div>
   </section>

@@ -26,19 +26,30 @@ including straight from the Files app in some browsers.
 | Pinch | Zoom (from kilometres to kiloparsecs) |
 | Two-finger drag / twist | Pan / turn |
 | Tap | Inspect an object: mass, radius, temperature, orbit, period, eccentricity |
-| Double-tap | Follow an object |
+| Double-tap | Lock the camera on an object and zoom to it |
+| Padlock button / chip | Lock onto the selection (or what's in the centre), or unlock. While locked, two-finger drags never pull the view off the object, and you can't zoom inside it |
+| **Read** (info card) or book button | Open the book: real-world facts and figures, live numbers from your simulation, an explainer for its kind of object, and sources |
 | **Add** tool, tap | Drop the chosen object into a circular orbit around whatever dominates that spot |
 | **Add** tool, drag | Fling it. A dashed line predicts its path; a red X marks an impact |
 | Time slider | 1 second per second up to 300 million years per second |
 
 On a desktop browser: mouse drag, wheel zoom, shift-drag or right-drag to pan, <kbd>Space</kbd> pause,
-<kbd>A</kbd> add tool, <kbd>F</kbd> follow, <kbd>,</kbd>/<kbd>.</kbd> slower/faster, <kbd>Delete</kbd> removes the selection.
+<kbd>A</kbd> add tool, <kbd>L</kbd> lock camera, <kbd>B</kbd> open the book, <kbd>,</kbd>/<kbd>.</kbd> slower/faster, <kbd>Delete</kbd> removes the selection.
 
 ## Scenarios
 
-Solar System (with Saturn's rings, the asteroid and Kuiper belts) · Earth & Moon · Jupiter's Moons ·
+Solar System (with Saturn's rings, the asteroid and Kuiper belts, Ceres and Halley's Comet) · Earth & Moon · Jupiter's Moons ·
 Moon-Forming Impact · Planet Formation · Binary Star · Rogue Black Hole · Tidal Disruption ·
 Galaxy Collision · Empty Star.
+
+## The book
+
+Tap **Read** on any object. Real objects (the Sun, the planets, the Moon, Jupiter's large moons, Ceres, Pluto,
+Halley's Comet, Theia) get a reference entry with key figures and facts. Anything you create gets an article on its
+kind of object (comet, asteroid, super-Earth, red dwarf, neutron star, supermassive black hole and so on). Every
+page about a live object includes its current mass, density, surface gravity, escape velocity, temperature and
+orbit, computed from the simulation. The **Contents** tab lists every entry. Text lives in `js/facts.js`, with a
+source list on every entry.
 
 ## What the simulation does
 
@@ -53,6 +64,7 @@ Galaxy Collision · Empty Star.
 - **Particles** (asteroids, rings, debris, galaxy stars, up to 16,000) feel the 24 heaviest bodies, with
   per-particle sub-stepping. Ring particles ride analytic circular orbits so they stay stable at any speed,
   and are released as free debris if their planet is destroyed.
+- **Comets** grow a blue ion tail and a dust tail pointing away from the strongest star once they come within a few AU.
 - **Stars** get radius, temperature, luminosity and black-body colour from main-sequence relations.
 
 ### Simplifications
@@ -88,4 +100,4 @@ npm run icons      # regenerate icons (needs Python + Pillow)
 
 Code map: `js/physics.js` (integrator, collisions, particles), `js/bodies.js` (object catalogue and
 stellar relations), `js/presets.js` (scenarios), `js/render.js` (canvas renderer), `js/camera.js`,
-`js/input.js` (touch gestures), `js/ui.js` (panels), `js/main.js` (game loop, add tool, trajectory preview).
+`js/input.js` (touch gestures), `js/ui.js` (panels), `js/book.js` + `js/facts.js` (the book), `js/main.js` (game loop, add tool, trajectory preview).

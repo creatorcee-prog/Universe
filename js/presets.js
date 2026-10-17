@@ -85,6 +85,11 @@ function solarSystem(world, { belts = true, moon = true } = {}) {
   }
   const pluto = makeBody({ name: 'Pluto', kind: 'rocky', m: 0.00218 * EARTH_MASS, r: km(1188), color: [214, 190, 160] });
   orbit(world, s, pluto, 39.48, 0.2488, 17.16, 110.3, 113.8, 14.5);
+  const ceres = makeBody({ name: 'Ceres', kind: 'rocky', m: 4.7e-10, r: km(470), color: [150, 144, 136] });
+  orbit(world, s, ceres, 2.77, 0.0785, 10.6, 80.3, 73.6, 95);
+  // Halley's real orbit (retrograde, i = 162°), placed shortly before perihelion so its tail is on show.
+  const halley = makeBody({ name: "Halley's Comet", kind: 'rocky', comet: true, m: 1.1e-16, r: km(5.5), color: [196, 204, 214] });
+  orbit(world, s, halley, 17.83, 0.967, 162.3, 58.4, 111.3, 357);
   if (moon) {
     const m = makeBody({ name: 'Moon', kind: 'rocky', m: 0.0123 * EARTH_MASS, r: km(1737), color: [184, 182, 176] });
     orbit(world, made.Earth, m, 0.00257, 0.055, 5.1);

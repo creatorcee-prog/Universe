@@ -24,8 +24,15 @@ export class Camera {
     this.follow = body;
   }
 
+  // Closest the camera may get: outside the locked body, never inside it.
+  clampDist(d) {
+    const b = this.follow;
+    const min = b ? Math.max(1e-9, (b.kind === 'bh' ? b.r * 3 : b.r) * 1.6) : 1e-9;
+    return Math.min(1e13, Math.max(min, d));
+  }
+
   zoomTo(d) {
-    this.distGoal = Math.min(1e13, Math.max(1e-9, d));
+    this.distGoal = this.clampDist(d);
   }
 
   tick(now, dtReal) {
@@ -42,6 +49,7 @@ export class Camera {
         this.tx = b.x; this.ty = b.y; this.tz = b.z;
       }
     }
+    this.distGoal = this.clampDist(this.distGoal);
     if (this.distGoal !== this.dist) {
       const k = 1 - Math.exp(-dtReal * 12);
       const l = Math.log(this.dist) + (Math.log(this.distGoal) - Math.log(this.dist)) * k;

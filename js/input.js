@@ -79,19 +79,20 @@ export class Input {
       const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
       const ang = Math.atan2(b.y - a.y, b.x - a.x);
       const pc = this.pinch;
-      cam.dist = cam.distGoal = Math.min(1e13, Math.max(1e-9, (pc.dist0 * pc.d0) / d));
+      cam.dist = cam.distGoal = cam.clampDist((pc.dist0 * pc.d0) / d);
       cam.yaw = pc.yaw0 + (ang - pc.ang0);
       const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
       const mdx = mx - pc.mx, mdy = my - pc.my;
       pc.mx = mx; pc.my = my;
       pc.panned += Math.hypot(mdx, mdy);
-      if (pc.panned > 30) this.pan(mdx, mdy);
+      // While the camera is locked, two fingers only zoom and turn; they never drag it off the object.
+      if (pc.panned > 30 && !cam.follow) this.pan(mdx, mdy);
     }
   }
 
   pan(dx, dy) {
     const cam = this.app.cam;
-    if (cam.follow) cam.follow = null;
+    if (cam.follow) return; // locked
     const k = (cam.dist / cam.F) * this.app.renderer.dpr;
     cam.tx -= (dx * cam.rx - dy * cam.ux) * k;
     cam.ty -= -dy * cam.uy * k;

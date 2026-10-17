@@ -2,6 +2,7 @@ import { formatMass, formatDistance, formatSpeed, formatDuration, formatRate, fo
 import { CATALOG, typeName, isLuminous, makeBody, reclassify } from './bodies.js';
 import { orbitOf } from './physics.js';
 import { PRESETS } from './presets.js';
+import { Book } from './book.js';
 
 // Time-speed slider spans 1 second per second to 300 million years per second (log scale).
 const MIN_EXP = Math.log10(1 / 3.15576e7);
@@ -27,6 +28,7 @@ export class UI {
     this.app = app;
     this.infoT = 0;
     this.toastTimer = 0;
+    this.book = new Book(app);
     this.buildTray();
     this.buildScenarios();
     this.bind();
@@ -42,6 +44,10 @@ export class UI {
     document.querySelectorAll('[data-tool]').forEach((b) => b.addEventListener('click', () => this.setTool(b.dataset.tool)));
     $('btn-trails').addEventListener('click', () => this.toggleSetting('trails'));
     $('btn-home').addEventListener('click', () => app.resetCamera());
+    $('btn-lock').addEventListener('click', () => app.toggleLock());
+    $('lock-chip').addEventListener('click', () => app.toggleLock());
+    $('i-book').addEventListener('click', (e) => { e.stopPropagation(); if (app.state.selected) this.book.open(app.state.selected); });
+    $('btn-book').addEventListener('click', () => this.book.open(app.state.selected));
     $('btn-scenarios').addEventListener('click', () => this.openSheet('sheet-scenarios'));
     $('btn-settings').addEventListener('click', () => this.openSheet('sheet-settings'));
     document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => this.closeSheets()));
@@ -51,7 +57,8 @@ export class UI {
     $('i-follow').addEventListener('click', () => {
       const b = app.state.selected;
       if (!b) return;
-      app.follow(app.cam.follow === b ? null : b);
+      if (app.cam.follow === b) app.toggleLock();
+      else { app.follow(b); this.toast(`Camera locked on ${b.name}`); }
       this.refreshInfo(true);
     });
     $('i-half').addEventListener('click', () => this.scaleMass(0.5));
@@ -76,7 +83,8 @@ export class UI {
       if (e.code === 'Space') { e.preventDefault(); this.setPaused(!app.state.paused); }
       if (e.key === 'Escape') { this.closeSheets(); app.select(null); }
       if (e.key === 'a') this.setTool(app.state.tool === 'add' ? 'view' : 'add');
-      if (e.key === 'f' && app.state.selected) app.follow(app.state.selected);
+      if (e.key === 'f' || e.key === 'l') app.toggleLock();
+      if (e.key === 'b' && app.state.selected) this.book.open(app.state.selected);
       if (e.key === ',' || e.key === '.') {
         const el = $('speed');
         el.value = Math.max(0, Math.min(1000, +el.value + (e.key === '.' ? 40 : -40)));
@@ -214,6 +222,7 @@ export class UI {
       temp = 278.6 * Math.pow(0.7, 0.25) * Math.pow(flux, 0.25) + b.heat * 1800;
     }
     $('i-temp').textContent = temp == null ? '—' : formatTemp(temp);
+    $('i-temp-label').textContent = isLuminous(b) || temp == null ? 'Temperature' : 'Equilibrium temp.';
     const hier = w.hierarchy();
     const parent = hier.get(b)?.parent;
     if (parent) {
@@ -231,7 +240,7 @@ export class UI {
       $('i-ecc').textContent = '—';
     }
     const following = this.app.cam.follow === b;
-    $('i-follow').textContent = following ? 'Unfollow' : 'Follow';
+    $('i-follow').textContent = following ? 'Unlock' : 'Lock view';
     $('i-follow').classList.toggle('on', following);
   }
 
@@ -264,6 +273,14 @@ export class UI {
     lim.hidden = !limited;
     if (limited) lim.textContent = 'Running at ' + formatRate(app.rate);
     this.refreshInfo(false);
+    const locked = app.cam.follow;
+    if (locked !== this.lockShown) {
+      this.lockShown = locked;
+      $('lock-chip').hidden = !locked;
+      if (locked) $('lock-name').textContent = locked.name;
+      $('btn-lock').classList.toggle('on', !!locked);
+      $('btn-lock').setAttribute('aria-pressed', locked ? 'true' : 'false');
+    }
     $('stat-objects').textContent = `${app.world.bodies.length} bodies · ${(app.world.np + app.world.nr).toLocaleString('en-US')} particles`;
     if (app.settings.grid) $('stat-grid').textContent = 'Grid ' + formatDistance(app.renderer.gridSpacing);
     else $('stat-grid').textContent = '';

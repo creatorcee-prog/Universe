@@ -302,7 +302,9 @@ export class Renderer {
         case 'star': case 'wd': case 'ns': shown = this.drawStar(b, p, R, now); break;
         case 'bh': shown = this.drawBlackHole(b, p, R, up, upAng); break;
         case 'core': shown = this.drawCore(b, p); break;
-        default: shown = this.drawPlanet(b, p, R, upAng);
+        default:
+          if (b.comet) this.drawCometTail(b, p);
+          shown = this.drawPlanet(b, p, R, upAng);
       }
       this.screen.set(b, { x: p.x, y: p.y, r: shown });
       if (b === ui.selected || b === cam.follow) {
@@ -474,6 +476,61 @@ export class Renderer {
     }
     if (heat > 0.03) this.heatGlow(p, R * 1.6, heat);
     return R;
+  }
+
+  // Comet coma and tails. Ice starts sublimating inside a few AU of a star; both tails point away from it,
+  // the blue ion tail straight down-sun, the dust tail curving back along the orbit.
+  drawCometTail(b, p) {
+    let star = null, best = 0;
+    for (const s of this.world.bodies) {
+      if (!isLuminous(s)) continue;
+      const f = s.lum / ((s.x - b.x) ** 2 + (s.y - b.y) ** 2 + (s.z - b.z) ** 2);
+      if (f > best) { best = f; star = s; }
+    }
+    if (!star) return;
+    const dx = b.x - star.x, dy = b.y - star.y, dz = b.z - star.z;
+    const d = Math.hypot(dx, dy, dz);
+    const reach = 5 * Math.sqrt(Math.max(star.lum, 1e-3)); // AU at which activity starts, scaled by brightness
+    if (d > reach) return;
+    const act = Math.min(1, (reach - d) / (reach * 0.6));
+    const L = Math.min(1.2, (0.35 * reach) / Math.max(d, 0.05)) * act; // tail length in AU
+    const ux = dx / d, uy = dy / d, uz = dz / d;
+    let vx = b.vx - star.vx, vy = b.vy - star.vy, vz = b.vz - star.vz;
+    const vl = Math.hypot(vx, vy, vz) || 1;
+    vx /= vl; vy /= vl; vz /= vl;
+    const { ctx, cam, dpr } = this;
+    const tip = { x: 0, y: 0, s: 0 };
+    ctx.globalCompositeOperation = 'lighter';
+    const tails = [
+      [ux, uy, uz, [150, 196, 255], 0.55, 1.0],
+      [ux * 0.8 - vx * 0.45, uy * 0.8 - vy * 0.45, uz * 0.8 - vz * 0.45, [255, 238, 210], 0.45, 0.7],
+    ];
+    for (const [tx, ty, tz, col, alpha, len] of tails) {
+      const tl = Math.hypot(tx, ty, tz) || 1;
+      if (cam.project(b.x + (tx / tl) * L * len, b.y + (ty / tl) * L * len, b.z + (tz / tl) * L * len, tip) <= 0) continue;
+      const ex = tip.x - p.x, ey = tip.y - p.y;
+      const el = Math.hypot(ex, ey);
+      if (el < 2) continue;
+      const nx = -ey / el, ny = ex / el;
+      const w0 = 1.5 * dpr, w1 = Math.max(3 * dpr, el * 0.12);
+      const g = ctx.createLinearGradient(p.x, p.y, tip.x, tip.y);
+      g.addColorStop(0, rgba(col, alpha * act));
+      g.addColorStop(1, rgba(col, 0));
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(p.x + nx * w0, p.y + ny * w0);
+      ctx.lineTo(tip.x + nx * w1, tip.y + ny * w1);
+      ctx.lineTo(tip.x - nx * w1, tip.y - ny * w1);
+      ctx.lineTo(p.x - nx * w0, p.y - ny * w0);
+      ctx.closePath();
+      ctx.fill();
+    }
+    const cr = Math.max(4 * dpr, 0.01 * L * p.s);
+    const coma = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, cr * 2.5);
+    coma.addColorStop(0, rgba([235, 245, 255], 0.9 * act));
+    coma.addColorStop(1, rgba([150, 200, 255], 0));
+    ctx.fillStyle = coma;
+    ctx.fillRect(p.x - cr * 2.5, p.y - cr * 2.5, cr * 5, cr * 5);
   }
 
   heatGlow(p, R, heat) {

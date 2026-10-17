@@ -87,6 +87,24 @@ class App {
     this.ui.showInfo(body);
   }
 
+  // The lock button: lock onto the selection (or whatever is nearest the screen centre), or release.
+  toggleLock() {
+    if (this.cam.follow) {
+      const name = this.cam.follow.name;
+      this.cam.follow = null;
+      this.ui.toast(`Camera unlocked from ${name}. Two fingers now pan freely.`);
+      return;
+    }
+    let target = this.state.selected;
+    if (!target) {
+      const d = this.renderer.dpr;
+      target = this.renderer.pickBody((this.canvas.clientWidth / 2) * d, (this.canvas.clientHeight / 2) * d, 2000);
+    }
+    if (!target) { this.ui.toast('Nothing to lock onto. Tap an object first.'); return; }
+    this.follow(target);
+    this.ui.toast(`Camera locked on ${target.name}`);
+  }
+
   follow(body) {
     this.cam.focus(body, performance.now());
     // Frame the body nicely if we are far away from it.
@@ -135,7 +153,7 @@ class App {
       this.ui.toast('Released a dust cloud');
       return;
     }
-    const b = makeBody({ kind: item.kind, m: item.m, r: item.r, color: item.color, band: item.band, atmo: item.atmo });
+    const b = makeBody({ kind: item.kind, m: item.m, r: item.r, color: item.color, band: item.band, atmo: item.atmo, comet: item.comet });
     b.x = x; b.y = y; b.z = z; b.vx = vx; b.vy = vy; b.vz = vz;
     reclassify(b);
     this.world.addBody(b);
@@ -268,8 +286,11 @@ class App {
     const fade = Math.exp(-dtReal / 5);
     for (const b of w.bodies) if (b.heat > 0) b.heat = b.heat < 0.01 ? 0 : b.heat * fade;
     if (this.cam.follow && !this.cam.follow.alive) {
-      const r = w.resolve(this.cam.follow);
+      const lost = this.cam.follow;
+      const r = w.resolve(lost);
       this.cam.follow = r;
+      if (r) this.ui.toast(`${lost.name} merged into ${r.name}. Camera now locked on ${r.name}.`);
+      else this.ui.toast(`${lost.name} was destroyed. Camera unlocked.`, true);
     }
     if (this.state.selected && !this.state.selected.alive) {
       const r = w.resolve(this.state.selected);
