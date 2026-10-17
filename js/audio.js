@@ -14,12 +14,13 @@
 // session); Settings can switch to "ambient", which follows the switch and mixes with other audio.
 
 const UI = {
-  // name: [file, gain] — gains level the clips to about the same loudness (measured mean volume).
-  click: ['click', 0.55], bleep1: ['bleep1', 1.1], bleep4: ['bleep4', 1.1], bleep6: ['bleep6', 1.0],
-  bleep7: ['bleep7', 0.8], data1: ['data1', 1.0], data5: ['data5', 0.65], confirm2: ['confirm2', 1.1],
+  // name: [file, gain] — gains level the clips to about the same loudness (measured mean volume). Only
+  // the low, soft sounds are kept (the high-pitched blips were removed at the user's request).
   confirm5: ['confirm5', 0.42], confirm7: ['confirm7', 0.85], denied2: ['denied2', 0.36], denied3: ['denied3', 0.32],
-  execute: ['execute', 0.85], complete: ['complete', 1.2], seq3: ['seq3', 2.2], seq6: ['seq6', 1.1],
+  complete: ['complete', 1.2],
 };
+// Sounds that were removed map to a remaining low one, or to nothing (silent).
+const ALIAS = { execute: 'confirm5', seq6: 'confirm7' };
 const COSMIC = ['rumble1', 'rumble4', 'rumbleloop', 'decay'];
 
 function url(name) {
@@ -123,6 +124,7 @@ export class Sound {
   // Interface sound. Calls within 40 ms of each other collapse to the first. The generic click is a
   // fallback, played a tick after the tap, and skipped if the tap's handler already made a sound.
   ui(name, fallback = false) {
+    name = ALIAS[name] || name;
     const now = performance.now();
     if (now - this.lastUI < (fallback ? 400 : 40)) return;
     this.lastUI = now;
