@@ -23,6 +23,21 @@ const UI = {
 const ALIAS = { execute: 'confirm5', seq6: 'confirm7' };
 const COSMIC = ['rumble1', 'rumble4', 'rumbleloop', 'decay'];
 
+// Background music: shuffled, each track fading in and out, with 30 s of silence between tracks.
+const MUSIC = ['music-relax-beat', 'music-drone', 'music-vastness', 'music-space', 'music-valley-sunset'];
+const FADE_IN = 6, FADE_OUT = 8, GAP_MS = 30000, MUSIC_LEVEL = 0.5;
+
+// Inlined sounds (single-file build) become blob: URLs, which audio players stream and seek properly.
+const blobUrls = {};
+function streamUrl(name) {
+  if (blobUrls[name]) return blobUrls[name];
+  const u = url(name);
+  if (!u.startsWith('data:')) return u;
+  const bin = atob(u.slice(u.indexOf(',') + 1)), bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return (blobUrls[name] = URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' })));
+}
+
 function url(name) {
   const inline = typeof window !== 'undefined' && window.__AUDIO__ && window.__AUDIO__[name];
   return inline || `assets/audio/${name}.mp3`;
@@ -46,6 +61,8 @@ export class Sound {
   start() {
     if (this.ctx) {
       if (this.ctx.state !== 'running') { this.ctx.resume().catch(() => {}); this.kick(); }
+      // A tap is the moment the player may start, if it is meant to be playing but was blocked.
+      if (this.mEl && this.mState === 'idle' && this.settings.music !== false) this.nextTrack();
       return;
     }
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -81,6 +98,87 @@ export class Sound {
     comp.connect(this.master);
     for (const [name, [file]] of Object.entries(UI)) this.load(name, file);
     for (const name of COSMIC) this.load(name, name);
+    this.startMusic();
+  }
+
+  // ---------- background music ----------
+  // One audio player, reused for every track: it is first started inside a tap (iOS only lets a player
+  // start from a user gesture), and changing its source later keeps that permission. It streams the file
+  // (decoding a 4-minute track would take ~80 MB) and plays through Web Audio, because iOS ignores a
+  // player's own volume, so fades need a gain node.
+  startMusic() {
+    if (this.mEl || !this.ctx) { if (this.mEl && this.settings.music !== false && this.mState === 'idle') this.nextTrack(); return; }
+    const el = (this.mEl = new window.Audio());
+    el.preload = 'auto';
+    this.mGain = this.ctx.createGain();
+    this.mGain.gain.value = 0;
+    this.mBus = this.ctx.createGain();
+    this.mBus.gain.value = this.settings.music !== false ? MUSIC_LEVEL : 0;
+    try { this.ctx.createMediaElementSource(el).connect(this.mGain); } catch { /* unsupported: no music */ return; }
+    this.mGain.connect(this.mBus);
+    this.mBus.connect(this.ctx.destination);
+    this.mBag = [];
+    this.mState = 'idle';
+    el.addEventListener('timeupdate', () => {
+      if (this.mState !== 'playing' || !(el.duration > 0)) return;
+      if (el.currentTime > el.duration - FADE_OUT) {
+        this.mState = 'fading';
+        const t = this.ctx.currentTime;
+        this.mGain.gain.cancelScheduledValues(t);
+        this.mGain.gain.setValueAtTime(this.mGain.gain.value, t);
+        this.mGain.gain.linearRampToValueAtTime(0, t + Math.max(0.5, el.duration - el.currentTime));
+      }
+    });
+    el.addEventListener('ended', () => this.afterTrack());
+    el.addEventListener('error', () => this.afterTrack());
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) { el.pause(); clearTimeout(this.mTimer); }
+      else if (this.settings.music !== false) {
+        if (this.mState === 'playing' || this.mState === 'fading') el.play().catch(() => {});
+        else if (this.mState === 'waiting') this.mTimer = setTimeout(() => this.nextTrack(), GAP_MS);
+      }
+    });
+    if (this.settings.music !== false) this.nextTrack();
+  }
+
+  // Shuffle: every track once in random order, then a new order (never the same track twice in a row).
+  pickTrack() {
+    if (!this.mBag.length) {
+      const bag = MUSIC.slice();
+      for (let i = bag.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [bag[i], bag[j]] = [bag[j], bag[i]]; }
+      if (bag[0] === this.mLast && bag.length > 1) [bag[0], bag[1]] = [bag[1], bag[0]];
+      this.mBag = bag;
+    }
+    return (this.mLast = this.mBag.shift());
+  }
+
+  nextTrack() {
+    if (!this.mEl || this.settings.music === false) { this.mState = 'idle'; return; }
+    clearTimeout(this.mTimer);
+    const el = this.mEl, name = this.pickTrack();
+    el.src = streamUrl(name);
+    this.mState = 'playing';
+    this.mTrack = name;
+    const t = this.ctx.currentTime;
+    this.mGain.gain.cancelScheduledValues(t);
+    this.mGain.gain.setValueAtTime(0, t);
+    this.mGain.gain.linearRampToValueAtTime(1, t + FADE_IN);
+    el.play().catch(() => { this.mState = 'idle'; }); // blocked: try again on the next tap
+  }
+
+  afterTrack() {
+    this.mGain.gain.setValueAtTime(0, this.ctx.currentTime);
+    this.mState = 'waiting';
+    clearTimeout(this.mTimer);
+    this.mTimer = setTimeout(() => this.nextTrack(), GAP_MS);
+  }
+
+  setMusic(on) {
+    if (!this.ctx) { if (on) this.start(); return; }
+    const t = this.ctx.currentTime;
+    if (this.mBus) { this.mBus.gain.cancelScheduledValues(t); this.mBus.gain.setValueAtTime(this.mBus.gain.value, t); this.mBus.gain.linearRampToValueAtTime(on ? MUSIC_LEVEL : 0, t + 1.5); }
+    if (on) { if (!this.mEl) this.startMusic(); else if (this.mState === 'idle') this.nextTrack(); }
+    else if (this.mEl) { clearTimeout(this.mTimer); setTimeout(() => { if (this.settings.music === false) { this.mEl.pause(); this.mState = 'idle'; } }, 1600); }
   }
 
   // A silent one-sample sound, started inside the gesture: WebKit only opens audio output once something
