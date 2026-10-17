@@ -51,7 +51,7 @@ function particleOrbit(world, parent, a, e, i, kind, m = 0) {
   world.addParticle(parent.x + s[0], parent.y + s[1], parent.z + s[2], parent.vx + s[3], parent.vy + s[4], parent.vz + s[5], m, kind);
 }
 
-function ring(world, host, rIn, rOut, count, tiltDeg, kind) {
+export function ring(world, host, rIn, rOut, count, tiltDeg, kind) {
   const t = tiltDeg * D2R;
   for (let k = 0; k < count; k++) {
     // Denser toward the middle, with a Cassini-like gap.

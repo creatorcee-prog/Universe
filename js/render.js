@@ -1,4 +1,5 @@
 import { PK } from './physics.js';
+import { G } from './units.js';
 import { isLuminous } from './bodies.js';
 import { tempZones } from './thermal.js';
 
@@ -11,8 +12,10 @@ const PARTICLE_RGB = {
 };
 
 // On-screen radius in device pixels that both views give a body (tiny bodies get a minimum size).
-export function shownRadius(b, p, dpr) {
+export function shownRadius(b, p, dpr, trueSize = false) {
   const R = b.r * p.s;
+  // True sizes: planets and moons are drawn at their real size however small (a marker ring finds them).
+  if (trueSize && (b.kind === 'rocky' || b.kind === 'gas')) return Math.max(R, 0.5 * dpr);
   switch (b.kind) {
     case 'star': case 'wd': case 'ns': return Math.max(R, 3 * dpr);
     case 'bh': return Math.max(R * 2.6, 4.5 * dpr);
@@ -127,6 +130,7 @@ export class Renderer {
       ctx.clearRect(0, 0, W, H);
       this.gridSpacing = Math.pow(10, Math.floor(Math.log10(cam.dist / 1.5)));
       if (this.settings.trails) this.drawTrails();
+      if (this.settings.orbits) this.drawOrbits(ui);
       this.drawZones(ui);
       this.drawBodies(now, ui);
       this.drawFlashes(now);
@@ -144,6 +148,7 @@ export class Renderer {
     if (this.settings.stars) this.drawStars();
     if (this.settings.grid) this.drawGrid();
     if (this.settings.trails) this.drawTrails();
+    if (this.settings.orbits) this.drawOrbits(ui);
     this.drawZones(ui);
     this.drawParticles();
     this.drawBodies(now, ui);
@@ -319,6 +324,47 @@ export class Renderer {
     ctx.globalCompositeOperation = 'source-over';
   }
 
+  // Orbit lines: the Kepler ellipse each body would follow around what it orbits (its osculating orbit),
+  // or the near part of a hyperbola for escaping bodies.
+  drawOrbits(ui) {
+    const { ctx, cam, dpr, world } = this;
+    const hier = world.hierarchy();
+    const p = this.tmp;
+    let list = world.bodies;
+    if (list.length > 80) list = list.slice().sort((a, b) => b.m - a.m).slice(0, 80);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.lineWidth = dpr;
+    for (const b of list) {
+      const par = hier.get(b)?.parent;
+      if (!par || b === par) continue;
+      const rx = b.x - par.x, ry = b.y - par.y, rz = b.z - par.z, vx = b.vx - par.vx, vy = b.vy - par.vy, vz = b.vz - par.vz;
+      const r = Math.hypot(rx, ry, rz), mu = G * (par.m + b.m), v2 = vx * vx + vy * vy + vz * vz;
+      const hx = ry * vz - rz * vy, hy = rz * vx - rx * vz, hz = rx * vy - ry * vx, h = Math.hypot(hx, hy, hz);
+      if (!(h > 0)) continue;
+      const rv = rx * vx + ry * vy + rz * vz;
+      let ex = ((v2 - mu / r) * rx - rv * vx) / mu, ey = ((v2 - mu / r) * ry - rv * vy) / mu, ez = ((v2 - mu / r) * rz - rv * vz) / mu;
+      const e = Math.hypot(ex, ey, ez), sl = (h * h) / mu; // semi-latus rectum
+      let Px, Py, Pz;
+      if (e > 1e-6) { Px = ex / e; Py = ey / e; Pz = ez / e; } else { Px = rx / r; Py = ry / r; Pz = rz / r; }
+      const Qx = (hy * Pz - hz * Py) / h, Qy = (hz * Px - hx * Pz) / h, Qz = (hx * Py - hy * Px) / h;
+      const thMax = e < 1 ? Math.PI : Math.min(Math.acos(-1 / e) * 0.97, Math.PI);
+      const N = 128, path = new Path2D();
+      let pen = false;
+      for (let k = 0; k <= N; k++) {
+        const th = -thMax + (2 * thMax * k) / N;
+        const rr = sl / (1 + e * Math.cos(th));
+        if (!(rr > 0) || rr > 50 * r) { pen = false; continue; }
+        const c = Math.cos(th) * rr, s = Math.sin(th) * rr;
+        if (cam.project(par.x + c * Px + s * Qx, par.y + c * Py + s * Qy, par.z + c * Pz + s * Qz, p) <= 0) { pen = false; continue; }
+        if (pen) path.lineTo(p.x, p.y); else path.moveTo(p.x, p.y);
+        pen = true;
+      }
+      const col = b.color || [180, 190, 210];
+      ctx.strokeStyle = rgba(col, b === ui.selected ? 0.75 : e < 1 ? 0.32 : 0.2);
+      ctx.stroke(path);
+    }
+  }
+
   drawTrails() {
     const { ctx, cam } = this;
     const G = this.g, p = this.tmp;
@@ -454,7 +500,7 @@ export class Renderer {
       let shown = R;
       if (ui.surface && ui.surface.body === b) continue; // the ground we are standing on
       if (this.overlay) {
-        shown = shownRadius(b, p, dpr);
+        shown = shownRadius(b, p, dpr, this.settings.trueSize);
         if (b.comet) this.drawCometTail(b, p);
       } else switch (b.kind) {
         case 'star': case 'wd': case 'ns': shown = this.drawStar(b, p, R, now); break;
@@ -465,6 +511,12 @@ export class Renderer {
           shown = this.drawPlanet(b, p, R, upAng);
       }
       this.screen.set(b, { x: p.x, y: p.y, r: shown });
+      if (this.settings.trueSize && shown < 2 * dpr && (b.kind === 'rocky' || b.kind === 'gas')) {
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.strokeStyle = 'rgba(200,215,255,0.35)';
+        ctx.lineWidth = dpr;
+        ctx.beginPath(); ctx.arc(p.x, p.y, 6 * dpr, 0, Math.PI * 2); ctx.stroke();
+      }
       if (b === ui.selected || b === cam.follow) {
         ctx.globalCompositeOperation = 'source-over';
         ctx.strokeStyle = b === ui.selected ? 'rgba(255,190,90,0.95)' : 'rgba(150,180,255,0.55)';

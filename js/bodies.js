@@ -97,8 +97,44 @@ export const CATALOG = [
   { id: 'dust', label: 'Dust cloud', kind: 'dust', m: 0 },
 ];
 
+// Real objects for the Create gallery. Masses and mean radii: NASA planetary and satellite fact sheets
+// (nssdc.gsfc.nasa.gov); stars: Proxima Centauri (Kervella et al. 2017), Sirius A/B (Bond et al. 2017),
+// Betelgeuse (Joyce et al. 2020). `style` picks the thumbnail look; `named` keeps the real name.
+const KG = 1 / 1.98847e30;
+const real = (id, label, kind, kg, rkm, extra = {}) => ({ id, label, kind, m: kg * KG, r: rkm ? km(rkm) : 0, named: true, real: true, ...extra });
+export const REAL_OBJECTS = [
+  real('r-mercury', 'Mercury', 'rocky', 3.3011e23, 2439.7, { compKey: 'Mercury', color: [168, 160, 150], style: 'moon' }),
+  real('r-venus', 'Venus', 'rocky', 4.8675e24, 6051.8, { compKey: 'Venus', color: [232, 204, 150], style: 'venus', atmo: [255, 230, 180] }),
+  real('r-earth', 'Earth', 'rocky', 5.9722e24, 6371, { compKey: 'Earth', color: [64, 118, 214], atmo: [120, 180, 255], style: 'earth' }),
+  real('r-moon', 'Moon', 'rocky', 7.342e22, 1737.4, { compKey: 'Moon', color: [184, 182, 176], style: 'moon' }),
+  real('r-mars', 'Mars', 'rocky', 6.4171e23, 3389.5, { compKey: 'Mars', color: [200, 104, 62], style: 'mars' }),
+  real('r-phobos', 'Phobos', 'rocky', 1.0659e16, 11.27, { compKey: 'asteroid', color: [110, 100, 90], style: 'asteroid' }),
+  real('r-deimos', 'Deimos', 'rocky', 1.4762e15, 6.2, { compKey: 'asteroid', color: [140, 128, 112], style: 'asteroid' }),
+  real('r-ceres', 'Ceres', 'rocky', 9.3835e20, 469.7, { compKey: 'Ceres', color: [150, 144, 136], style: 'asteroid' }),
+  real('r-vesta', 'Vesta', 'rocky', 2.59076e20, 262.7, { compKey: 'asteroid', color: [160, 150, 140], style: 'asteroid' }),
+  real('r-jupiter', 'Jupiter', 'gas', 1.89813e27, 69911, { compKey: 'Jupiter', color: [216, 182, 136], band: [170, 112, 74], style: 'jupiter' }),
+  real('r-io', 'Io', 'rocky', 8.931938e22, 1821.6, { compKey: 'Io', color: [226, 204, 110], style: 'io' }),
+  real('r-europa', 'Europa', 'rocky', 4.799844e22, 1560.8, { compKey: 'Europa', color: [210, 196, 176], style: 'icemoon' }),
+  real('r-ganymede', 'Ganymede', 'rocky', 1.4819e23, 2634.1, { compKey: 'Ganymede', color: [160, 150, 138], style: 'moon' }),
+  real('r-callisto', 'Callisto', 'rocky', 1.075938e23, 2410.3, { compKey: 'Callisto', color: [110, 100, 92], style: 'moon' }),
+  real('r-saturn', 'Saturn', 'gas', 5.6834e26, 58232, { compKey: 'Saturn', color: [228, 208, 162], band: [190, 160, 110], style: 'saturn', rings: true }),
+  real('r-titan', 'Titan', 'rocky', 1.3452e23, 2574.7, { compKey: 'Titan', color: [210, 150, 70], style: 'titan', atmo: [230, 160, 70] }),
+  real('r-enceladus', 'Enceladus', 'rocky', 1.08022e20, 252.1, { compKey: 'icemoon', color: [240, 244, 248], style: 'icemoon' }),
+  real('r-uranus', 'Uranus', 'gas', 8.681e25, 25362, { compKey: 'Uranus', color: [168, 222, 232], band: [140, 204, 218], style: 'uranus' }),
+  real('r-neptune', 'Neptune', 'gas', 1.02413e26, 24622, { compKey: 'Neptune', color: [84, 124, 222], band: [60, 92, 190], style: 'neptune' }),
+  real('r-triton', 'Triton', 'rocky', 2.139e22, 1353.4, { compKey: 'Pluto', color: [220, 200, 196], style: 'icemoon' }),
+  real('r-pluto', 'Pluto', 'rocky', 1.303e22, 1188.3, { compKey: 'Pluto', color: [214, 190, 160], style: 'pluto' }),
+  real('r-charon', 'Charon', 'rocky', 1.586e21, 606, { compKey: 'icemoon', color: [170, 166, 160], style: 'moon' }),
+  { id: 'r-proxima', label: 'Proxima Centauri', kind: 'star', m: 0.1221, named: true, real: true },
+  { id: 'r-sun', label: 'Sun', kind: 'star', m: 1, named: true, real: true },
+  { id: 'r-sirius', label: 'Sirius A', kind: 'star', m: 2.063, named: true, real: true },
+  { id: 'r-betelgeuse', label: 'Betelgeuse', kind: 'star', m: 18, named: true, real: true, ageFrac: 0.995 },
+  { id: 'r-siriusb', label: 'Sirius B', kind: 'wd', m: 1.018, r: km(5840), named: true, real: true },
+  { id: 'r-sgra', label: 'Sagittarius A*', kind: 'bh', m: 4.3e6, named: true, real: true },
+];
+
 export function catalogItem(id) {
-  return CATALOG.find((c) => c.id === id);
+  return CATALOG.find((c) => c.id === id) || REAL_OBJECTS.find((c) => c.id === id);
 }
 
 let idCounter = 1;

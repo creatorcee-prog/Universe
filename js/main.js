@@ -1,8 +1,9 @@
-import { G, EARTH_MASS } from './units.js';
+import { G, EARTH_MASS, km } from './units.js';
 import { World, circularSpeed, captureRadius, PK } from './physics.js';
 import { makeBody, catalogItem, reclassify } from './bodies.js';
 import { thermalStep, localTemp } from './thermal.js';
-import { PRESETS } from './presets.js';
+import { PRESETS, ring } from './presets.js';
+import { lifetime } from './stellar.js';
 import { Camera } from './camera.js';
 import { Renderer } from './render.js';
 import { Renderer3D } from './render3d.js';
@@ -12,7 +13,7 @@ import { UI } from './ui.js';
 const SETTINGS_KEY = 'universe-pocket-settings';
 
 function loadSettings() {
-  const defaults = { trails: true, labels: true, grid: true, stars: true, trailsRelative: true, collisions: true, view: 'realistic', bloom: true, trailColor: 'body' };
+  const defaults = { trails: true, labels: true, grid: true, stars: true, trailsRelative: true, collisions: true, view: 'realistic', bloom: true, trailColor: 'body', orbits: false, trueSize: false };
   try {
     return { ...defaults, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') };
   } catch {
@@ -138,7 +139,7 @@ class App {
     const h = b.r * 1.0012; // eye a little above the ground
     this.cam.override = { eye: [b.x + n[0] * h, b.y + n[1] * h, b.z + n[2] * h], f, r, u };
     this.cam.dist = this.cam.distGoal = b.r * 0.01;
-    sv.up = n; sv.sun = sun; sv.sunPower = star ? 1 : 0;
+    sv.up = n; sv.sun = sun; sv.sunPower = star ? 1 : 0; sv.north = north;
     // Local conditions for the readout.
     const th = b.th;
     const elev = Math.asin(Math.max(-1, Math.min(1, sun[0] * n[0] + sun[1] * n[1] + sun[2] * n[2])));
@@ -337,10 +338,19 @@ class App {
       this.ui.toast('Released a dust cloud');
       return;
     }
-    const b = makeBody({ kind: item.kind, m: item.m, r: item.r, color: item.color, band: item.band, atmo: item.atmo, comet: item.comet, compKey: item.compKey });
+    let name;
+    if (item.named) {
+      // Real objects keep their name (numbered if one is already in the scene).
+      name = item.label;
+      for (let k = 2; this.world.findByName(name); k++) name = `${item.label} ${k}`;
+    }
+    const b = makeBody({ kind: item.kind, m: item.m, r: item.r, color: item.color, band: item.band, atmo: item.atmo, comet: item.comet, compKey: item.compKey, name });
+    if (item.ageFrac) b.age = lifetime(item.m) * item.ageFrac;
     b.x = x; b.y = y; b.z = z; b.vx = vx; b.vy = vy; b.vz = vz;
     reclassify(b);
     this.world.addBody(b);
+    // A new Saturn comes with its rings (A, B and C rings, 74,500-136,800 km, with the Cassini Division).
+    if (item.rings) ring(this.world, b, km(74500), km(136800), 6000, 26.7, PK.ICE);
     thermalStep(this.world, 0);
     const where = a.parent ? (a.bound ? ` orbiting ${a.parent.name}` : ` on an escape path from ${a.parent.name}`) : '';
     this.ui.toast(`Added ${b.name}${where}. Tap it for details.`);

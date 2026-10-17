@@ -122,7 +122,30 @@ uniform float uAtmoK;
 uniform vec4 uImp[16];
 uniform vec4 uImpB[16];    // x: angular size, y: age (s)
 uniform int uImpN;
+uniform mat3 uView;        // shared with the vertex stage
+uniform mat3 uRot;
+uniform vec3 uCenter;
+uniform float uRadius;
+uniform vec3 uVeg;         // vegetation colour (depends on the star's light and the age of life)
+uniform float uRelief;     // terrain relief: real topography scales roughly as 1/surface gravity
+uniform float uHex;        // Saturn's north-polar hexagon
+uniform vec3 uRingN;       // ring-plane normal (view space); zero when there are no rings
+uniform vec2 uRingR;       // ring inner/outer radius in planet radii
+uniform float uRingProf[16]; // ring opacity profile from the actual ring particles
 out vec4 outColor;
+
+// Shadow cast by the planet's ring onto its surface (fraction of light blocked).
+float ringShadow(vec3 P, vec3 L) {
+  if (dot(uRingN, uRingN) < 0.5) return 0.0;
+  float den = dot(uRingN, L);
+  if (abs(den) < 1e-4) return 0.0;
+  float t = -dot(uRingN, P) / den;
+  if (t <= 0.0) return 0.0;
+  float r = length(P + L * t) / uRadius;
+  if (r < uRingR.x || r > uRingR.y) return 0.0;
+  int k = int(clamp((r - uRingR.x) / (uRingR.y - uRingR.x) * 16.0, 0.0, 15.0));
+  return uRingProf[k];
+}
 
 float crater(vec3 p) {
   vec3 i = floor(p), f = fract(p);
@@ -225,15 +248,50 @@ void main() {
       float e = length(vec2(length(d.xz) * 0.55, d.y)) / uStorm.w;
       col = mix(col, uColC, smoothstep(1.0, 0.6, e) * step(0.0, dot(vObj, sd)));
     }
+    // Saturn's north-polar hexagon: a six-sided jet stream around a bluish polar vortex (Cassini).
+    if (uHex > 0.0 && vObj.y > 0.7) {
+      float a = atan(vObj.z, vObj.x);
+      float rr = length(vObj.xz);
+      float hr = 0.24 / cos(mod(a + 0.3, 1.0472) - 0.5236);
+      float inside = smoothstep(hr + 0.012, hr - 0.012, rr);
+      col = mix(col, vec3(0.56, 0.66, 0.72) * (0.9 + 0.1 * vnoise(vObj * 30.0)), inside * 0.75);
+      col *= 1.0 - 0.22 * exp(-pow((rr - hr) / 0.012, 2.0));
+      col = mix(col, vec3(0.4, 0.48, 0.55), smoothstep(0.06, 0.0, rr) * 0.6);
+    }
     col = mix(col, vec3(0.1, 0.07, 0.06), scar * 0.8);
   } else {
+    // Terrain: continents from low-frequency noise, ridged mountain ranges on land, fine detail.
     float h = fbm(q, 6);
     float sea = 0.3 + 0.36 * uOcean; // fbm is roughly 0.3-0.7, so this tracks the ocean fraction
+    float e = h - sea;                // elevation above sea level, in noise units
+    float rg = 1.0 - abs(2.0 * vnoise(q * 3.1 + 11.0) - 1.0);
+    float rg2 = 1.0 - abs(2.0 * vnoise(q * 7.3 + 3.0) - 1.0);
+    float mtn = rg * rg * (0.65 + 0.35 * rg2) * smoothstep(0.0, 0.1, e);
     float landMask = uOcean > 0.0 ? smoothstep(sea, sea + 0.012, h) : 1.0;
+    float Hgt = (uOcean > 0.0 ? max(e, 0.0) : h - 0.5) + 0.14 * mtn + 0.006 * vnoise(q * 38.0);
+    // Relief shading: tilt the normal by the slope of the height field (screen-space bump mapping),
+    // so mountain ranges and valleys show, most of all near the terminator.
+    {
+      vec3 dpx = dFdx(vViewPos), dpy = dFdy(vViewPos);
+      float dhx = dFdx(Hgt), dhy = dFdy(Hgt);
+      vec3 r1 = cross(dpy, N), r2 = cross(N, dpx);
+      float det = dot(dpx, r1);
+      vec3 grad = sign(det) * (dhx * r1 + dhy * r2);
+      vec3 Nb = normalize(abs(det) * N - grad * uRadius * 0.05 * uRelief);
+      N = normalize(mix(N, Nb, landMask * clamp(uRelief, 0.0, 1.0)));
+      day = max(dot(N, uL0), 0.0);
+    }
+    // Climate zones: wet tropics, dry subtropical belts near 25-30° (Hadley cells), wetter mid-latitudes.
+    float desert = exp(-pow(lat - 0.45, 2.0) / 0.012);
+    float moist = fbm(q * 1.3 + 31.0, 4) + 0.18 * exp(-lat * lat / 0.02) - 0.3 * desert;
     vec3 land = mix(uColA, uColB, smoothstep(0.32, 0.68, fbm(q * 2.4 + 7.0, 4)));
+    land = mix(land, land * vec3(1.12, 1.0, 0.82), desert * 0.5);
+    // Mountains: bare rock, darker and greyer with height.
+    land = mix(land, vec3(0.36, 0.34, 0.32) * (0.8 + 0.4 * rg2), smoothstep(0.05, 0.16, e + 0.08 * mtn) * 0.75);
     if (uLife > 0.0) {
-      float green = uLife * smoothstep(255.0, 285.0, T) * smoothstep(335.0, 300.0, T);
-      land = mix(land, vec3(0.13, 0.3, 0.11), green * smoothstep(0.62, 0.48, h + 0.1 * lat) * 0.85);
+      float warm = smoothstep(255.0, 280.0, T) * smoothstep(335.0, 305.0, T);
+      float veg = uLife * warm * smoothstep(0.38, 0.58, moist) * (1.0 - smoothstep(0.08, 0.2, e + 0.1 * mtn));
+      land = mix(land, uVeg * (0.75 + 0.5 * vnoise(q * 9.0)), veg * 0.92);
     }
     if (uLineae > 0.0) {
       float l = 1.0 - smoothstep(0.0, 0.025, abs(vnoise(q * 5.0) - 0.5));
@@ -241,7 +299,10 @@ void main() {
     }
     frozen = smoothstep(272.0, 260.0, T);
     boiled = smoothstep(uBoil, uBoil + 30.0, T);
-    vec3 ocean = mix(vec3(0.015, 0.06, 0.18), vec3(0.04, 0.2, 0.42), smoothstep(sea - 0.12, sea, h));
+    // Oceans: deep blue, turquoise over shallow shelves near the coast.
+    float depth = sea - h;
+    vec3 ocean = mix(vec3(0.01, 0.045, 0.15), vec3(0.03, 0.17, 0.36), smoothstep(0.14, 0.02, depth));
+    ocean = mix(ocean, vec3(0.06, 0.34, 0.40), smoothstep(0.035, 0.0, depth) * 0.75);
     vec3 seabed = mix(uColB * 0.55, uColA * 0.45, h);
     vec3 ice = vec3(0.86, 0.9, 0.96);
     vec3 seaCol = mix(mix(ocean, ice, frozen), seabed, boiled);
@@ -250,6 +311,10 @@ void main() {
     // Ice caps creep toward the equator as the planet cools.
     float snow = smoothstep(uSnowLat, uSnowLat + 0.07, lat + 0.12 * (fbm(q * 3.0, 3) - 0.5));
     col = mix(col, ice, snow * smoothstep(290.0, 268.0, T) * uIce);
+    // Snow on high peaks: air cools with height (about 6.5 K per km on Earth).
+    // Only worlds with a water cycle (liquid oceans) get snow-capped peaks.
+    float Tz = T - 50.0 * max(e, 0.0) - 95.0 * mtn;
+    col = mix(col, ice * (0.9 + 0.1 * rg2), smoothstep(266.0, 256.0, Tz) * landMask * step(0.001, uOcean) * smoothstep(0.03, 0.1, e));
     if (uCraters > 0.0) {
       float c = crater(vObj * 4.0 + uSeed);
       float c2 = crater(vObj * 11.0 + uSeed * 2.0);
@@ -264,24 +329,51 @@ void main() {
     col = mix(col, col * 0.6 + vec3(0.12, 0.1, 0.08), rays * 0.5);
   }
 
-  // Lighting.
-  vec3 lit = vec3(0.015) + uLc0 * lightTerm(N, uL0) + uLc1 * lightTerm(N, uL1);
+  // Lighting, with the shadow of the planet's own rings.
+  vec3 Pc = vViewPos - uView * uCenter;
+  float rs = ringShadow(Pc, uL0);
+  vec3 lit = vec3(0.015) + uLc0 * lightTerm(N, uL0) * (1.0 - 0.85 * rs) + uLc1 * lightTerm(N, uL1);
   float cloud = 0.0;
   if (uCloud > 0.0) {
-    cloud = smoothstep(0.5, 0.74, fbm(vObj * 2.6 + vec3(uTime * 0.03, 0.0, uTime * 0.012) + uSeed * 1.7, 5));
-    cloud = clamp(cloud * uCloud * 1.4 + (uCloud > 0.95 ? 0.75 : 0.0), 0.0, 1.0) * (1.0 - boiled * 0.6);
+    // Clouds: domain-warped noise gives swirls and cyclones; cover is heaviest along the equator
+    // (the ITCZ) and the mid-latitude storm tracks, thinnest over the subtropical highs.
+    vec3 drift = vec3(uTime * 0.03, 0.0, uTime * 0.012);
+    vec3 wv = vec3(fbm(vObj * 2.1 + uSeed + 1.3, 3), fbm(vObj * 2.1 + uSeed + 7.9, 3), fbm(vObj * 2.1 + uSeed + 4.4, 3)) - 0.5;
+    float zone = 0.55 + 0.3 * exp(-lat * lat / 0.012) + 0.35 * exp(-pow(lat - 0.78, 2.0) / 0.02) - 0.35 * exp(-pow(lat - 0.45, 2.0) / 0.015);
+    // Stretched east-west by zonal winds; fbm values cluster near 0.5, so the threshold maps cover.
+    vec3 cq = vec3(vObj.x * 3.2, vObj.y * 5.5, vObj.z * 3.2) + wv * 1.8 + drift + uSeed * 1.7;
+    float cl = fbm(cq, 6) + 0.08 * (vnoise(cq * 6.0) - 0.5);
+    float thr = 0.5 + (0.5 - clamp(uCloud * zone * 1.2, 0.0, 1.0)) * 0.34;
+    cloud = smoothstep(thr - 0.04, thr + 0.12, cl);
+    cloud = clamp(cloud + (uCloud > 0.95 ? 0.75 : 0.0), 0.0, 1.0) * (1.0 - boiled * 0.6);
+    // Cloud shadows on the ground, offset toward the Sun.
+    vec3 Lo = transpose(uRot) * (transpose(uView) * uL0);
+    vec3 sp = vObj + Lo * 0.015;
+    float cs = smoothstep(thr - 0.04, thr + 0.12, fbm(vec3(sp.x * 3.2, sp.y * 5.5, sp.z * 3.2) + wv * 1.8 + drift + uSeed * 1.7, 5));
+    col *= 1.0 - 0.45 * cs * (1.0 - cloud) * uCloud;
+    // Thick cloud tops are brighter, thin edges greyer.
+    vec3 cc = uColC * (0.72 + 0.32 * smoothstep(thr, thr + 0.25, cl));
+    col = mix(col, cc, cloud);
   }
   vec3 Hv = normalize(uL0 + V);
-  float spec = pow(max(dot(N, Hv), 0.0), 70.0) * 0.7 * water * (1.0 - cloud);
-  col = mix(col, uColC, cloud);
-  vec3 outc = col * lit + spec * uLc0;
+  float spec = pow(max(dot(N, Hv), 0.0), 90.0) * 0.4 * water * (1.0 - cloud);
+  // Sunglint on water widens and brightens toward the limb (Fresnel).
+  spec += pow(max(dot(N, Hv), 0.0), 12.0) * 0.12 * water * (1.0 - cloud) * pow(1.0 - mu, 3.0);
+  vec3 outc = col * lit + spec * uLc0 * (1.0 - rs);
 
   // Heat. Rocky worlds grow a dark basalt crust broken by pools of glowing lava; the pools spread
   // and merge as the temperature climbs until the whole surface is molten. Gas giants glow in bands.
   float hot = smoothstep(700.0, 1400.0, T);
   if (hot > 0.0) {
     if (uKind == 1) {
-      outc += blackbody(T) * hot * (0.5 + 0.5 * sin(vObj.y * uBands * 6.2831853)) * 1.4;
+      // Hot giants glow by their own heat through turbulent bands, broken by dark, cooler vortices.
+      vec3 wv2 = vec3(fbm(vObj * 2.3 + uSeed, 3), fbm(vObj * 2.3 + uSeed + 5.1, 3), 0.0) - 0.5;
+      float tb = fbm(vec3(vObj.x * 2.5, vObj.y * 8.0, vObj.z * 2.5) + wv2 * 2.2 + vec3(uTime * 0.02, 0.0, 0.0), 5);
+      float storms = smoothstep(0.52, 0.72, fbm(vObj * 3.0 + wv2 * 3.0 + uSeed * 2.0, 4));
+      float pole = smoothstep(0.75, 0.95, abs(vObj.y)) * (0.6 + 0.4 * tb);
+      float dim = clamp(storms * 0.75 + pole * 0.6, 0.0, 0.9);
+      outc = mix(outc, outc * 0.3, hot);
+      outc += blackbody(T * (0.62 + 0.62 * tb)) * hot * (0.35 + 1.3 * tb * tb) * (1.0 - dim) * 1.35;
     } else {
       float melt = smoothstep(800.0, 2800.0, T);
       float flow = fbm(q * 1.15 + vec3(0.0, uTime * 0.012, uTime * 0.008), 5);
@@ -667,7 +759,7 @@ void main() {
 // Sky seen from a planet's surface. Colour and brightness come from the atmosphere (pressure and
 // composition): Rayleigh-blue for nitrogen and oxygen, butterscotch for thick CO2, orange for methane
 // haze, white for steam. Sunsets redden near the horizon; airless worlds show black sky and stars.
-export const SURFACE_SKY_FS = HEAD + `
+export const SURFACE_SKY_FS = HEAD + NOISE + `
 in vec2 vUV;
 uniform mat3 uView;
 uniform vec2 uTan;
@@ -675,6 +767,10 @@ uniform vec3 uUp, uSun;      // world directions: local up, toward the brightest
 uniform vec3 uSkyCol;
 uniform float uDensity;      // 0 airless .. ~1.5 very thick
 uniform float uSunPower;     // sunlight strength (0 with no star)
+uniform float uCloud;        // cloud cover 0..1 from the climate model
+uniform vec3 uCloudCol;
+uniform float uTime;
+uniform vec3 uNorth;         // local north (world), for the cloud deck's coordinates
 out vec4 outColor;
 void main() {
   vec3 dv = normalize(vec3((vUV.x * 2.0 - 1.0) * uTan.x, (vUV.y * 2.0 - 1.0) * uTan.y, -1.0));
@@ -691,8 +787,23 @@ void main() {
   float glow = pow(cosA, 600.0) * 4.0 + pow(cosA, 12.0) * 0.35 * uDensity;
   float a = clamp(uDensity * day, 0.0, 1.0);
   vec3 col = sky * a + vec3(1.0, 0.92, 0.8) * glow * day * min(uDensity, 1.0);
-  // Below the horizon the ground covers this, but keep a faint haze line.
-  outColor = vec4(col, max(a, glow * day));
+  float alpha = max(a, glow * day);
+  // Cloud deck overhead: a flat layer seen in perspective, drifting with the wind. Lit white by day,
+  // orange-pink at sunset, faintly grey at night; it thins toward the horizon haze.
+  if (uCloud > 0.0 && h > 0.02) {
+    vec3 east = normalize(cross(uNorth, uUp));
+    vec2 p = vec2(dot(d, east), dot(d, uNorth)) / max(h, 0.05) * 1.6 + vec2(uTime * 0.02, uTime * 0.007);
+    float n = fbm(vec3(p, 1.7), 5) + 0.1 * (vnoise(vec3(p * 5.0, 3.1)) - 0.5);
+    float thr = 0.5 + (0.5 - clamp(uCloud * 1.2, 0.0, 1.0)) * 0.34;
+    float c = smoothstep(thr - 0.05, thr + 0.14, n) * smoothstep(0.02, 0.2, h);
+    float sunset = pow(1.0 - abs(e), 5.0);
+    vec3 lightCol = mix(vec3(1.0), vec3(1.0, 0.55, 0.4), clamp(sunset, 0.0, 0.8));
+    float lit = 0.05 + 0.95 * smoothstep(-0.1, 0.15, e) * uSunPower;
+    vec3 cc = uCloudCol * lightCol * lit * (0.75 + 0.35 * smoothstep(thr, thr + 0.3, n));
+    col = col * (1.0 - c) + cc * c;
+    alpha = alpha * (1.0 - c) + c;
+  }
+  outColor = vec4(col, alpha);
 }
 `;
 

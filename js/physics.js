@@ -419,6 +419,22 @@ export class World {
       });
       if (s.impacts.length > 16) s.impacts.shift();
     }
+    // Two stars merging: a luminous red nova (V1309 Sco, Tylenda et al. 2011; V838 Mon). A flash of
+    // ~1e5 L☉ that fades over months, a shell of gas thrown off, and a remnant swollen and cool for decades.
+    if (s.kind === 'star' && o.kind === 'star') {
+      const Mx = s.m;
+      this.transients.push({ x: s.x, y: s.y, z: s.z, vx: s.vx, vy: s.vy, vz: s.vz, t0: this.t, peak: 1e5 * Math.min(10, Math.pow(Mx, 1.5)), decay: 0.25, temp: 4500 });
+      s.puff = Math.max(s.puff || 0, 15);
+      const gas = 0.02 * Mx, nGas = Math.min(900, PCAP - this.np - this.pending.length);
+      const rOut = s.r * (1 + s.puff) * 1.2; // launch from outside the swollen envelope
+      const vesc = Math.sqrt((2 * G * Mx) / rOut);
+      for (let k = 0; k < nGas; k++) {
+        const u = randUnit(), sp = vesc * (1.05 + 0.6 * rand()), rr = rOut * (1 + 0.5 * rand());
+        this.spawnParticle(s.x + u[0] * rr, s.y + u[1] * rr, s.z + u[2] * rr, s.vx + u[0] * sp, s.vy + u[1] * sp, s.vz + u[2] * sp, gas / Math.max(1, nGas), PK.SN_H);
+      }
+      s.m -= gas;
+      this.events.push({ text: `${s.name} and ${o.name} merged in a luminous red nova`, body: s, big: true });
+    }
     const ev = reclassify(s);
     this.flashes.push({ x: ix, y: iy, z: iz, r: Math.max(o.r * 4, s.r * Math.min(3, 0.5 + 8 * ratio)), born: performance.now(), life: 900 + 1400 * Math.min(1, ratio * 10), color: kind === PK.HOT ? [255, 230, 190] : [255, 170, 90] });
     const what = s.kind === 'bh' ? 'swallowed' : 'collided with';
@@ -622,8 +638,8 @@ export class World {
     const na = att.length, stride = na * 4;
     const cp = this.cp, cpT = this.cpT;
     // Precompute attractor states at the midpoints used by 1, 2, 4, ... 32 sub-steps.
-    const LEVELS = 8; // up to 128 sub-steps for particles diving close to compact objects
-    if (!this.samp || this.samp.length < 256 * MAX_ATTRACTORS * 4) this.samp = new Float64Array(256 * MAX_ATTRACTORS * 4);
+    const LEVELS = 11; // up to 1024 sub-steps for particles in tight orbits or diving at compact objects
+    if (!this.samp || this.samp.length < 2048 * MAX_ATTRACTORS * 4) this.samp = new Float64Array(2048 * MAX_ATTRACTORS * 4);
     const samp = this.samp;
     const levelOff = [];
     let off = 0, seg = 0;
@@ -681,7 +697,9 @@ export class World {
       }
       let L = Math.ceil(Math.log2(span / (0.08 * tl)));
       if (!(L > 0)) L = 0;
-      let Lmax = 5;
+      // Up to 32 sub-steps normally; particles in tight orbits (a debris disk at high time speed) may take
+      // up to 1024 so their orbits stay intact, ~25+ steps per orbit.
+      let Lmax = tl < span ? LEVELS - 1 : 5;
       for (const a of compact) {
         const dx = cp[a * 4] - x, dy = cp[a * 4 + 1] - y, dz = cp[a * 4 + 2] - z;
         if (dx * dx + dy * dy + dz * dz < cap2[a] * 4e6) { Lmax = LEVELS - 1; break; }

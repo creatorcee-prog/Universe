@@ -112,6 +112,21 @@
           <div><dt>Oceans</dt><dd id="i-ocean">—</dd></div>
           <div><dt>Ice cover</dt><dd id="i-icecov">—</dd></div>
         </dl>
+        <p class="pane-label">Atmosphere</p>
+        <dl class="stats">
+          <div><dt>Atmosphere mass</dt><dd id="a-mass">—</dd></div>
+          <div><dt>Surface pressure</dt><dd id="a-press">—</dd></div>
+          <div><dt>Air density</dt><dd id="a-rho">—</dd></div>
+          <div><dt>Speed of sound</dt><dd id="a-sound">—</dd></div>
+          <div><dt>Scale height</dt><dd id="a-H">—</dd></div>
+          <div><dt>Lapse rate (dry)</dt><dd id="a-lapse">—</dd></div>
+          <div><dt>Elevation range</dt><dd id="a-relief">—</dd></div>
+          <div><dt>Mean molecule</dt><dd id="a-mu">—</dd></div>
+        </dl>
+        <label id="sea-row" class="field">
+          <span class="field-label">Sea level <output id="sea-out"></output></span>
+          <input id="sea" type="range" min="0" max="100" step="1" value="71">
+        </label>
         <div class="info-actions two">
           <button id="i-seed" type="button">Seed life</button>
           <button id="i-kill" class="danger" type="button">Kill all life</button>
@@ -255,6 +270,7 @@
       <button type="button" data-cat="planet">Planets</button>
       <button type="button" data-cat="star">Stars</button>
       <button type="button" data-cat="exotic">Exotic</button>
+      <button type="button" data-cat="real">Real objects</button>
     </div>
     <div id="create-grid" class="create-grid"></div>
     <p class="about">Pick an object, then tap the view. <b>Orbit</b> drops it into a circular orbit around whatever pulls hardest there; <b>Place</b> drops it at rest relative to that body. Drag instead of tapping to fling it.</p>
@@ -304,6 +320,8 @@
         </div>
       </div>
       <label class="switch"><input id="set-trailsRelative" type="checkbox"><span>Trails relative to the followed object</span></label>
+      <label class="switch"><input id="set-orbits" type="checkbox"><span>Orbit lines (predicted ellipses)</span></label>
+      <label class="switch"><input id="set-trueSize" type="checkbox"><span>True sizes (no minimum dot size)</span></label>
       <label class="switch"><input id="set-labels" type="checkbox"><span>Name labels</span></label>
       <label class="switch"><input id="set-grid" type="checkbox"><span>Reference grid</span></label>
       <label class="switch"><input id="set-stars" type="checkbox"><span>Background stars</span></label>

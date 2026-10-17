@@ -67,6 +67,13 @@ export function evolveStar(b, dtYears) {
     const target = massive ? b.m0 * 0.75 : wdMass(b.m0) + 0.25 * (b.m0 - wdMass(b.m0));
     b.m = b.m0 + (target - b.m0) * g;
   }
+  // A merger remnant stays swollen and cool for decades (same luminosity, so T ∝ R^-1/2) as it settles.
+  if (b.puff > 0) {
+    b.r *= 1 + b.puff;
+    b.temp /= Math.sqrt(1 + b.puff);
+    b.puff *= Math.exp(-dtYears / 60);
+    if (b.puff < 0.01) b.puff = 0;
+  }
   b.color = tempToRGB(b.temp);
   return f >= 1 ? 'die' : null;
 }

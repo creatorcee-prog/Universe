@@ -25,7 +25,7 @@ const LOOKS = {
   Mars: { colA: c3(170, 84, 44), colB: c3(118, 58, 32), craters: 0.35, atmo: c3(230, 140, 90), atmoK: 0.25, tilt: 25.2, day: 24.6 },
   Ceres: { colA: c3(118, 115, 110), colB: c3(84, 82, 80), craters: 1, lumpy: 0.03, day: 9.07 },
   Jupiter: { kind: 1, colA: c3(234, 218, 190), colB: c3(176, 126, 88), bands: 7, storm: [0.95, -0.32, 0.1, 0.17], colC: c3(190, 90, 60), atmo: c3(230, 210, 170), atmoK: 0.2, tilt: 3.1, day: 9.93 },
-  Saturn: { kind: 1, colA: c3(240, 228, 196), colB: c3(214, 192, 148), bands: 9, bandK: 0.45, atmo: c3(240, 220, 170), atmoK: 0.2, tilt: 26.7, day: 10.7 },
+  Saturn: { kind: 1, colA: c3(240, 228, 196), colB: c3(214, 192, 148), bands: 9, bandK: 0.45, atmo: c3(240, 220, 170), atmoK: 0.2, tilt: 26.7, day: 10.7, hex: 1 },
   Uranus: { kind: 1, colA: c3(170, 226, 232), colB: c3(150, 210, 220), bands: 3, atmo: c3(180, 240, 255), atmoK: 0.4, tilt: 97.8, day: 17.24 },
   Neptune: { kind: 1, colA: c3(76, 112, 226), colB: c3(56, 88, 196), bands: 4, storm: [0.6, -0.5, 0.6, 0.12], colC: c3(30, 46, 120), atmo: c3(120, 160, 255), atmoK: 0.45, tilt: 28.3, day: 16.1 },
   Pluto: { colA: c3(214, 190, 160), colB: c3(140, 100, 76), craters: 0.3, tilt: 122.5, day: 153.3 },
@@ -34,6 +34,13 @@ const LOOKS = {
   Ganymede: { colA: c3(150, 140, 126), colB: c3(98, 88, 78), craters: 0.6, day: 171.7 },
   Callisto: { colA: c3(104, 94, 82), colB: c3(70, 62, 54), craters: 1, day: 400.5 },
   "Halley's Comet": { colA: c3(48, 44, 40), colB: c3(30, 28, 26), lumpy: 0.45, craters: 0.5, day: 52.8 },
+  Titan: { colA: c3(150, 110, 60), colB: c3(110, 80, 50), cloud: 1, colC: c3(214, 150, 70), atmo: c3(230, 160, 70), atmoK: 1, day: 382.7 },
+  Enceladus: { colA: c3(244, 246, 250), colB: c3(214, 222, 232), lineae: 0.6, craters: 0.3, day: 32.9 },
+  Triton: { colA: c3(226, 204, 198), colB: c3(190, 160, 150), craters: 0.2, lineae: 0.3, day: -141 },
+  Charon: { colA: c3(170, 166, 160), colB: c3(120, 100, 90), craters: 0.6, day: 153.3 },
+  Phobos: { colA: c3(100, 92, 84), colB: c3(70, 64, 58), lumpy: 0.25, craters: 1, day: 7.65 },
+  Deimos: { colA: c3(140, 128, 112), colB: c3(110, 100, 88), lumpy: 0.2, craters: 0.6, day: 30.3 },
+  Vesta: { colA: c3(160, 150, 140), colB: c3(110, 102, 96), lumpy: 0.12, craters: 1, day: 5.34 },
   'Proto-Earth': { colA: c3(90, 50, 36), colB: c3(60, 34, 26), day: 5 },
   Theia: { colA: c3(140, 115, 96), colB: c3(100, 82, 70), craters: 0.5, day: 12 },
 };
@@ -83,6 +90,27 @@ function tiltSpin(tilt, ang) {
   // [ st*sa,   ct,  -st*ca  ]
   // [-ct*sa,   st,   ct*ca  ]
   return new Float32Array([ca, st * sa, -ct * sa, 0, ct, st, sa, -st * ca, ct * ca]);
+}
+
+// Vegetation colour. Early life is purple (retinal-based phototrophs may have dominated before
+// chlorophyll: DasSarma & Schwieterman 2018, Int. J. Astrobiology 20, 241). Mature plant life is tuned to
+// its star's light (Kiang et al. 2007, Astrobiology 7, 252): blue-green under hot F stars, green under the
+// Sun, olive-orange under K stars, near-black under red dwarfs, absorbing as much of the dim light as possible.
+function vegetationColor(b, lights) {
+  const T = lights && lights.primary && lights.primary.s ? lights.primary.s.temp || 5772 : 5772;
+  const stops = [[3000, [0.06, 0.04, 0.07]], [3900, [0.1, 0.07, 0.07]], [4800, [0.28, 0.26, 0.09]], [5772, [0.13, 0.3, 0.11]], [6600, [0.08, 0.27, 0.3]]];
+  let mature = stops[stops.length - 1][1];
+  for (let i = 1; i < stops.length; i++) {
+    if (T <= stops[i][0]) {
+      const [t0, a] = stops[i - 1], [t1, c] = stops[i], k = Math.max(0, (T - t0) / (t1 - t0));
+      mature = [a[0] + (c[0] - a[0]) * k, a[1] + (c[1] - a[1]) * k, a[2] + (c[2] - a[2]) * k];
+      break;
+    }
+  }
+  const age = b.lifeAge ?? 4e9;
+  const k = Math.max(0, Math.min(1, (age - 5e8) / 1e9)); // purple for the first ~0.5 Gyr, then shifts
+  const purple = [0.34, 0.17, 0.37];
+  return [purple[0] + (mature[0] - purple[0]) * k, purple[1] + (mature[1] - purple[1]) * k, purple[2] + (mature[2] - purple[2]) * k];
 }
 
 function sphere(seg, rings) {
@@ -341,6 +369,11 @@ export class Renderer3D {
     gl.uniform3fv(u.uSkyCol, col);
     gl.uniform1f(u.uDensity, dens);
     gl.uniform1f(u.uSunPower, sv.sunPower);
+    gl.uniform1f(u.uCloud, th ? th.cloud : 0);
+    const lc = this.look(b).colC || [0.95, 0.96, 1];
+    gl.uniform3fv(u.uCloudCol, lc);
+    gl.uniform1f(u.uTime, performance.now() / 1000);
+    gl.uniform3fv(u.uNorth, sv.north || [0, 0, 1]);
     gl.bindVertexArray(this.quad);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.disable(gl.BLEND);
@@ -550,6 +583,34 @@ export class Renderer3D {
       s.ang += Math.min(w * simDt, MAX_SPIN * dtReal) * Math.sign(l.day);
     }
 
+    // Ring geometry per planet, measured from its ring particles: plane, extent and a 16-bin opacity
+    // profile (so gaps such as the Cassini Division show in the shadow the rings cast on the planet).
+    this.ringInfo = new Map();
+    if (world.nr > 0) {
+      const tmp = new Map();
+      for (let i = 0; i < world.nr; i++) {
+        const h = world.rHost[i];
+        let r = tmp.get(h);
+        if (!r) {
+          const o = i * 6, B = world.rBasis;
+          const n = [B[o + 1] * B[o + 5] - B[o + 2] * B[o + 4], B[o + 2] * B[o + 3] - B[o] * B[o + 5], B[o] * B[o + 4] - B[o + 1] * B[o + 3]];
+          r = { n, rin: Infinity, rout: 0, list: [] };
+          tmp.set(h, r);
+        }
+        const rad = world.rRad[i];
+        if (rad < r.rin) r.rin = rad;
+        if (rad > r.rout) r.rout = rad;
+        r.list.push(rad);
+      }
+      for (const [h, r] of tmp) {
+        const counts = new Float32Array(16);
+        for (const rad of r.list) counts[Math.min(15, Math.floor(((rad - r.rin) / (r.rout - r.rin + 1e-30)) * 16))]++;
+        let mx = 0;
+        for (const c of counts) mx = Math.max(mx, c);
+        r.prof = counts.map((c) => Math.min(0.92, (c / (mx || 1)) * 0.92));
+        this.ringInfo.set(h, r);
+      }
+    }
     const glows = [];
     for (const b of world.bodies) this.drawBody(b, now, glows);
     // Supernova light: a blinding point that fades over weeks.
@@ -645,7 +706,7 @@ export class Renderer3D {
     const dpr = this.dpr;
     const pxPerAU = this.F / Math.max(depth, 1e-30);
     let R = b.r;
-    const minPx = l.kind === 2 || l.kind === 3 ? 3 * dpr : l.kind === 4 ? 4.5 * dpr : (b.m > 1e-7 ? 2.4 : 1.6) * dpr;
+    const minPx = l.kind === 2 || l.kind === 3 ? 3 * dpr : l.kind === 4 ? 4.5 * dpr : this.settings.trueSize ? 0.5 * dpr : (b.m > 1e-7 ? 2.4 : 1.6) * dpr;
     if (l.kind === 4) R = b.r * 2.6;
     if (b.kind === 'star') R *= 1 + 0.25 * Math.min(1, b.heat);
     if (b.kind === 'core') { this.queueCoreGlow(b, vp, depth, glows); return; }
@@ -720,6 +781,20 @@ export class Renderer3D {
     gl.uniform1f(u.uLatSpan, th ? th.latSpan : 50);
     gl.uniform1f(u.uBoil, th ? th.boil : 373);
     gl.uniform1f(u.uHeat, 0); // impact heat is already part of the surface temperature
+    gl.uniform3fv(u.uVeg, vegetationColor(b, lights));
+    {
+      // Topographic relief scales roughly as 1/g: Mars's volcanoes are 2.5x taller than Earth's mountains.
+      const g = (6.674e-11 * b.m * 1.98847e30) / (b.r * 1.495978707e11) ** 2;
+      gl.uniform1f(u.uRelief, Math.max(0.25, Math.min(1.6, (0.8 * 9.81) / Math.max(g, 0.1))));
+    }
+    gl.uniform1f(u.uHex, l.hex || 0);
+    const ring = this.ringInfo && this.ringInfo.get(b);
+    if (ring) {
+      const nv = this.viewOf(ring.n[0], ring.n[1], ring.n[2]);
+      gl.uniform3f(u.uRingN, nv[0], nv[1], nv[2]);
+      gl.uniform2f(u.uRingR, ring.rin / b.r, ring.rout / b.r);
+      gl.uniform1fv(u.uRingProf, ring.prof);
+    } else gl.uniform3f(u.uRingN, 0, 0, 0);
     gl.uniform1f(u.uCrack, crack);
     gl.uniform1f(u.uTime, now / 1000);
     gl.uniform4fv(u.uStorm, l.storm || [0, 0, 1, 0]);

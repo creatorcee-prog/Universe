@@ -37,6 +37,8 @@ export const COMPOSITIONS = {
   Saturn: { gas: 0.88, rock: 0.06, ice: 0.06, tint: 76 },
   Uranus: { gas: 0.15, water: 0.6, ice: 0.15, rock: 0.1, tint: 0 },
   Neptune: { gas: 0.15, water: 0.6, ice: 0.15, rock: 0.1, tint: 51 },
+  // Titan: 1.47 bar, ~95% N2 and ~5% CH4 at the surface (Huygens; Niemann et al. 2005).
+  Titan: { rock: 0.55, water: 0.45, iceMax: 0.6, atm: { gases: { n2: 1.4, ch4: 0.07 } } },
   Pluto: { rock: 0.68, water: 0.3, ice: 0.02, atm: { gases: { n2: 1e-5, ch4: 5e-8 } } },
   "Halley's Comet": { rock: 0.5, water: 0.4, ice: 0.1, rockAlbedo: 0.04, lag: true },
   Theia: { iron: 0.3, rock: 0.7 },
@@ -73,6 +75,7 @@ export function ensureThermal(b, world) {
   b.atm = { gases, rockCO2, p: 0, co2: 0 };
   syncAtm(b.atm);
   b.life = !!c.life;
+  if (b.life && b.lifeAge === undefined) b.lifeAge = 3.8e9; // Earth: life for ~3.8 billion years
   // Start warm: climates with oceans can have two stable states (temperate or snowball), and real
   // planets like Earth sit on the warm one.
   const th = { habTime: 0, stress: 0, Ts: 320, Eint: 0, steam: 0, albedo: 0.3, ice: 0, cloud: 0, ocean: 0, liquid: 0, boil: 373, latSpan: 50, tau: 0, flux: 0 };
@@ -297,6 +300,7 @@ function evolveLife(b, world, dt) {
   const core = th.liquid > 0.01 && th.Ts > 250 && th.Ts < 340 && !((th.exposed || 0) > 0.2);
   const yr = YEAR_S;
   if (b.life) {
+    b.lifeAge = (b.lifeAge || 0) + dt / yr;
     th.stress = core ? 0 : th.stress + dt;
     if (th.stress > 1e3 * yr) {
       b.life = false;
@@ -306,6 +310,7 @@ function evolveLife(b, world, dt) {
     th.habTime = core ? th.habTime + dt : 0;
     if (th.habTime > 3e8 * yr) {
       b.life = true;
+      b.lifeAge = 0;
       world.events.push({ text: `Simple life has emerged on ${b.name} after 300 million habitable years`, body: b, big: true });
     }
   }

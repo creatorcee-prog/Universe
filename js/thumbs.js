@@ -34,9 +34,9 @@ function surface(item, col, x, y, z, seed) {
   const c = col.map((v) => v / 255);
   const id = item.id;
   if (item.kind === 'gas') {
-    const band = 0.5 + 0.5 * Math.sin((y * (id === 'jupiter' ? 9 : 5) + fbm(x * 2 + seed, y * 6, z * 2, 3) * 1.2) * 6.283);
+    const band = 0.5 + 0.5 * Math.sin((y * (id === 'jupiter' ? 9 : id === 'saturn' ? 11 : 5) + fbm(x * 2 + seed, y * 6, z * 2, 3) * 1.2) * 6.283);
     const b2 = (item.band || col).map((v) => v / 255);
-    let s = mix(c, b2, band * (id === 'jupiter' ? 0.8 : 0.35));
+    let s = mix(c, b2, band * (id === 'jupiter' ? 0.8 : id === 'uranus' ? 0.08 : 0.35));
     if (id === 'jupiter') { const dx = x - 0.45, dy = y + 0.35; if (dx * dx * 0.6 + dy * dy * 3 < 0.012 && z > 0) s = mix(s, [0.75, 0.38, 0.25], 0.8); }
     return s;
   }
@@ -49,6 +49,20 @@ function surface(item, col, x, y, z, seed) {
     if (Math.abs(y) > 0.86 + 0.06 * (h - 0.5)) s = [0.9, 0.93, 0.97];
     const cl = sm(0.55, 0.75, fbm(x * 2.6 + 9, y * 5, z * 2.6, 4));
     return mix(s, [0.95, 0.96, 1], cl * 0.8);
+  }
+  if (id === 'venus' || id === 'titan') {
+    const sw = fbm(x * 2.5 + seed, y * 6, z * 2.5, 4);
+    return id === 'venus' ? mix([0.86, 0.78, 0.6], [0.95, 0.9, 0.76], sw) : mix([0.72, 0.45, 0.18], [0.86, 0.6, 0.28], sw);
+  }
+  if (id === 'io') {
+    let s = mix([0.85, 0.78, 0.38], [0.92, 0.88, 0.6], sm(0.3, 0.7, h));
+    if (vnoise(x * 7 + seed, y * 7, z * 7) > 0.75) s = [0.25, 0.12, 0.06];
+    return s;
+  }
+  if (id === 'pluto') {
+    let s = mix([0.62, 0.48, 0.36], [0.85, 0.75, 0.62], sm(0.3, 0.7, h));
+    const dx = x + 0.15, dy = y + 0.1; if (dx * dx + dy * dy < 0.12 && z > 0) s = [0.95, 0.92, 0.88];
+    return s;
   }
   if (id === 'mars') {
     let s = mix([0.55, 0.24, 0.12], [0.78, 0.45, 0.28], sm(0.35, 0.65, h));
@@ -135,11 +149,22 @@ export function renderThumb(item, size = 128) {
       img.data[i + 3] = 255 * Math.min(1, (1 - Math.sqrt(r2)) * R * 1.5); // soft edge
     }
   }
+  if (item.id === 'saturn') {
+    // Rings: drawn as a tilted ellipse in front of and behind the globe.
+    ctx.save(); ctx.translate(c0, c0); ctx.rotate(-0.35); ctx.scale(1, 0.28);
+    ctx.strokeStyle = 'rgba(214,196,160,0.85)'; ctx.lineWidth = R * 0.32;
+    ctx.beginPath(); ctx.arc(0, 0, R * 1.62, Math.PI, Math.PI * 2); ctx.stroke(); ctx.restore();
+  }
   // putImageData ignores compositing; draw via a second canvas so the glow blends.
   const tmp = document.createElement('canvas');
   tmp.width = tmp.height = size;
   tmp.getContext('2d').putImageData(img, 0, 0);
   ctx.drawImage(tmp, 0, 0);
+  if (item.id === 'saturn') {
+    ctx.save(); ctx.translate(c0, c0); ctx.rotate(-0.35); ctx.scale(1, 0.28);
+    ctx.strokeStyle = 'rgba(214,196,160,0.9)'; ctx.lineWidth = R * 0.32;
+    ctx.beginPath(); ctx.arc(0, 0, R * 1.62, 0, Math.PI); ctx.stroke(); ctx.restore();
+  }
   return cv;
 }
 

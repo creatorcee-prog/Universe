@@ -1,5 +1,5 @@
 import { G, formatMass, formatDistance, formatSpeed, formatDuration, formatRate, formatTemp } from './units.js';
-import { CATALOG, typeName, isLuminous, makeBody, reclassify } from './bodies.js';
+import { CATALOG, REAL_OBJECTS, typeName, isLuminous, makeBody, reclassify } from './bodies.js';
 import { orbitOf } from './physics.js';
 import { PRESETS } from './presets.js';
 import { Book } from './book.js';
@@ -93,10 +93,23 @@ export class UI {
       const b = app.state.selected;
       if (!b || b.kind !== 'rocky') return;
       b.life = true;
+      b.lifeAge = 0; // new life starts out purple (see vegetationColor)
       if (b.th) { b.th.stress = 0; b.th.habTime = 0; }
       const ok = b.th && b.th.hab && b.th.hab.checks[0][1];
       this.toast(ok ? `Seeded simple life on ${b.name}` : `Seeded life on ${b.name}, but without liquid water it will die out within a thousand years`, !ok);
       this.refreshInfo(true);
+    });
+    $('sea').addEventListener('input', (e) => {
+      // Set the water inventory so oceans cover the chosen fraction (coverage ∝ √(water column)).
+      const b = app.state.selected;
+      if (!b || !b.th || !b.comp) return;
+      const f = +e.target.value / 100;
+      const AU_M = 1.495978707e11, MSUN = 1.98847e30;
+      const R = b.r * AU_M, M = b.m * MSUN, g = (6.674e-11 * M) / (R * R), area = 4 * Math.PI * R * R;
+      const Pw = 264 * (f / 0.71) ** 2 + (b.th.steam || 0); // bar
+      b.comp.water = (Pw * 1e5 * area) / (g * M);
+      $('sea-out').textContent = `${Math.round(f * 100)}% ocean`;
+      this.seaT = performance.now();
     });
     $('i-kill').addEventListener('click', () => {
       const b = app.state.selected;
@@ -157,7 +170,7 @@ export class UI {
       r.addEventListener('change', () => { if (r.checked) { app.setView(r.value); this.toast({ realistic: 'Realistic view', classic: 'Classic view', pixel: 'Pixel view' }[r.value]); } });
     }
     this.onView(app.settings.view);
-    for (const key of ['bloom', 'trails', 'labels', 'grid', 'stars', 'trailsRelative', 'collisions']) {
+    for (const key of ['bloom', 'trails', 'labels', 'grid', 'stars', 'trailsRelative', 'collisions', 'orbits', 'trueSize']) {
       const el = $('set-' + key);
       el.checked = !!app.settings[key];
       el.addEventListener('change', () => this.toggleSetting(key, el.checked));
@@ -185,16 +198,16 @@ export class UI {
 
   buildCreate() {
     const grid = $('create-grid');
-    for (const item of CATALOG) {
+    for (const item of [...CATALOG, ...REAL_OBJECTS]) {
       const b = document.createElement('button');
       b.className = 'card';
       b.type = 'button';
       b.id = 'add-' + item.id;
       b.dataset.item = item.id;
-      b.dataset.cat = category(item);
+      b.dataset.cat = item.real ? 'real' : category(item);
       b.innerHTML = `<span>${item.label}</span>`;
       try {
-        const cv = renderThumb(item, 128);
+        const cv = renderThumb({ ...item, id: item.style || item.id }, 128);
         b.prepend(cv);
         item.thumb = cv.toDataURL();
       } catch (e) {
@@ -313,7 +326,7 @@ export class UI {
   setAddItem(id, activate = true) {
     this.app.state.addItem = id;
     document.querySelectorAll('.card').forEach((c) => c.classList.toggle('active', c.dataset.item === id));
-    const item = CATALOG.find((c) => c.id === id);
+    const item = CATALOG.find((c) => c.id === id) || REAL_OBJECTS.find((c) => c.id === id);
     $('add-current').textContent = item.label;
     $('add-swatch').style.background = item.thumb ? `center/cover url(${item.thumb})` : swatch(item);
     if (activate && this.app.state.tool !== 'add') this.setTool('add');
@@ -471,9 +484,51 @@ export class UI {
     $('i-seed').hidden = !rocky; $('i-kill').hidden = !rocky;
     $('i-seed').classList.toggle('life-on', !!b.life);
     $('i-seed').textContent = b.life ? 'Life present' : 'Seed life';
+    this.refreshAtmosphere(b);
     if (!force && now - (this.mapT || 0) < 600) return;
     this.mapT = now;
     this.drawMap(b);
+  }
+
+  // Atmospheric properties from the gas mix, surface temperature and gravity (ideal gas):
+  //   density ρ = Pμ/(RT), scale height H = RT/(μg), speed of sound c = √(γRT/μ),
+  //   column mass = P·4πR²/g, dry adiabatic lapse rate Γ = g/cp.
+  refreshAtmosphere(b) {
+    const th = b.th, atm = b.atm;
+    const AU_M = 1.495978707e11, MSUN = 1.98847e30, Rg = 8.314;
+    const R = b.r * AU_M, M = b.m * MSUN, g = (6.674e-11 * M) / (R * R);
+    const set = (id, t) => { $(id).textContent = t; };
+    const rocky = b.kind === 'rocky';
+    $('sea-row').hidden = !rocky || !b.comp;
+    if (rocky && b.comp && !(performance.now() - (this.seaT || 0) < 1500)) {
+      const v = Math.round(Math.min(1, th.ocean || 0) * 100);
+      $('sea').value = v; $('sea-out').textContent = `${v}% ocean`;
+    }
+    // Relief scales roughly as g^-0.6 (Earth 19.8 km from Everest to the Challenger Deep; Mars ~29 km).
+    set('a-relief', rocky ? `~${Math.round(19.8 * Math.pow(9.81 / g, 0.6))} km` : '—');
+    const gases = atm ? { ...atm.gases } : {};
+    if (th.steam > 0) gases.h2o = th.steam;
+    const P = Object.values(gases).reduce((s, v) => s + v, 0); // bar
+    if (!(P > 1e-6) || !rocky) {
+      for (const id of ['a-mass', 'a-press', 'a-rho', 'a-sound', 'a-H', 'a-lapse', 'a-mu']) set(id, rocky ? 'None' : '—');
+      return;
+    }
+    const MU = { n2: 28.01, o2: 32.0, co2: 44.01, ch4: 16.04, h2: 2.016, h2o: 18.02 };
+    const GAMMA = { n2: 1.4, o2: 1.4, co2: 1.29, ch4: 1.31, h2: 1.41, h2o: 1.33 };
+    const CP = { n2: 1040, o2: 918, co2: 844, ch4: 2220, h2: 14300, h2o: 1860 };
+    let mu = 0, gam = 0, cpm = 0, mass = 0;
+    for (const [k, p] of Object.entries(gases)) { const f = p / P; mu += f * (MU[k] || 28); gam += f * (GAMMA[k] || 1.4); mass += f * (MU[k] || 28); }
+    for (const [k, p] of Object.entries(gases)) cpm += ((p / P) * (MU[k] || 28) / mass) * (CP[k] || 1000);
+    const T = th.Ts, Pa = P * 1e5, muKg = mu / 1000;
+    const rho = (Pa * muKg) / (Rg * T), H = (Rg * T) / (muKg * g), c = Math.sqrt((gam * Rg * T) / muKg);
+    const colMass = (Pa * 4 * Math.PI * R * R) / g; // kg
+    set('a-mass', `${(colMass / 5.15e18).toPrecision(3)} × Earth's`);
+    set('a-press', Pa >= 1e5 ? `${(Pa / 1e3).toPrecision(4)} kPa` : `${(Pa / 1e3).toPrecision(3)} kPa`);
+    set('a-rho', `${rho.toPrecision(3)} kg/m³`);
+    set('a-sound', `${(c / 1000).toPrecision(3)} km/s`);
+    set('a-H', `${(H / 1000).toPrecision(3)} km`);
+    set('a-lapse', `${((g / cpm) * 1000).toPrecision(3)} K/km`);
+    set('a-mu', `${mu.toPrecision(3)} g/mol`);
   }
 
   // Equirectangular map of the planet in its own (rotating) frame: local temperature from sunlight,
