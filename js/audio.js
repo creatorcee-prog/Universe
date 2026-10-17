@@ -6,9 +6,12 @@
 // is soft-clipped to generate harmonics at 2f, 3f, ..., which the ear hears as the original low pitch.
 // With headphones the dry signal carries it; on the speaker the harmonics do.
 //
-// Web Audio needs a user gesture before it will play (iOS especially), so the context is created and the
-// sounds decoded on the first tap. The audio session is set to "ambient": it mixes with music the user
-// is playing and respects the silent switch.
+// Web Audio needs a user gesture before it will play. On iOS only some events count: touchend, click and
+// keydown do, but touchstart and pointerdown from a finger do not, so a context started there stays
+// suspended and silent. Every qualifying gesture resumes the context (iOS also suspends it when the app
+// is backgrounded or a call comes in) and plays a one-sample silent buffer, which is what WebKit needs
+// to unlock output. By default sound plays even with the ring/silent switch on silent ("playback"
+// session); Settings can switch to "ambient", which follows the switch and mixes with other audio.
 
 const UI = {
   // name: [file, gain] — gains level the clips to about the same loudness (measured mean volume).
@@ -34,18 +37,22 @@ export class Sound {
     this.voices = [];
     this.drone = null;
     const unlock = () => { this.start(); };
-    window.addEventListener('pointerdown', unlock, { capture: true });
-    window.addEventListener('keydown', unlock, { capture: true });
+    for (const ev of ['touchend', 'pointerup', 'click', 'keydown']) window.addEventListener(ev, unlock, { capture: true, passive: true });
   }
 
   get on() { return this.settings.sound !== false; }
 
   start() {
-    if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return; }
+    if (this.ctx) {
+      if (this.ctx.state !== 'running') { this.ctx.resume().catch(() => {}); this.kick(); }
+      return;
+    }
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
-    try { if (navigator.audioSession) navigator.audioSession.type = 'ambient'; } catch { /* not supported */ }
+    this.applySession();
     const ctx = (this.ctx = new AC());
+    ctx.resume().catch(() => {});
+    this.kick();
     this.master = ctx.createGain();
     this.master.gain.value = this.on ? 1 : 0;
     this.master.connect(ctx.destination);
@@ -75,6 +82,22 @@ export class Sound {
     for (const name of COSMIC) this.load(name, name);
   }
 
+  // A silent one-sample sound, started inside the gesture: WebKit only opens audio output once something
+  // has been played from a user gesture.
+  kick() {
+    try {
+      const s = this.ctx.createBufferSource();
+      s.buffer = this.ctx.createBuffer(1, 1, 22050);
+      s.connect(this.ctx.destination);
+      s.start(0);
+    } catch { /* ignore */ }
+  }
+
+  // iOS 16.4+: whether sound follows the silent switch.
+  applySession() {
+    try { if (navigator.audioSession) navigator.audioSession.type = this.settings.soundSilent ? 'ambient' : 'playback'; } catch { /* not supported */ }
+  }
+
   async load(name, file) {
     try {
       const u = url(file);
@@ -101,7 +124,7 @@ export class Sound {
   // fallback, played a tick after the tap, and skipped if the tap's handler already made a sound.
   ui(name, fallback = false) {
     const now = performance.now();
-    if (now - this.lastUI < (fallback ? 120 : 40)) return;
+    if (now - this.lastUI < (fallback ? 400 : 40)) return;
     this.lastUI = now;
     if (!this.on || !this.ctx || !this.buf[name]) return;
     const s = this.ctx.createBufferSource();

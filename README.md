@@ -118,7 +118,8 @@ Switch in **Settings → View**.
   A drone swells as you approach a black hole (deeper for heavier holes, louder while it feeds). The
   rumbles are almost all below 150 Hz, which phone speakers can't play, so a harmonic bass enhancer adds
   overtones the ear hears as the low pitch (+14 dB in the 200 Hz–1 kHz band). Headphones still sound best.
-  Sound starts on the first tap (a browser rule) and follows the iPhone's silent switch.
+  Sound starts on the first tap (a browser rule). It plays even with the iPhone on silent, unless
+  Settings → "Quiet when the iPhone is on silent" is on (that mode also lets your music keep playing).
 - **Surface view**: select a rocky world and tap **Stand on the surface** (Realistic or Pixel view). You stand
   on the ground and turn with the planet; pick the day side, night side or either pole, and drag to look
   around. Time slows so a local day lasts about two minutes. The sky is computed from what is in the

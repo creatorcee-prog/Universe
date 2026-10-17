@@ -186,7 +186,7 @@ export class UI {
       r.addEventListener('change', () => { if (r.checked) { app.setView(r.value); this.toast({ realistic: 'Realistic view', classic: 'Classic view', pixel: 'Pixel view' }[r.value]); } });
     }
     this.onView(app.settings.view);
-    for (const key of ['bloom', 'trails', 'labels', 'grid', 'stars', 'trailsRelative', 'collisions', 'orbits', 'trueSize', 'sound', 'perf']) {
+    for (const key of ['bloom', 'trails', 'labels', 'grid', 'stars', 'trailsRelative', 'collisions', 'orbits', 'trueSize', 'sound', 'soundSilent', 'perf']) {
       const el = $('set-' + key);
       el.checked = !!app.settings[key];
       el.addEventListener('change', () => this.toggleSetting(key, el.checked));
@@ -359,6 +359,7 @@ export class UI {
     const s = this.app.settings;
     s[key] = value === undefined ? !s[key] : value;
     if (key === 'sound') this.app.audio.setEnabled(s.sound);
+    if (key === 'soundSilent') this.app.audio.applySession();
     this.app.audio.ui(s[key] ? 'confirm5' : 'bleep4');
     const el = $('set-' + key);
     if (el) el.checked = s[key];
