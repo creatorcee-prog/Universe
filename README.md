@@ -115,9 +115,16 @@ Switch in **Settings → View**.
   them back.
 - **Surface view**: select a rocky world and tap **Stand on the surface** (Realistic or Pixel view). You stand
   on the ground and turn with the planet; pick the day side, night side or either pole, and drag to look
-  around. Time slows so a local day lasts about two minutes. The sky's colour and brightness come from the
-  atmosphere model: blue Rayleigh skies for nitrogen and oxygen, a butterscotch haze for thick CO₂, a dusty
-  pink for thin CO₂, orange for methane haze, white for steam, and black with stars where there is no air.
+  around. Time slows so a local day lasts about two minutes. The sky is computed from what is in the
+  air (js/optics.js). Each gas scatters light in proportion to its refractivity squared times its King
+  factor, and to 1/λ⁴, scaled by the number density from pressure and temperature (CO₂ scatters about 2.3×
+  more per molecule than air). Aerosols are chosen by world type: water haze on wet worlds; dust on dry,
+  thin-aired ones, which absorbs blue and scatters it more strongly forward; tholin haze where methane is
+  photolysed; sulphuric-acid cloud under thick CO₂. Ozone and methane absorb. A ray-marched single-scattering
+  model, with a two-stream estimate for multiple scattering, gives Earth's blue sky and red sunsets, Mars's
+  butterscotch day and blue sunset, Titan's orange haze and Venus's dim orange murk. The eye adapts to dim
+  worlds and at dusk. The same model draws the atmosphere seen from space, and rings arc across the sky
+  with the planet's shadow on them (**Add rings** in the info panel puts rings on any planet).
   The readout shows latitude, local temperature, the Sun's height and air pressure. Local temperature uses
   the planet's mean temperature plus latitude, with day/night swings that are small under thick air and large
   on airless ground (the Moon goes from about 390 K at noon to 95 K at night).

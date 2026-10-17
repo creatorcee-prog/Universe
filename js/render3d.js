@@ -2,7 +2,8 @@ import { PK } from './physics.js';
 import { isLuminous, tempToRGB } from './bodies.js';
 import { transientLum } from './stellar.js';
 import { EARTH_MASS } from './units.js';
-import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS } from './shaders.js';
+import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS, RIM_FS } from './shaders.js';
+import { atmosphereOptics, setOpticsUniforms, atmosphereTop } from './optics.js';
 import { heatOutput } from './thermal.js';
 import { earthMap, moonMap } from './geography.js';
 
@@ -173,6 +174,7 @@ export class Renderer3D {
     const gl = this.gl;
     this.pBody = this.program(BODY_VS, BODY_FS);
     this.pAtmo = this.program(BODY_VS, ATMO_FS);
+    this.pRim = this.program(BODY_VS, RIM_FS);
     this.pSprite = this.program(SPRITE_VS, SPRITE_FS);
     this.pDisk = this.program(DISK_VS, DISK_FS);
     this.pPoints = this.program(POINTS_VS, POINTS_FS);
@@ -354,14 +356,8 @@ export class Renderer3D {
 
   // Atmospheric sky over the surface view, blended over the stars by its brightness.
   drawSurfaceSky(sv) {
-    const gl = this.gl, p = this.pSurfSky, u = p.u, cam = this.cam, b = sv.body;
-    const atm = b.atm, th = b.th;
-    const pTot = atm ? atm.p + (th ? th.steam : 0) : 0;
-    const dens = pTot > 0 ? Math.max(0, Math.min(1.5, (Math.log10(pTot) + 3) / 2.5)) : 0;
-    let col = [0.3, 0.55, 1.0]; // nitrogen/oxygen: Rayleigh blue
-    if (th && th.steam > 1) col = [0.85, 0.88, 0.92];
-    else if (atm && atm.gases.ch4 > 0.01 * pTot) col = [0.9, 0.6, 0.3];
-    else if (atm && atm.co2 > 0.5) col = pTot > 5 ? [0.95, 0.72, 0.42] : [0.82, 0.6, 0.45]; // Venus haze / Martian dust
+    const gl = this.gl, p = this.pSurfSky, u = p.u, cam = this.cam, b = sv.body, th = b.th;
+    const optics = atmosphereOptics(b);
     const t = Math.tan(cam.fov / 2);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); // shader output is premultiplied
@@ -370,14 +366,28 @@ export class Renderer3D {
     gl.uniform2f(u.uTan, t * (this.canvas.width / this.canvas.height), t);
     gl.uniform3fv(u.uUp, sv.up);
     gl.uniform3fv(u.uSun, sv.sun);
-    gl.uniform3fv(u.uSkyCol, col);
-    gl.uniform1f(u.uDensity, dens);
+    gl.uniform1f(u.uAir, optics ? 1 : 0);
+    if (optics) setOpticsUniforms(gl, u, optics);
+    // The eye adapts: dim, hazy worlds are shown brighter than their true daylight, but not all the way.
+    // Also opens up a little at dusk.
+    const el = sv.elev || 0;
+    const dusk = 1 + (1 / Math.sqrt(0.08 + 0.92 * Math.max(0, Math.sin(el))) - 1) * Math.max(0, Math.min(1, (el + 0.2) / 0.15));
+    gl.uniform1f(u.uExpo, (22 * dusk) / Math.pow(Math.max(0.01, Math.min(1, optics ? optics.day : 1)), 0.6));
     gl.uniform1f(u.uSunPower, sv.sunPower);
-    gl.uniform1f(u.uCloud, th ? th.cloud : 0);
-    const lc = this.look(b).colC || [0.95, 0.96, 1];
-    gl.uniform3fv(u.uCloudCol, lc);
+    gl.uniform1f(u.uSunAng, sv.sunAng || 0.00465);
+    gl.uniform3fv(u.uSunCol, tempToRGB(sv.sunTemp || 5772).map((v) => v / 255));
+    // Under a thick haze (Venus, Titan) the sky is a uniform overcast: no separate cloud deck.
+    gl.uniform1f(u.uCloud, th && !(optics && optics.tauM > 3) ? th.cloud : 0);
+    gl.uniform3fv(u.uCloudCol, this.look(b).colC || [0.95, 0.96, 1]);
     gl.uniform1f(u.uTime, performance.now() / 1000);
     gl.uniform3fv(u.uNorth, sv.north || [0, 0, 1]);
+    const ring = this.ringInfo && this.ringInfo.get(b);
+    if (ring) {
+      gl.uniform3fv(u.uRingN, ring.n);
+      gl.uniform2f(u.uRingR, ring.rin / b.r, ring.rout / b.r);
+      gl.uniform1fv(u.uRingProf, ring.prof);
+      gl.uniform3fv(u.uRingCol, ring.ice ? [0.86, 0.8, 0.7] : [0.5, 0.45, 0.4]);
+    } else gl.uniform3f(u.uRingN, 0, 0, 0);
     gl.bindVertexArray(this.quad);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.disable(gl.BLEND);
@@ -609,7 +619,7 @@ export class Renderer3D {
         if (!r) {
           const o = i * 6, B = world.rBasis;
           const n = [B[o + 1] * B[o + 5] - B[o + 2] * B[o + 4], B[o + 2] * B[o + 3] - B[o] * B[o + 5], B[o] * B[o + 4] - B[o + 1] * B[o + 3]];
-          r = { n, rin: Infinity, rout: 0, list: [] };
+          r = { n, rin: Infinity, rout: 0, list: [], ice: world.rk[i] === PK.ICE };
           tmp.set(h, r);
         }
         const rad = world.rRad[i];
@@ -878,15 +888,12 @@ export class Renderer3D {
     const ld = lights ? lights.dirs : [[0, 1, 0], [0, 0, 0], [0, 1, 0], [0, 0, 0]];
     gl.uniform3fv(u.uL0, ld[0]); gl.uniform3fv(u.uLc0, ld[1]);
     gl.uniform3fv(u.uL1, ld[2]); gl.uniform3fv(u.uLc1, ld[3]);
-    // Atmosphere: strength from surface pressure; colour from composition (CO2 haze, steam, air).
-    let atmo = l.atmo || null, atmoK = l.atmoK ?? 0.5;
-    if (b.atm && l.kind === 0) {
-      const p = b.atm.p + (th ? th.steam : 0);
-      atmoK = (l.atmoK ?? 0.8) * Math.max(0, Math.min(1.3, (Math.log10(Math.max(p, 1e-9)) + 3) / 3));
-      if (!atmo && p > 0.01) atmo = th && th.steam > 1 ? [0.92, 0.94, 1] : b.atm.gases.ch4 > 0.01 * p ? [0.95, 0.65, 0.3] : b.atm.co2 > 0.5 && p > 5 ? [1, 0.85, 0.6] : [0.5, 0.7, 1];
-      if (atmoK <= 0) atmo = null;
-    }
-    // A hot world's atmosphere glows orange instead of scattering blue.
+    // Atmosphere. Worlds with a surface get physically based scattering from their gas mix (js/optics.js);
+    // giant planets keep a rim glow in their look's colour.
+    const optics = l.kind === 0 ? atmosphereOptics(b) : null;
+    let atmo = optics ? null : l.atmo || null, atmoK = l.atmoK ?? 0.5;
+    if (!optics && b.atm && l.kind === 0) atmo = null;
+    // A hot world's atmosphere glows orange.
     const hotK = Math.min(1, Math.max(0, (temp - 600) / 900));
     if (atmo && hotK > 0) atmo = atmo.map((v, i) => v + ([1, 0.45, 0.15][i] - v) * hotK);
     gl.uniform3fv(u.uAtmo, atmo || [0, 0, 0]);
@@ -896,28 +903,43 @@ export class Renderer3D {
     gl.drawElements(gl.TRIANGLES, g.n, g.type, 0);
 
     // Glows and other additive layers, drawn after all solid bodies.
-    if (atmo && shownPx > 3 && !(this.surface && this.surface.body === b)) {
-      const thick = l.kind === 1 ? 1.015 : 1.035;
+    if ((atmo || optics) && shownPx > 3 && !(this.surface && this.surface.body === b)) {
+      const top = optics ? atmosphereTop(optics) : l.kind === 1 ? 1.015 : 1.035;
+      // Inside the shell (low orbit): draw its far side without depth testing; the shader stops rays at
+      // the ground itself. Outside: the near side, depth tested so moons in front hide it.
+      const inside = Math.hypot(x, y, z) < R * top;
       glows.push(() => {
-        const a = this.pAtmo, au = a.u;
+        const a = optics ? this.pAtmo : this.pRim, au = a.u;
         gl.enable(gl.CULL_FACE);
-        gl.cullFace(gl.FRONT);
+        gl.cullFace(inside ? gl.FRONT : gl.BACK);
+        if (inside) gl.disable(gl.DEPTH_TEST);
+        gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
         gl.useProgram(a.p);
         gl.uniformMatrix4fv(au.uProj, false, this.P);
         gl.uniformMatrix3fv(au.uView, false, this.V);
         gl.uniform3f(au.uCenter, x, y, z);
         gl.uniformMatrix3fv(au.uRot, false, rot);
-        gl.uniform1f(au.uRadius, R * thick);
+        gl.uniform1f(au.uRadius, R * top);
         gl.uniform3fv(au.uTideDir, tide.dir);
         gl.uniform1f(au.uTide, Math.min(0.45, 1.5 * tide.tau));
         gl.uniform1i(au.uImpN, 0);
         gl.uniform1f(au.uLumpy, 0);
         gl.uniform1f(au.uLogDepthFC, this.logFC);
-        gl.uniform3fv(au.uAtmo, atmo);
-        gl.uniform1f(au.uAtmoK, atmoK);
         gl.uniform3fv(au.uL0, ld[0]);
+        if (optics) {
+          setOpticsUniforms(gl, au, optics);
+          gl.uniform3fv(au.uCenterV, this.viewOf(x, y, z));
+          gl.uniform1f(au.uPR, R);
+          gl.uniform1f(au.uExpo, 5.5 * (ld[1][0] + ld[1][1] + ld[1][2] > 0 ? 1 : 0));
+          gl.uniform3fv(au.uHot, [1, 0.45, 0.15].map((v) => v * hotK * 0.6));
+        } else {
+          gl.uniform3fv(au.uAtmo, atmo);
+          gl.uniform1f(au.uAtmoK, atmoK);
+        }
         gl.bindVertexArray(g.vao);
         gl.drawElements(gl.TRIANGLES, g.n, g.type, 0);
+        gl.blendFunc(gl.ONE, gl.ONE);
+        gl.enable(gl.DEPTH_TEST);
         gl.cullFace(gl.BACK);
         gl.disable(gl.CULL_FACE);
       });
@@ -1060,8 +1082,11 @@ export class Renderer3D {
     const tmp = [0, 0, 0, 0, 0, 0];
     const hostLight = new Map();
     this.particleLight = null;
+    // Standing on a ringed world, the sky shader draws its rings as a smooth arc instead.
+    const skip = this.surface ? this.surface.body : null;
     for (let i = 0; i < world.nr; i++) {
       const host = world.rHost[i];
+      if (host === skip) continue;
       let hl = hostLight.get(host);
       if (!hl) {
         const L = this.lightsFor(host).primary;

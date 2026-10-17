@@ -37,9 +37,9 @@ Still open:
   - Close-up terrain: hills, craters and rocks at metre-to-kilometre scale, from a tiled noise heightmap
     near the camera. The ground currently uses the planet-scale texture, so up close it looks smooth.
   - Clouds overhead, rain, snow and fog.
-  - Physically based sky scattering (Rayleigh and Mie per wavelength) instead of the per-gas colour table.
-  - Showing other bodies' apparent sizes properly: the Moon from Earth, Jupiter from Europa, Saturn's rings
-    across the sky.
+  - ~~Physically based sky scattering~~ (done: js/optics.js and SCATTER in shaders.js).
+  - Showing other bodies' apparent sizes properly: the Moon from Earth, Jupiter from Europa. (Rings across the
+    sky: done.)
   - Ocean surfaces where there is liquid water, and lava where the ground is molten.
 - **Long timescales.** The N-body step is limited by the fastest orbit (a moon going round in days), so
   stellar evolution and the 300-Myr life clock can't be fast-forwarded in a full Solar System. Fix:
@@ -141,3 +141,17 @@ Next:
 - **Gas giants**: white ovals and polar cyclones (Juno). Uranus and Neptune banding.
 - **Stars**: flares, prominences and starspots on M dwarfs.
 - **Black holes**: true ray-traced lensing of the background stars.
+
+## Atmospheric scattering (SpaceEngine-style skies): what is next
+
+Done: composition-driven Rayleigh, Mie and absorption coefficients; a single-scattering ray march with
+Chapman-function sunlight; two-stream multiple scattering; the same optics for the surface sky and the
+limb from space; ring arcs in the sky with planet shadow; the **Add rings** action; relativistic Doppler
+beaming (δ⁴) and gravitational redshift on black-hole disks.
+
+Next:
+- Aerial perspective on the distant ground and terminator reddening on the surface texture.
+- A precomputed (Bruneton-style) table so the march can be cheaper and multiple scattering exact.
+- Standing on moons of giant planets: the giant drawn at its true apparent size in the sky.
+- Ice-crystal halos and rainbows (22° halo where cirrus clouds are present).
+- Gas-giant skies (a "float in the clouds" view).

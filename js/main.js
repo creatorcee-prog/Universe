@@ -108,7 +108,13 @@ class App {
       if (f > best) { best = f; star = s; }
     }
     let sun = [1, 0, 0];
-    if (star) { const d = Math.hypot(star.x - b.x, star.y - b.y, star.z - b.z); sun = [(star.x - b.x) / d, (star.y - b.y) / d, (star.z - b.z) / d]; }
+    let sunAng = 0.00465, sunTemp = 5772;
+    if (star) {
+      const d = Math.hypot(star.x - b.x, star.y - b.y, star.z - b.z);
+      sun = [(star.x - b.x) / d, (star.y - b.y) / d, (star.z - b.z) / d];
+      sunAng = Math.max(0.0012, Math.min(0.6, Math.asin(Math.min(1, star.r / d))));
+      sunTemp = star.temp || 5772;
+    }
     if (sv.place) {
       sv.place = false;
       const so = toO(sun);
@@ -139,7 +145,7 @@ class App {
     const h = b.r * 1.0012; // eye a little above the ground
     this.cam.override = { eye: [b.x + n[0] * h, b.y + n[1] * h, b.z + n[2] * h], f, r, u };
     this.cam.dist = this.cam.distGoal = b.r * 0.01;
-    sv.up = n; sv.sun = sun; sv.sunPower = star ? 1 : 0; sv.north = north;
+    sv.up = n; sv.sun = sun; sv.sunPower = star ? 1 : 0; sv.north = north; sv.sunAng = sunAng; sv.sunTemp = sunTemp;
     // Local conditions for the readout.
     const th = b.th;
     const elev = Math.asin(Math.max(-1, Math.min(1, sun[0] * n[0] + sun[1] * n[1] + sun[2] * n[2])));
@@ -242,6 +248,15 @@ class App {
     if (!target) { this.ui.toast('Nothing to lock onto. Tap an object first.'); return; }
     this.follow(target);
     this.ui.toast(`Camera locked on ${target.name}`);
+  }
+
+  // Rings inside the Roche limit, in the planet's equatorial plane: ice for giants and cold worlds,
+  // darker rock for warm rocky planets (as a disrupted moon would leave).
+  addRings(b) {
+    const tilt = this.r3d.look(b).tilt || 0;
+    const icy = b.kind === 'gas' || !b.th || b.th.Ts < 170;
+    ring(this.world, b, b.r * (b.kind === 'gas' ? 1.24 : 1.4), b.r * (b.kind === 'gas' ? 2.27 : 2.5), b.kind === 'gas' ? 16000 : 9000, tilt, icy ? PK.ICE : PK.ROCK);
+    this.ui.toast(`${b.name} now has ${icy ? 'icy' : 'rocky'} rings`);
   }
 
   follow(body) {

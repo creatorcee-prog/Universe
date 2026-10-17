@@ -507,8 +507,136 @@ void main() {
 }
 `;
 
-// Atmosphere shell: a slightly larger sphere drawn from the inside, glowing at the limb.
+// Atmospheric scattering shared by the surface sky and the atmosphere seen from space. Units are planet
+// radii; coefficients come from the gas mix (js/optics.js), so the colour of a sky follows from what is
+// in the air. Single scattering is ray-marched, with sunlight attenuated along its path using
+// Schüler's approximation of the Chapman grazing-incidence function (GPU Pro 3, 2012). Light scattered
+// more than once is added with a two-stream estimate: diffuse light at a height falls as
+// exp(−kτ)/(1 + ¾(1−g)τ) with k = √(3(1−ω)(1−ωg)). This is what keeps thick hazes like Venus's and
+// Titan's glowing instead of black.
+const SCATTER = `
+uniform vec3 uBR, uBM, uBA, uBMa;  // Rayleigh scattering, Mie scattering, gas and aerosol absorption (per radius)
+uniform float uHR, uHM;            // scale heights (radii)
+uniform vec3 uG;                   // Mie asymmetry per channel
+uniform vec3 uTauS;                // vertical scattering optical depth of the whole column
+uniform float uTop;                // atmosphere top radius
+const float PI = 3.14159265;
+// Optical depth (in scale heights, relative to surface density) from radius r (in units of H: x),
+// in direction with cosine mu to the local vertical, out to infinity.
+float chapUp(float x, float mu) {
+  float c = sqrt(1.5708 * x);
+  return c / ((c - 1.0) * mu + 1.0);
+}
+float chap(float X, float x, float mu) {
+  float h = x - X;
+  if (mu >= 0.0) return chapUp(x, mu) * exp(-h);
+  float x0 = sqrt(max(0.0, 1.0 - mu * mu)) * x;
+  return 2.0 * sqrt(1.5708 * x0) * exp(X - x0) - chapUp(x, -mu) * exp(-h);
+}
+vec3 tauToSun(float r, float mu) {
+  if (mu < 0.0 && r * sqrt(max(0.0, 1.0 - mu * mu)) < 1.0) return vec3(1e4);
+  float cR = uHR * chap(1.0 / uHR, r / uHR, mu);
+  float cM = uHM * chap(1.0 / uHM, r / uHM, mu);
+  return (uBR + uBA) * cR + (uBM + uBMa) * cM;
+}
+float phaseR(float c) { return 0.0596831 * (1.0 + c * c); }
+vec3 phaseM(float c) {
+  vec3 g2 = uG * uG;
+  return 0.1193662 * (1.0 - g2) * (1.0 + c * c) / ((2.0 + g2) * pow(1.0 + g2 - 2.0 * uG * c, vec3(1.5)));
+}
+// In-scattered light along o + d·t, t in [0, tMax], sunlight from direction sun (irradiance 1).
+// Samples cluster toward t = 0 when bias > 1. T returns the transmittance of the whole segment.
+vec3 scatter(vec3 o, vec3 d, float tMax, vec3 sun, float bias, out vec3 T) {
+  const int N = 28;
+  float c = dot(d, sun);
+  float pR = phaseR(c);
+  vec3 pM = phaseM(c);
+  vec3 L = vec3(0.0);
+  vec3 tau = vec3(0.0);
+  float tPrev = 0.0;
+  for (int i = 0; i < N; i++) {
+    float s = (float(i) + 1.0) / float(N);
+    float t1 = tMax * pow(s, bias);
+    float dt = t1 - tPrev;
+    vec3 p = o + d * (tPrev + 0.5 * dt);
+    tPrev = t1;
+    float r = length(p);
+    float h = max(r - 1.0, 0.0);
+    float rhoR = exp(-h / uHR), rhoM = exp(-h / uHM);
+    vec3 sR = uBR * rhoR, sM = uBM * rhoM;
+    vec3 ext = sR + sM + uBA * rhoR + uBMa * rhoM;
+    float mu0 = dot(p, sun) / r;
+    vec3 Ts = exp(-tauToSun(r, mu0));
+    // Diffuse light at this height from the column above it.
+    vec3 tS = uBR * uHR * rhoR + uBM * uHM * rhoM;
+    vec3 tE = tS + uBA * uHR * rhoR + uBMa * uHM * rhoM;
+    vec3 w = tS / max(tE, vec3(1e-9));
+    vec3 gE = uBM * uHM * rhoM * uG / max(tS, vec3(1e-9));
+    vec3 k = sqrt(max(3.0 * (1.0 - w) * (1.0 - w * gE), vec3(0.0)));
+    vec3 Td = exp(-k * tE) / (1.0 + 0.75 * (1.0 - gE) * tS);
+    float twi = max(mu0 + 0.08, 0.0) / 1.08;            // diffuse light lingers just after sunset
+    // Absorption between scatterings tints multiply scattered light: two-stream albedo (1−s)/(1+s).
+    vec3 sa = sqrt((1.0 - w) / max(1.0 - w * gE, vec3(1e-4)));
+    vec3 ms = (sR + sM) * (1.0 - exp(-uTauS)) * Td * (1.0 - sa) / (1.0 + sa) * twi * (0.5 / PI);
+    vec3 S = sR * pR * Ts + sM * pM * Ts + ms;
+    vec3 stepT = exp(-ext * dt);
+    // Energy-conserving step (scattering integrated over the step's own extinction).
+    L += exp(-tau) * S * (1.0 - stepT) / max(ext, vec3(1e-9));
+    tau += ext * dt;
+  }
+  T = exp(-tau);
+  return L;
+}
+// Hue-preserving exposure: compress by the brightest channel so bright skies keep their colour.
+vec3 tone(vec3 x) {
+  float m = max(max(x.r, x.g), max(x.b, 1e-9));
+  return x * (1.0 - exp(-m)) / m;
+}
+// Distance along o + d·t to a sphere of radius R (far root if inside, near if outside); -1 if missed.
+vec2 sphereHit(vec3 o, vec3 d, float R) {
+  float b = dot(o, d), c = dot(o, o) - R * R, D = b * b - c;
+  if (D < 0.0) return vec2(-1.0);
+  float q = sqrt(D);
+  return vec2(-b - q, -b + q);
+}
+`;
+
+// Atmosphere seen from space: the shell is a sphere at the top of the atmosphere, drawn from the inside
+// (back faces), so each pixel marches the path through the air in front of it. In-scattered light is
+// added and the planet behind is dimmed by the path's transmittance: the blue limb of Earth, Mars's thin
+// dusty rim, the opaque yellow haze of Venus and orange of Titan all come out of the same equations.
 export const ATMO_FS = HEAD + `
+in vec3 vObj;
+in vec3 vViewPos;
+in vec3 vN;
+` + LOGDEPTH_F + SCATTER + `
+uniform vec3 uL0;
+uniform vec3 uCenterV;   // planet centre relative to the eye, view axes
+uniform float uPR;       // planet radius
+uniform float uExpo;
+uniform vec3 uHot;       // thermal glow of a molten world's air
+out vec4 outColor;
+void main() {
+  vec3 d = normalize(vViewPos);
+  vec3 o = -uCenterV / uPR;
+  vec2 top = sphereHit(o, d, uTop);
+  if (top.y <= 0.0) discard;
+  float t0 = max(top.x, 0.0);
+  vec2 ground = sphereHit(o, d, 1.0);
+  bool hit = ground.x > 0.0;
+  float t1 = hit ? ground.x : top.y;
+  vec3 T;
+  vec3 L = scatter(o + d * t0, d, t1 - t0, uL0, 1.0, T);
+  vec3 col = tone(L * uExpo);
+  float a = 1.0 - dot(T, vec3(0.3333));
+  col += uHot * a;
+  outColor = vec4(col, hit ? min(a, 0.92) : a * 0.5);
+  ` + WRITE_DEPTH + `
+}
+`;
+
+// Legacy rim glow for giant planets (no surface to stand on; their colour comes from the body shader).
+export const RIM_FS = HEAD + `
 in vec3 vObj;
 in vec3 vViewPos;
 in vec3 vN;
@@ -521,7 +649,7 @@ void main() {
   vec3 N = normalize(vN);
   float rim = pow(clamp(1.0 - abs(dot(N, V)), 0.0, 1.0), 3.0);
   float lit = clamp(dot(N, uL0) + 0.35, 0.0, 1.0);
-  outColor = vec4(uAtmo * uAtmoK * rim * lit * 1.3, 1.0);
+  outColor = vec4(uAtmo * uAtmoK * rim * lit * 1.3, 0.0);
   ` + WRITE_DEPTH + `
 }
 `;
@@ -610,9 +738,19 @@ void main() {
   float t = 1.0 - (r - uInner) / (1.0 - uInner);
   float swirl = vnoise(vec3(r * 16.0, ang * 3.0 + uTime * 1.5 / (r * r + 0.05), 0.0));
   float swirl2 = vnoise(vec3(r * 40.0, ang * 7.0 + uTime * 2.2 / (r * r + 0.05), 3.0));
-  vec3 hotc = mix(vec3(0.95, 0.38, 0.1), vec3(1.0, 0.94, 0.82), pow(t, 1.4));
+  // Relativistic beaming: gas orbits at β = √(r_s / 2(r − r_s)) (half light speed at the innermost stable
+  // orbit, 3 r_s, taken as the inner edge). Seen with Doppler factor δ = √(1−β²)/(1 − β cosθ), intensity
+  // scales as δ⁴ and colour temperature as δ: the approaching side is brighter and bluer, the receding
+  // side dim and red. Gravitational redshift √(1 − 1.5 r_s/r) dims the innermost ring further.
+  float rs = 3.0 * r / uInner;
+  float beta = sqrt(0.5 / max(rs - 1.0, 0.5));
   vec3 tang = normalize(-sin(ang) * normalize(uAxU) + cos(ang) * normalize(uAxV));
-  float beam = 1.0 + 0.85 * dot(tang, normalize(-vViewPos));
+  float delta = sqrt(1.0 - beta * beta) / (1.0 - beta * dot(tang, normalize(-vViewPos)));
+  float grav = sqrt(max(1.0 - 1.5 / rs, 0.05));
+  float shift = delta * grav;
+  vec3 hotc = mix(vec3(0.95, 0.38, 0.1), vec3(1.0, 0.94, 0.82), clamp(pow(t, 1.4) * shift, 0.0, 1.0));
+  hotc = mix(hotc, vec3(0.75, 0.85, 1.0), clamp((shift - 1.15) * 0.8, 0.0, 0.6));
+  float beam = pow(shift, 3.5) * 0.7;
   float I = pow(t, 1.3) * (0.45 + 0.4 * swirl + 0.25 * swirl2) * (0.3 + 0.7 * clamp(uHeat, 0.0, 1.0)) * beam;
   I *= smoothstep(uInner, uInner + 0.06, r) * smoothstep(1.0, 0.8, r);
   outColor = vec4(hotc * I * 1.2, 1.0);
@@ -848,50 +986,87 @@ void main() {
 }
 `;
 
-// Sky seen from a planet's surface. Colour and brightness come from the atmosphere (pressure and
-// composition): Rayleigh-blue for nitrogen and oxygen, butterscotch for thick CO2, orange for methane
-// haze, white for steam. Sunsets redden near the horizon; airless worlds show black sky and stars.
-export const SURFACE_SKY_FS = HEAD + NOISE + `
+// Sky seen from a planet's surface, from the same scattering as the view from space: Earth's blue
+// (Rayleigh, ∝ 1/λ⁴) with red sunsets, Mars's butterscotch dust with a blue glow around the setting
+// Sun (dust scatters blue more strongly forward), Titan's orange tholin haze, Venus's dim yellow murk.
+// Airless worlds show a black sky. Planetary rings arc across it, lit or in the planet's shadow.
+export const SURFACE_SKY_FS = HEAD + NOISE + SCATTER + `
 in vec2 vUV;
 uniform mat3 uView;
 uniform vec2 uTan;
 uniform vec3 uUp, uSun;      // world directions: local up, toward the brightest star
-uniform vec3 uSkyCol;
-uniform float uDensity;      // 0 airless .. ~1.5 very thick
+uniform float uAir;          // 1 with an atmosphere, 0 airless
+uniform float uExpo;         // eye adaptation
 uniform float uSunPower;     // sunlight strength (0 with no star)
+uniform float uSunAng;       // angular radius of the star (rad)
+uniform vec3 uSunCol;        // star colour
 uniform float uCloud;        // cloud cover 0..1 from the climate model
 uniform vec3 uCloudCol;
 uniform float uTime;
 uniform vec3 uNorth;         // local north (world), for the cloud deck's coordinates
+uniform vec3 uRingN;         // ring plane normal (world); zero for no rings
+uniform vec2 uRingR;         // inner, outer radius (planet radii)
+uniform float uRingProf[16];
+uniform vec3 uRingCol;
 out vec4 outColor;
 void main() {
   vec3 dv = normalize(vec3((vUV.x * 2.0 - 1.0) * uTan.x, (vUV.y * 2.0 - 1.0) * uTan.y, -1.0));
   vec3 d = transpose(uView) * dv;
   float h = dot(d, uUp);
   float e = dot(uSun, uUp);
-  float day = smoothstep(-0.18, 0.12, e) * uSunPower;
-  float horizon = pow(1.0 - max(h, 0.0), 4.0);
-  vec3 sky = uSkyCol * (0.55 + 0.9 * horizon);
-  // Sunset: long light paths at low sun scatter away blue, leaving orange and red.
-  float low = pow(1.0 - abs(e), 6.0) * pow(1.0 - max(h, 0.0), 2.0);
-  sky = mix(sky, vec3(1.0, 0.45, 0.18), clamp(low * 0.9, 0.0, 0.85));
-  float cosA = max(dot(d, uSun), 0.0);
-  float glow = pow(cosA, 600.0) * 4.0 + pow(cosA, 12.0) * 0.35 * uDensity;
-  float a = clamp(uDensity * day, 0.0, 1.0);
-  vec3 col = sky * a + vec3(1.0, 0.92, 0.8) * glow * day * min(uDensity, 1.0);
-  float alpha = max(a, glow * day);
-  // Cloud deck overhead: a flat layer seen in perspective, drifting with the wind. Lit white by day,
-  // orange-pink at sunset, faintly grey at night; it thins toward the horizon haze.
+  vec3 o = uUp * 1.00002;
+  vec3 L = vec3(0.0), T = vec3(1.0), Tsun = vec3(1.0);
+  bool ground = h < 0.0 && sphereHit(o, d, 1.0).x > 0.0;
+  if (uAir > 0.0 && uSunPower > 0.0) {
+    float tMax = ground ? sphereHit(o, d, 1.0).x : sphereHit(o, d, uTop).y;
+    L = scatter(o, d, tMax, uSun, 2.2, T);
+    Tsun = exp(-tauToSun(1.00002, e));
+  }
+  // The star's disc, dimmed and reddened by the air in front of it.
+  float cosA = dot(d, uSun);
+  float disc = smoothstep(cos(uSunAng * 1.08), cos(uSunAng * 0.92), cosA) * uSunPower;
+  vec3 Lsun = uSunCol * disc * 60.0 * (ground ? vec3(0.0) : T);
+  // Rings: where the view ray crosses the ring plane.
+  vec3 Lring = vec3(0.0); float ringA = 0.0;
+  if (dot(uRingN, uRingN) > 0.5 && !ground) {
+    float dn = dot(d, uRingN);
+    float t = -dot(o, uRingN) / (abs(dn) > 1e-5 ? dn : 1e-5);
+    if (t > 0.0) {
+      vec3 q = o + d * t;
+      float rr = length(q);
+      if (rr > uRingR.x && rr < uRingR.y) {
+        float f = (rr - uRingR.x) / (uRingR.y - uRingR.x) * 16.0;
+        int i0 = int(clamp(floor(f - 0.5), 0.0, 15.0)), i1 = min(i0 + 1, 15);
+        float op = mix(uRingProf[i0], uRingProf[i1], clamp(f - 0.5 - float(i0), 0.0, 1.0));
+        op *= 0.85 + 0.15 * vnoise(vec3(rr * 300.0, 0.0, 0.0));        // fine ringlets
+        float side = sign(dot(o, uRingN)) * sign(dot(uSun, uRingN));
+        float lit = side > 0.0 ? 0.35 + 0.65 * sqrt(abs(dot(uSun, uRingN))) : 0.25 * (1.0 - op);
+        vec2 sh = sphereHit(q, uSun, 1.0);
+        if (sh.x > 0.0) lit = 0.0;                                       // planet's shadow on the ring
+        Lring = uRingCol * lit * 0.07 * uSunPower;
+        ringA = op;
+      }
+    }
+  }
+  vec3 Lall = L + (Lring * ringA + Lsun) * T;
+  vec3 col = tone(Lall * uExpo);
+  float alpha = clamp(max(col.r, max(col.g, col.b)) * 1.4, 0.0, 1.0);
+  alpha = max(alpha, ringA * dot(T, vec3(0.3333)));
+  // Cloud deck overhead: a flat layer seen in perspective, drifting with the wind, lit by the sunlight
+  // that got through the air (so it glows orange-pink at sunset), faint at night.
   if (uCloud > 0.0 && h > 0.02) {
     vec3 east = normalize(cross(uNorth, uUp));
     vec2 p = vec2(dot(d, east), dot(d, uNorth)) / max(h, 0.05) * 1.6 + vec2(uTime * 0.02, uTime * 0.007);
     float n = fbm(vec3(p, 1.7), 5) + 0.1 * (vnoise(vec3(p * 5.0, 3.1)) - 0.5);
     float thr = 0.5 + (0.5 - clamp(uCloud * 1.2, 0.0, 1.0)) * 0.34;
     float c = smoothstep(thr - 0.05, thr + 0.14, n) * smoothstep(0.02, 0.2, h);
-    float sunset = pow(1.0 - abs(e), 5.0);
-    vec3 lightCol = mix(vec3(1.0), vec3(1.0, 0.55, 0.4), clamp(sunset, 0.0, 0.8));
-    float lit = 0.05 + 0.95 * smoothstep(-0.1, 0.15, e) * uSunPower;
+    // Sunlight through the air plus the blue skylight around it.
+    vec3 Lc = Tsun * max(e, 0.0) + (1.0 - exp(-uTauS)) * 0.5 * max(e + 0.08, 0.0);
+    float m = max(Lc.r, max(Lc.g, Lc.b));
+    vec3 lightCol = m > 1e-4 ? Lc / m : vec3(1.0);
+    float lit = 0.05 + 0.95 * smoothstep(-0.1, 0.15, e) * uSunPower * pow(m, 0.25);
     vec3 cc = uCloudCol * lightCol * lit * (0.75 + 0.35 * smoothstep(thr, thr + 0.3, n));
+    cc = mix(cc, col, 1.0 - smoothstep(0.02, 0.35, h));                 // distant clouds fade into the haze
     col = col * (1.0 - c) + cc * c;
     alpha = alpha * (1.0 - c) + c;
   }

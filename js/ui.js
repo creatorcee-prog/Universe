@@ -163,6 +163,12 @@ export class UI {
       if (app.zones.has(b)) app.zones.delete(b); else app.zones.add(b);
       this.refreshInfo(true);
     });
+    $('i-rings').addEventListener('click', () => {
+      const b = app.state.selected;
+      if (!b || app.world.ringOuter.has(b)) return;
+      app.addRings(b);
+      this.refreshInfo(true);
+    });
     $('i-stand').addEventListener('click', () => { if (app.state.selected) app.enterSurface(app.state.selected, 'day'); });
     $('sv-leave').addEventListener('click', () => app.exitSurface());
     document.querySelectorAll('[data-where]').forEach((btn) => btn.addEventListener('click', () => {
@@ -493,6 +499,7 @@ export class UI {
       hab.className = 'hab ' + (hv.verdict === 'Habitable' ? 'good' : hv.verdict === 'Marginal' ? 'mid' : '');
     }
     $('i-stand').hidden = b.kind !== 'rocky';
+    $('i-rings').hidden = !(b.kind === 'rocky' || b.kind === 'gas') || app.world.ringOuter.has(b);
     // Any heat source whose zones reach beyond its own surface can show them.
     const zb = $('i-zones'), canZone = !!tempZones(b);
     if (!canZone) app.zones.delete(b);
