@@ -154,7 +154,7 @@ export const ENTRIES = {
       'The main rings span about 280,000 km but are typically only about 10 m thick. They are mostly chunks of water ice.',
       'Its largest moon, Titan, is bigger than Mercury and has a thick atmosphere and lakes of liquid methane.',
       'NASA\'s Cassini orbited Saturn from 2004 to 2017, then dived into the planet on purpose.',
-      'In this game the rings are 6,000 debris chunks on true circular orbits, tilted 26.7° like the real ones. Fly something through them and the chunks break loose and scatter.',
+      'In this game the rings are 9,000 debris chunks on true circular orbits, tilted 26.7° like the real ones. Fly something through them and the chunks break loose and scatter.',
     ],
     sources: [nasaFS('saturn'), nasa('saturn/', 'NASA: Saturn')],
   },

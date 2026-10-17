@@ -57,8 +57,12 @@ Switch in **Settings → View**.
     its Roche limit.
   - *Spin*: real axial tilts and rotation periods. The spin rate is capped on screen so fast time-warp
     doesn't strobe.
-  - *Saturn's rings*: 6,000 sunlit debris chunks, shadowed by the planet. Fly something into them and they
+  - *Saturn's rings*: 9,000 sunlit debris grains, shadowed by the planet. Fly something into them and they
     break loose as free-flying debris.
+  - The scene renders into a 4× antialiased HDR buffer, then gets bloom (bright and hot things glow
+    into their surroundings; switchable in Settings) and a soft tone curve. The sky is a procedural
+    Milky Way with star clouds, dust lanes and faint nebulae.
+  - Hot rocky worlds grow a dark basalt crust broken by lava pools that spread as the temperature rises.
   - Stars show granulation, limb darkening and sunspots; black holes have a Doppler-brightened
     accretion disk that flares when they feed.
 - **Classic**: the original 2D canvas renderer. Lighter on battery and older phones.

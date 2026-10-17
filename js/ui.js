@@ -77,7 +77,7 @@ export class UI {
       r.addEventListener('change', () => { if (r.checked) { app.setView(r.value); this.toast(r.value === 'realistic' ? 'Realistic view' : 'Classic view'); } });
     }
     this.onView(app.settings.view);
-    for (const key of ['trails', 'labels', 'grid', 'stars', 'trailsRelative', 'collisions']) {
+    for (const key of ['bloom', 'trails', 'labels', 'grid', 'stars', 'trailsRelative', 'collisions']) {
       const el = $('set-' + key);
       el.checked = !!app.settings[key];
       el.addEventListener('change', () => this.toggleSetting(key, el.checked));

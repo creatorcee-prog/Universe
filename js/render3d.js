@@ -1,7 +1,7 @@
 import { PK } from './physics.js';
 import { isLuminous, tempToRGB } from './bodies.js';
 import { EARTH_MASS } from './units.js';
-import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, SPRITE_FS, SPRITE_VS } from './shaders.js';
+import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS } from './shaders.js';
 
 // Realistic view: WebGL2 spheres with procedural, physically driven surfaces.
 // Positions are taken relative to the camera in double precision before going to the GPU,
@@ -22,8 +22,8 @@ const LOOKS = {
   Moon: { colA: c3(160, 156, 150), colB: c3(92, 90, 88), craters: 1, tilt: 6.7, day: 655.7 },
   Mars: { ice: 1, colA: c3(170, 84, 44), colB: c3(118, 58, 32), craters: 0.35, atmo: c3(230, 140, 90), atmoK: 0.25, greenhouse: 5, dry: 1.25, tilt: 25.2, day: 24.6 },
   Ceres: { colA: c3(118, 115, 110), colB: c3(84, 82, 80), craters: 1, lumpy: 0.03, day: 9.07 },
-  Jupiter: { kind: 1, colA: c3(222, 200, 160), colB: c3(160, 108, 70), bands: 7, storm: [0.95, -0.32, 0.1, 0.17], colC: c3(190, 90, 60), atmo: c3(230, 210, 170), atmoK: 0.2, tilt: 3.1, day: 9.93 },
-  Saturn: { kind: 1, colA: c3(232, 214, 168), colB: c3(196, 168, 118), bands: 9, atmo: c3(240, 220, 170), atmoK: 0.2, tilt: 26.7, day: 10.7 },
+  Jupiter: { kind: 1, colA: c3(234, 218, 190), colB: c3(176, 126, 88), bands: 7, storm: [0.95, -0.32, 0.1, 0.17], colC: c3(190, 90, 60), atmo: c3(230, 210, 170), atmoK: 0.2, tilt: 3.1, day: 9.93 },
+  Saturn: { kind: 1, colA: c3(240, 228, 196), colB: c3(214, 192, 148), bands: 9, bandK: 0.45, atmo: c3(240, 220, 170), atmoK: 0.2, tilt: 26.7, day: 10.7 },
   Uranus: { kind: 1, colA: c3(170, 226, 232), colB: c3(150, 210, 220), bands: 3, atmo: c3(180, 240, 255), atmoK: 0.4, tilt: 97.8, day: 17.24 },
   Neptune: { kind: 1, colA: c3(76, 112, 226), colB: c3(56, 88, 196), bands: 4, storm: [0.6, -0.5, 0.6, 0.12], colC: c3(30, 46, 120), atmo: c3(120, 160, 255), atmoK: 0.45, tilt: 28.3, day: 16.1 },
   Pluto: { ice: 1, colA: c3(214, 190, 160), colB: c3(140, 100, 76), craters: 0.3, tilt: 122.5, day: 153.3 },
@@ -119,7 +119,8 @@ export class Renderer3D {
     this.world = world;
     this.cam = cam;
     this.settings = settings;
-    const gl = canvas.getContext('webgl2', { antialias: true, alpha: false, powerPreference: 'high-performance' });
+    // Antialiasing is done in our own multisampled HDR buffer, so the default framebuffer doesn't need it.
+    const gl = canvas.getContext('webgl2', { antialias: false, alpha: false, depth: false, powerPreference: 'high-performance' });
     if (!gl) throw new Error('WebGL2 unavailable');
     this.gl = gl;
     this.looks = new Map();
@@ -166,6 +167,144 @@ export class Renderer3D {
     this.dynGlow = this.dynamicSet();
     this.dynLines = this.dynamicSet();
     this.sky = this.makeSky();
+    this.pMilky = this.program(FULL_VS, MILKYWAY_FS);
+    this.pDown = this.program(FULL_VS, DOWN_FS);
+    this.pUp = this.program(FULL_VS, UP_FS);
+    this.pComp = this.program(FULL_VS, COMPOSITE_FS);
+    this.hdr = !!gl.getExtension('EXT_color_buffer_float');
+    this.post = null;
+  }
+
+  // ---------- off-screen buffers ----------
+
+  makeTarget(w, h) {
+    const gl = this.gl;
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    if (this.hdr) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
+    else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    const fbo = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    return { tex, fbo, w, h };
+  }
+
+  // Multisampled HDR scene buffer, its resolved copy, and the bloom chain. Falls back to 8-bit
+  // colour if the device can't render to half-float.
+  buildPost(W, H) {
+    const gl = this.gl;
+    this.freePost();
+    const samples = Math.min(4, gl.getParameter(gl.MAX_SAMPLES) || 0);
+    for (const tryHdr of this.hdr ? [true, false] : [false]) {
+      this.hdr = tryHdr;
+      const ms = gl.createFramebuffer();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, ms);
+      const color = gl.createRenderbuffer();
+      gl.bindRenderbuffer(gl.RENDERBUFFER, color);
+      gl.renderbufferStorageMultisample(gl.RENDERBUFFER, samples, tryHdr ? gl.RGBA16F : gl.RGBA8, W, H);
+      gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, color);
+      const depth = gl.createRenderbuffer();
+      gl.bindRenderbuffer(gl.RENDERBUFFER, depth);
+      gl.renderbufferStorageMultisample(gl.RENDERBUFFER, samples, gl.DEPTH_COMPONENT24, W, H);
+      gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depth);
+      if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+        gl.deleteFramebuffer(ms); gl.deleteRenderbuffer(color); gl.deleteRenderbuffer(depth);
+        continue;
+      }
+      const scene = this.makeTarget(W, H);
+      const down = [], up = [];
+      let w = W, h = H;
+      for (let i = 0; i < 6; i++) {
+        w = Math.max(1, w >> 1); h = Math.max(1, h >> 1);
+        down.push(this.makeTarget(w, h));
+        up.push(this.makeTarget(w, h));
+      }
+      this.post = { W, H, ms, color, depth, scene, down, up };
+      break;
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
+
+  freePost() {
+    const gl = this.gl, p = this.post;
+    if (!p) return;
+    gl.deleteFramebuffer(p.ms); gl.deleteRenderbuffer(p.color); gl.deleteRenderbuffer(p.depth);
+    for (const t of [p.scene, ...p.down, ...p.up]) { gl.deleteFramebuffer(t.fbo); gl.deleteTexture(t.tex); }
+    this.post = null;
+  }
+
+  fullscreen(prog, target, w, h) {
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, target);
+    gl.viewport(0, 0, w, h);
+    gl.useProgram(prog.p);
+    gl.bindVertexArray(this.quad);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+
+  bindTex(unit, tex, loc) {
+    const gl = this.gl;
+    gl.activeTexture(gl.TEXTURE0 + unit);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.uniform1i(loc, unit);
+  }
+
+  // Resolve the multisampled scene, bloom it, and tone-map onto the screen.
+  finish() {
+    const gl = this.gl, p = this.post;
+    gl.disable(gl.DEPTH_TEST);
+    gl.disable(gl.BLEND);
+    gl.depthMask(false);
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, p.ms);
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, p.scene.fbo);
+    gl.blitFramebuffer(0, 0, p.W, p.H, 0, 0, p.W, p.H, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+    const bloom = this.settings.bloom !== false;
+    if (bloom) {
+      let src = p.scene;
+      p.down.forEach((t, i) => {
+        gl.useProgram(this.pDown.p);
+        this.bindTex(0, src.tex, this.pDown.u.uTex);
+        gl.uniform2f(this.pDown.u.uTexel, 0.5 / src.w, 0.5 / src.h);
+        gl.uniform1i(this.pDown.u.uFirst, i === 0 ? 1 : 0);
+        gl.uniform1f(this.pDown.u.uThreshold, this.hdr ? 0.95 : 0.8);
+        this.fullscreen(this.pDown, t.fbo, t.w, t.h);
+        src = t;
+      });
+      let low = p.down[p.down.length - 1];
+      for (let i = p.down.length - 2; i >= 0; i--) {
+        const dst = p.up[i];
+        gl.useProgram(this.pUp.p);
+        this.bindTex(0, low.tex, this.pUp.u.uLow);
+        this.bindTex(1, p.down[i].tex, this.pUp.u.uHigh);
+        gl.uniform2f(this.pUp.u.uTexel, 1 / low.w, 1 / low.h);
+        this.fullscreen(this.pUp, dst.fbo, dst.w, dst.h);
+        low = dst;
+      }
+    }
+    gl.useProgram(this.pComp.p);
+    this.bindTex(0, p.scene.tex, this.pComp.u.uScene);
+    this.bindTex(1, p.up[0].tex, this.pComp.u.uBloom);
+    gl.uniform1f(this.pComp.u.uBloomK, bloom ? (this.hdr ? 0.32 : 0.22) : 0);
+    this.fullscreen(this.pComp, null, p.W, p.H);
+    gl.depthMask(true);
+  }
+
+  drawMilkyWay() {
+    const gl = this.gl, s = this.pMilky, u = s.u, cam = this.cam;
+    const t = Math.tan(cam.fov / 2);
+    gl.useProgram(s.p);
+    gl.uniformMatrix3fv(u.uView, false, this.V);
+    gl.uniform2f(u.uTan, t * (this.canvas.width / this.canvas.height), t);
+    // Same galactic plane as the background star band.
+    gl.uniform3f(u.uGalN, 0, Math.cos(1.05), Math.sin(1.05));
+    gl.uniform3f(u.uGalC, 1, 0, 0);
+    gl.uniform1f(u.uBright, 1);
+    gl.bindVertexArray(this.quad);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 
   program(vs, fs) {
@@ -278,9 +417,12 @@ export class Renderer3D {
     const gl = this.gl, cam = this.cam, world = this.world;
     const W = this.canvas.width, H = this.canvas.height;
     if (W === 0 || H === 0) return;
+    if (!this.post || this.post.W !== W || this.post.H !== H) this.buildPost(W, H);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.post ? this.post.ms : null);
     gl.viewport(0, 0, W, H);
-    gl.clearColor(0.012, 0.016, 0.035, 1);
+    gl.clearColor(0.004, 0.006, 0.013, 1);
     gl.clearDepth(1);
+    gl.depthMask(true);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     const near = Math.max(1e-12, cam.dist * 1e-6), far = 1e15;
@@ -290,7 +432,12 @@ export class Renderer3D {
     this.logFC = 2 / Math.log2(far + 1);
     this.ex = cam.tx + cam.ox; this.ey = cam.ty + cam.oy; this.ez = cam.tz + cam.oz;
 
-    if (this.settings.stars) this.drawSky();
+    if (this.settings.stars) {
+      gl.disable(gl.DEPTH_TEST);
+      gl.disable(gl.BLEND);
+      this.drawMilkyWay();
+      this.drawSky();
+    }
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
     gl.depthMask(true);
@@ -321,6 +468,7 @@ export class Renderer3D {
     this.drawParticles(true);
     gl.depthMask(true);
     gl.disable(gl.BLEND);
+    if (this.post) this.finish();
   }
 
   rel(b) {
@@ -351,7 +499,7 @@ export class Renderer3D {
       if (!l) { out.push([0, 1, 0], [0, 0, 0]); continue; }
       const rgb = tempToRGB(l.s.temp || 5800).map((v) => 0.5 + 0.5 * (v / 255));
       // Light falls off as 1/d² in reality; a softer curve keeps the outer planets visible.
-      const I = Math.min(1.5, Math.max(0.3, Math.pow(l.f, 0.12)));
+      const I = 1.2 * Math.min(1.3, Math.max(0.55, Math.pow(l.f, 0.08)));
       out.push(this.viewOf(l.dx / l.d, l.dy / l.d, l.dz / l.d), rgb.map((v) => v * I));
     }
     return { dirs: out, flux, primary: L[0] };
@@ -443,9 +591,11 @@ export class Renderer3D {
     gl.uniform1f(u.uCraters, l.craters || 0);
     gl.uniform1f(u.uLife, l.life || 0);
     gl.uniform1f(u.uBands, l.bands || 6);
+    gl.uniform1f(u.uBandK, l.bandK ?? 0.7);
     gl.uniform1f(u.uVolc, l.volc || 0);
     gl.uniform1f(u.uLineae, l.lineae || 0);
     gl.uniform1f(u.uSpots, l.spots || 0);
+    gl.uniform1f(u.uSoft, l.atmo && l.kind === 0 ? 0.08 : 0.02);
     gl.uniform1f(u.uDayNight, l.kind === 1 ? 0.02 : l.atmo ? (l.cloud >= 1 ? 0.01 : 0.06) : 0.35);
     gl.uniform1f(u.uFacet, l.lumpy ? 0.85 : nImp ? 0.12 : 0);
     gl.uniform1f(u.uTemp, temp);
@@ -458,7 +608,11 @@ export class Renderer3D {
     const ld = lights ? lights.dirs : [[0, 1, 0], [0, 0, 0], [0, 1, 0], [0, 0, 0]];
     gl.uniform3fv(u.uL0, ld[0]); gl.uniform3fv(u.uLc0, ld[1]);
     gl.uniform3fv(u.uL1, ld[2]); gl.uniform3fv(u.uLc1, ld[3]);
-    gl.uniform3fv(u.uAtmo, l.atmo || [0, 0, 0]);
+    // A hot world's atmosphere glows orange instead of scattering blue.
+    let atmo = l.atmo || null;
+    const hotK = Math.min(1, Math.max(0, (temp + b.heat * 1700 - 600) / 900));
+    if (atmo && hotK > 0) atmo = atmo.map((v, i) => v + ([1, 0.45, 0.15][i] - v) * hotK);
+    gl.uniform3fv(u.uAtmo, atmo || [0, 0, 0]);
     gl.uniform1f(u.uAtmoK, l.atmo ? l.atmoK ?? 0.5 : 0);
     const g = this.spheres[lod];
     gl.bindVertexArray(g.vao);
@@ -482,7 +636,7 @@ export class Renderer3D {
         gl.uniform1i(au.uImpN, 0);
         gl.uniform1f(au.uLumpy, 0);
         gl.uniform1f(au.uLogDepthFC, this.logFC);
-        gl.uniform3fv(au.uAtmo, l.atmo);
+        gl.uniform3fv(au.uAtmo, atmo);
         gl.uniform1f(au.uAtmoK, l.atmoK ?? 0.5);
         gl.uniform3fv(au.uL0, ld[0]);
         gl.bindVertexArray(g.vao);
@@ -495,7 +649,7 @@ export class Renderer3D {
       const L = Math.max(b.lum, 1e-4);
       const glowPx = Math.max(shownPx * 3.2, (6 + 4.5 * Math.log10(1 + L * 10)) * dpr) * (1 + 0.6 * Math.min(1, b.heat));
       const rgb = tempToRGB(b.temp).map((v) => v / 255);
-      glows.push(() => this.sprite(vp, glowPx / pxPerAU, rgb.map((v) => v * 1.1), 0, 0, 0));
+      glows.push(() => this.sprite(vp, glowPx / pxPerAU, rgb.map((v) => v * (this.post ? 0.75 : 1.1)), 0, 0, 0));
       if (b.kind === 'ns') {
         const ang = now * 0.004;
         glows.push(() => this.sprite(vp, (glowPx * 2.6) / pxPerAU, [0.6, 0.75, 1], 3, ang, 0));
@@ -578,7 +732,7 @@ export class Renderer3D {
     gl.uniformMatrix4fv(u.uProj, false, this.P);
     gl.uniformMatrix3fv(u.uView, false, this.V);
     gl.uniform1f(u.uF, this.F);
-    gl.uniform1f(u.uMinPx, (glowPass ? 1.6 : 1.4) * this.dpr);
+    gl.uniform1f(u.uMinPx, (glowPass ? 1.6 : 1.1) * this.dpr);
     gl.uniform1f(u.uMaxPx, 64 * this.dpr);
     gl.uniform1i(u.uGlow, glowPass ? 1 : 0);
     gl.uniform3fv(u.uLight, this.particleLight || [0, 0, 1]);
@@ -600,7 +754,7 @@ export class Renderer3D {
       const v = 0.82 + 0.36 * ((k * 0.61803) % 1);
       if (GLOW_KINDS.has(kind)) {
         glow.pos[ng * 3] = x; glow.pos[ng * 3 + 1] = y; glow.pos[ng * 3 + 2] = z;
-        const a = kind === PK.HOT ? 0.3 : 0.55;
+        const a = kind === PK.HOT ? 0.45 : 0.55;
         glow.col[ng * 3] = c[0] * a * v; glow.col[ng * 3 + 1] = c[1] * a * v; glow.col[ng * 3 + 2] = c[2] * a * v;
         glow.size[ng] = kind === PK.HOT ? size : 0;
         glow.shade[ng] = 1;
@@ -643,7 +797,7 @@ export class Renderer3D {
         if (perp2 < host.r * host.r) shade = 0;
       }
       const h = ((i * 2246822519) >>> 0) / 4294967296;
-      add(tmp[0] - tx, tmp[1] - ty, tmp[2] - tz, world.rk[i], 3e-7 + h * h * 1.2e-6, shade, i + 7);
+      add(tmp[0] - tx, tmp[1] - ty, tmp[2] - tz, world.rk[i], 1.5e-7 + h * h * h * 9e-7, shade, i + 7);
     }
     if (!this.particleLight) {
       const L = world.bodies.find(isLuminous);

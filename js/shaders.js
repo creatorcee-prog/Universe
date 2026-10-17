@@ -105,7 +105,8 @@ in vec3 vN;
 uniform int uKind;        // 0 rocky, 1 gas/ice giant, 2 star, 3 white dwarf / neutron star, 4 black-hole shadow
 uniform vec3 uColA, uColB, uColC;
 uniform float uSeed, uOcean, uCloud, uCraters, uLife, uBands, uVolc, uLineae, uSpots, uFacet;
-uniform float uDayNight; // day-night temperature swing: large for airless worlds, small where air and oceans store heat
+uniform float uDayNight;
+uniform float uBandK;    // band contrast // day-night temperature swing: large for airless worlds, small where air and oceans store heat
 uniform float uTemp;      // surface temperature before day/night variation (K)
 uniform float uSnowLat;   // latitude (as sin) where ice caps begin
 uniform float uIce;       // 1 for worlds with water or other ices that can form caps
@@ -133,9 +134,11 @@ float crater(vec3 p) {
   return sqrt(d);
 }
 
+// Crisp terminator, softened slightly where there is an atmosphere to scatter light.
+uniform float uSoft;
 float lightTerm(vec3 N, vec3 L) {
   float d = dot(N, L);
-  return smoothstep(-0.12, 0.3, d) * (0.3 + 0.7 * max(d, 0.0));
+  return smoothstep(-0.03 - uSoft, 0.1 + uSoft, d) * (0.22 + 0.78 * max(d, 0.0));
 }
 
 void main() {
@@ -194,7 +197,7 @@ void main() {
     float turb = fbm(vec3(vObj.x * 2.0, vObj.y * 7.0, vObj.z * 2.0) + uSeed, 5);
     float b = vObj.y * uBands + turb * 0.9;
     float band = 0.5 + 0.5 * sin(b * 6.2831853);
-    col = mix(uColA, uColB, band * 0.85);
+    col = mix(uColA, uColB, band * uBandK);
     col *= 0.94 + 0.12 * vnoise(vec3(vObj.x * 3.0, vObj.y * 46.0, vObj.z * 3.0) + uSeed);
     if (uStorm.w > 0.0) {
       vec3 sd = normalize(uStorm.xyz);
@@ -249,18 +252,31 @@ void main() {
   col = mix(col, uColC, cloud);
   vec3 outc = col * lit + spec * uLc0;
 
-  // Heat: rock and gas glow at their own temperature; molten crust shows glowing veins.
-  float hot = smoothstep(800.0, 1700.0, T);
+  // Heat. Rocky worlds grow a dark basalt crust broken by pools of glowing lava; the pools spread
+  // and merge as the temperature climbs until the whole surface is molten. Gas giants glow in bands.
+  float hot = smoothstep(700.0, 1400.0, T);
   if (hot > 0.0) {
-    float veins = 1.0 - smoothstep(0.0, 0.09, abs(fbm(q * 3.1 + uTime * 0.02, 4) - 0.5));
-    float cover = mix(veins, 1.0, smoothstep(1500.0, 2600.0, T));
-    outc = mix(outc, outc * 0.35, hot * (1.0 - cover));
-    outc += blackbody(T) * hot * cover * (uKind == 1 ? 0.6 : 1.1);
+    if (uKind == 1) {
+      outc += blackbody(T) * hot * (0.5 + 0.5 * sin(vObj.y * uBands * 6.2831853)) * 1.4;
+    } else {
+      float melt = smoothstep(800.0, 2800.0, T);
+      float flow = fbm(q * 1.15 + vec3(0.0, uTime * 0.012, uTime * 0.008), 5);
+      float lo = 0.63 - 0.42 * melt;
+      float lava = smoothstep(lo, lo + 0.035, flow);
+      float rim = smoothstep(lo - 0.06, lo, flow) - lava;
+      float core = smoothstep(lo + 0.03, lo + 0.14, flow);
+      // Cooled basalt crust, faintly lit by the lava beside it.
+      vec3 crust = vec3(0.15, 0.16, 0.2) * (lit + 0.05) + vec3(0.5, 0.16, 0.04) * rim * 0.6;
+      outc = mix(outc, crust, hot);
+      // Pools are yellow-white at the centre and orange at the edges.
+      vec3 lc = blackbody(clamp(T * (0.75 + 0.45 * core), 1100.0, 4200.0));
+      outc += lc * hot * (lava * (1.4 + 1.4 * core) + rim * 0.9) * (0.85 + 0.15 * fbm(q * 6.0 + uTime * 0.05, 2));
+    }
   }
   // Fresh impact sites glow white-hot and fade to a dull red as they cool.
   if (glow > 0.01) {
     float g = clamp(glow, 0.0, 1.0);
-    outc += blackbody(1200.0 + 3000.0 * g) * g * 1.6;
+    outc += blackbody(1200.0 + 3000.0 * g) * g * 2.6;
   }
   // Tidal stress opens glowing fissures before the body breaks apart.
   if (uCrack > 0.0) {
@@ -480,5 +496,110 @@ void main() {
   float r2 = dot(pc, pc);
   if (r2 > 1.0) discard;
   outColor = vec4(vCol * (1.0 - r2), 1.0);
+}
+`;
+
+// ---------- post-processing and sky ----------
+
+export const FULL_VS = HEAD + `
+layout(location = 0) in vec2 aCorner;
+out vec2 vUV;
+void main() {
+  vUV = aCorner * 0.5 + 0.5;
+  gl_Position = vec4(aCorner, 0.0, 1.0);
+}
+`;
+
+// Procedural Milky Way: a band of unresolved starlight with a brighter bulge toward the galactic
+// centre, dark dust lanes along the mid-plane, faint emission nebulae and a dusting of faint stars.
+export const MILKYWAY_FS = HEAD + NOISE + `
+in vec2 vUV;
+uniform mat3 uView;
+uniform vec2 uTan;       // tan(fov/2) * aspect, tan(fov/2)
+uniform vec3 uGalN, uGalC;
+uniform float uBright;
+out vec4 outColor;
+void main() {
+  vec3 dv = normalize(vec3((vUV.x * 2.0 - 1.0) * uTan.x, (vUV.y * 2.0 - 1.0) * uTan.y, -1.0));
+  vec3 d = transpose(uView) * dv;
+  float b = dot(d, uGalN);
+  vec3 e = normalize(cross(uGalN, uGalC));
+  float lon = atan(dot(d, e), dot(d, uGalC));
+  float core = exp(-pow(lon / 0.75, 2.0));
+  float band = exp(-b * b / (0.008 + 0.028 * core));
+  float cloud = fbm(d * 3.5 + 2.0, 4);
+  float clump = fbm(d * 11.0 + 5.0, 3);
+  float grain = fbm(d * 34.0 + 1.0, 3);
+  float glow = band * (0.2 + 0.8 * cloud) * (0.55 + 0.9 * clump * clump) * (0.5 + 0.6 * grain) * (0.45 + 1.0 * core);
+  float dust = smoothstep(0.48, 0.66, fbm(d * 6.0 + 9.0, 4)) * exp(-b * b / 0.003);
+  glow *= 1.0 - 0.8 * dust;
+  vec3 col = mix(vec3(0.52, 0.58, 0.75), vec3(1.0, 0.8, 0.58), core * 0.85) * glow * 0.42;
+  float neb = smoothstep(0.6, 0.78, fbm(d * 2.2 + 17.0, 3)) * (0.3 + band);
+  col += mix(vec3(0.45, 0.08, 0.12), vec3(0.2, 0.12, 0.35), fbm(d * 1.3, 2)) * neb * 0.09;
+  // Faint unresolved stars, denser in the band.
+  vec3 g = d * 520.0;
+  vec3 cell = floor(g);
+  float h = hash(cell);
+  float thr = 0.993 - 0.012 * band;
+  if (h > thr) {
+    float f = length(fract(g) - 0.5);
+    col += mix(vec3(0.75, 0.82, 1.0), vec3(1.0, 0.9, 0.78), hash(cell + 3.1)) * smoothstep(0.32, 0.0, f) * (h - thr) / (1.0 - thr) * 0.7;
+  }
+  outColor = vec4(vec3(0.004, 0.006, 0.013) + col * uBright, 1.0);
+}
+`;
+
+// Bloom: bright parts are downsampled through a chain of half-size images, then blurred back up.
+export const DOWN_FS = HEAD + `
+in vec2 vUV;
+uniform sampler2D uTex;
+uniform vec2 uTexel;
+uniform int uFirst;
+uniform float uThreshold;
+out vec4 outColor;
+void main() {
+  vec3 c = 0.25 * (texture(uTex, vUV + uTexel * vec2(-1.0, -1.0)).rgb + texture(uTex, vUV + uTexel * vec2(1.0, -1.0)).rgb
+                 + texture(uTex, vUV + uTexel * vec2(-1.0, 1.0)).rgb + texture(uTex, vUV + uTexel * vec2(1.0, 1.0)).rgb);
+  if (uFirst == 1) {
+    float l = max(c.r, max(c.g, c.b));
+    float soft = clamp(l - uThreshold + 0.25, 0.0, 0.5);
+    float k = max(soft * soft / 0.5, l - uThreshold) / max(l, 1e-4);
+    c *= max(k, 0.0);
+  }
+  outColor = vec4(c, 1.0);
+}
+`;
+
+export const UP_FS = HEAD + `
+in vec2 vUV;
+uniform sampler2D uLow, uHigh;
+uniform vec2 uTexel;   // texel of the low-resolution image
+out vec4 outColor;
+void main() {
+  vec3 s = texture(uLow, vUV).rgb * 4.0;
+  s += (texture(uLow, vUV + vec2(uTexel.x, 0.0)).rgb + texture(uLow, vUV - vec2(uTexel.x, 0.0)).rgb
+      + texture(uLow, vUV + vec2(0.0, uTexel.y)).rgb + texture(uLow, vUV - vec2(0.0, uTexel.y)).rgb) * 2.0;
+  s += texture(uLow, vUV + uTexel).rgb + texture(uLow, vUV - uTexel).rgb
+     + texture(uLow, vUV + vec2(uTexel.x, -uTexel.y)).rgb + texture(uLow, vUV + vec2(-uTexel.x, uTexel.y)).rgb;
+  outColor = vec4(texture(uHigh, vUV).rgb + s / 16.0, 1.0);
+}
+`;
+
+// Final image: scene plus bloom, with a soft shoulder so bright lava and stars roll off to white
+// instead of clipping.
+export const COMPOSITE_FS = HEAD + `
+in vec2 vUV;
+uniform sampler2D uScene, uBloom;
+uniform float uBloomK;
+out vec4 outColor;
+void main() {
+  vec3 c = texture(uScene, vUV).rgb + texture(uBloom, vUV).rgb * uBloomK;
+  float l = max(c.r, max(c.g, c.b));
+  if (l > 0.82) {
+    float m = 0.82 + 0.18 * (1.0 - exp(-(l - 0.82) / 0.18));
+    c *= m / l;
+    c = mix(c, vec3(m), clamp((l - 1.8) / 6.0, 0.0, 0.3));
+  }
+  outColor = vec4(c, 1.0);
 }
 `;

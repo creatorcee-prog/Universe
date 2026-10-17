@@ -11,7 +11,7 @@ import { UI } from './ui.js';
 const SETTINGS_KEY = 'universe-pocket-settings';
 
 function loadSettings() {
-  const defaults = { trails: true, labels: true, grid: true, stars: true, trailsRelative: true, collisions: true, view: 'realistic' };
+  const defaults = { trails: true, labels: true, grid: true, stars: true, trailsRelative: true, collisions: true, view: 'realistic', bloom: true };
   try {
     return { ...defaults, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') };
   } catch {
