@@ -84,3 +84,17 @@ Still open:
   light pressure.
 - **Photo mode toolbar.** Toggles for labels, trails, orbits, zones, grid, background, light and colours
   without leaving Photo mode.
+
+## Gravity: what is left after the IAS15 upgrade
+
+- **Exact starting states**: JPL Horizons state vectors instead of mean elements (Horizons was not reachable
+  from the build environment). This would close the last 0.5% on Mercury's precession and the 5-minute
+  difference in Earth's year.
+- **Oblateness (J2)** of the Sun, Earth, Jupiter and Saturn: moon orbital precession and ring alignment.
+- **Strong-field gravity near black holes**: the innermost stable circular orbit, and gravitational-wave
+  inspiral for compact binaries (Peters 1964).
+- **Particle accretion**: dense particle clumps merging into new bodies, so dust clouds and debris disks can
+  build moons and planets.
+- **Tides and spin**: tidal locking, tidal migration (the Moon receding 3.8 cm per year) and spin-orbit
+  coupling.
+- **Speed**: a web worker or WebAssembly force loop for scenes with hundreds of bodies.

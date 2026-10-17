@@ -1,4 +1,4 @@
-import { G } from './units.js';
+import { G, EARTH_MASS } from './units.js';
 import { World, circularSpeed, captureRadius, PK } from './physics.js';
 import { makeBody, catalogItem, reclassify } from './bodies.js';
 import { thermalStep, localTemp } from './thermal.js';
@@ -325,11 +325,13 @@ class App {
     if (item.kind === 'dust') {
       const R = this.cam.dist * 0.05;
       const sp = Math.hypot(vx - (a.parent?.vx || 0), vy - (a.parent?.vy || 0), vz - (a.parent?.vz || 0));
+      // A cloud of 0.01 Earth masses (about a sixth of the Moon's) in 600 clumps; it pulls itself together.
+      const mEach = (0.01 * EARTH_MASS) / 600;
       for (let k = 0; k < 600; k++) {
         const u = Math.random() * 2 - 1, t = Math.random() * Math.PI * 2, s = Math.sqrt(1 - u * u), r = R * Math.cbrt(Math.random());
         const j = sp * 0.04;
         this.world.addParticle(x + s * Math.cos(t) * r, y + u * r * 0.3, z + s * Math.sin(t) * r,
-          vx + (Math.random() - 0.5) * j, vy + (Math.random() - 0.5) * j, vz + (Math.random() - 0.5) * j, 0, PK.DUST);
+          vx + (Math.random() - 0.5) * j, vy + (Math.random() - 0.5) * j, vz + (Math.random() - 0.5) * j, mEach, PK.DUST);
       }
       this.ui.toast('Released a dust cloud');
       return;

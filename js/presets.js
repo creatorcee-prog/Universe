@@ -1,8 +1,9 @@
-import { G, EARTH_MASS, KPC_AU, DAY_YR, SUN_RADIUS, km, kms } from './units.js';
+import { G, EARTH_MASS, MOON_MASS, KPC_AU, DAY_YR, SUN_RADIUS, km, kms, massFromGM } from './units.js';
 import { makeBody } from './bodies.js';
 import { PK, circularSpeed } from './physics.js';
 
 const D2R = Math.PI / 180;
+const LUNAR_A = 381815; // km, starting osculating semi-major axis (see solarSystem)
 const rand = Math.random;
 const between = (a, b) => a + (b - a) * rand();
 function gauss() {
@@ -31,10 +32,17 @@ function kepler(mu, a, e, iDeg, nodeDeg, periDeg, MDeg) {
   return [X, Z, -Y, VX, VZ, -VY];
 }
 
-function orbit(world, parent, body, a, e = 0, i = 0, node = 0, peri = 0, M = rand() * 360) {
+// Place body on an orbit about parent. With pair = true (moons), the parent's previous state becomes the
+// pair's centre of mass, so adding a moon does not change the planet-moon system's own orbit.
+function orbit(world, parent, body, a, e = 0, i = 0, node = 0, peri = 0, M = rand() * 360, pair = false) {
   const s = kepler(G * (parent.m + body.m), a, e, i, node, peri, M);
   body.x = parent.x + s[0]; body.y = parent.y + s[1]; body.z = parent.z + s[2];
   body.vx = parent.vx + s[3]; body.vy = parent.vy + s[4]; body.vz = parent.vz + s[5];
+  if (pair) {
+    const f = body.m / (parent.m + body.m);
+    for (const k of ['x', 'y', 'z']) { body[k] -= f * s['xyz'.indexOf(k)]; parent[k] -= f * s['xyz'.indexOf(k)]; }
+    for (const [k, j] of [['vx', 3], ['vy', 4], ['vz', 5]]) { body[k] -= f * s[j]; parent[k] -= f * s[j]; }
+  }
   return world.addBody(body);
 }
 
@@ -54,10 +62,11 @@ function ring(world, host, rIn, rOut, count, tiltDeg, kind) {
   }
 }
 
+// Move to the centre-of-mass frame: total momentum zero and the barycentre at the origin.
 function toBarycenter(bodies) {
-  let M = 0, px = 0, py = 0, pz = 0;
-  for (const b of bodies) { M += b.m; px += b.vx * b.m; py += b.vy * b.m; pz += b.vz * b.m; }
-  for (const b of bodies) { b.vx -= px / M; b.vy -= py / M; b.vz -= pz / M; }
+  let M = 0, px = 0, py = 0, pz = 0, cx = 0, cy = 0, cz = 0;
+  for (const b of bodies) { M += b.m; px += b.vx * b.m; py += b.vy * b.m; pz += b.vz * b.m; cx += b.x * b.m; cy += b.y * b.m; cz += b.z * b.m; }
+  for (const b of bodies) { b.vx -= px / M; b.vy -= py / M; b.vz -= pz / M; b.x -= cx / M; b.y -= cy / M; b.z -= cz / M; }
 }
 
 function sun(name = 'Sun', age = 4.6e9) {
@@ -66,35 +75,53 @@ function sun(name = 'Sun', age = 4.6e9) {
   return s;
 }
 
+// J2000 mean orbital elements (JPL, E. M. Standish, "Keplerian Elements for Approximate Positions of the
+// Major Planets", Table 1, valid 1800-2050): a (AU), e, I (deg), mean longitude L, longitude of perihelion ϖ,
+// longitude of ascending node Ω (deg), heliocentric, ecliptic and equinox of J2000. Earth's row is the
+// Earth-Moon barycentre. Masses: DE440 GM (km³/s²) of each planetary system (planet plus its moons).
 const PLANETS = [
-  // name, a (AU), e, i (deg), mean longitude at J2000 (deg), mass (M⊕), radius (km), kind, colour, band
-  ['Mercury', 0.387, 0.206, 7.0, 252.25, 0.0553, 2440, 'rocky', [168, 160, 150]],
-  ['Venus', 0.723, 0.007, 3.39, 181.98, 0.815, 6052, 'rocky', [232, 204, 150], null, [255, 230, 180]],
-  ['Earth', 1.0, 0.017, 0.0, 100.46, 1, 6371, 'rocky', [64, 118, 214], null, [120, 180, 255]],
-  ['Mars', 1.524, 0.093, 1.85, 355.45, 0.107, 3390, 'rocky', [200, 104, 62]],
-  ['Jupiter', 5.203, 0.048, 1.3, 34.4, 317.8, 69911, 'gas', [216, 182, 136], [170, 112, 74]],
-  ['Saturn', 9.537, 0.054, 2.49, 49.94, 95.2, 58232, 'gas', [228, 208, 162], [190, 160, 110]],
-  ['Uranus', 19.19, 0.047, 0.77, 313.23, 14.5, 25362, 'gas', [168, 222, 232], [140, 204, 218], [190, 240, 250]],
-  ['Neptune', 30.07, 0.009, 1.77, 304.88, 17.1, 24622, 'gas', [84, 124, 222], [60, 92, 190], [140, 180, 255]],
+  // name, a, e, I, L, ϖ, Ω, GM, radius (km), kind, colour, band, atmosphere
+  ['Mercury', 0.38709927, 0.20563593, 7.00497902, 252.25032350, 77.45779628, 48.33076593, 22031.868551, 2440, 'rocky', [168, 160, 150]],
+  ['Venus', 0.72333566, 0.00677672, 3.39467605, 181.97909950, 131.60246718, 76.67984255, 324858.592, 6052, 'rocky', [232, 204, 150], null, [255, 230, 180]],
+  ['Earth', 1.00000261, 0.01671123, -0.00001531, 100.46457166, 102.93768193, 0.0, 398600.435507, 6371, 'rocky', [64, 118, 214], null, [120, 180, 255]],
+  ['Mars', 1.52371034, 0.09339410, 1.84969142, -4.55343205, -23.94362959, 49.55953891, 42828.375816, 3390, 'rocky', [200, 104, 62]],
+  ['Jupiter', 5.20288700, 0.04838624, 1.30439695, 34.39644051, 14.72847983, 100.47390909, 126712764.1, 69911, 'gas', [216, 182, 136], [170, 112, 74]],
+  ['Saturn', 9.53667594, 0.05386179, 2.48599187, 49.95424423, 92.59887831, 113.66242448, 37940584.8418, 58232, 'gas', [228, 208, 162], [190, 160, 110]],
+  ['Uranus', 19.18916464, 0.04725744, 0.77263783, 313.23810451, 170.95427630, 74.01692503, 5794556.4, 25362, 'gas', [168, 222, 232], [140, 204, 218], [190, 240, 250]],
+  ['Neptune', 30.06992276, 0.00859048, 1.77004347, -55.12002969, 44.96476227, 131.78422574, 6836527.10058, 24622, 'gas', [84, 124, 222], [60, 92, 190], [140, 180, 255]],
 ];
+
+// Orbit from mean longitude L, longitude of perihelion ϖ and node Ω: ω = ϖ − Ω, M = L − ϖ.
+function orbitLW(world, parent, body, a, e, I, L, w, O, pair = false) {
+  return orbit(world, parent, body, a, e, I, O, w - O, L - w, pair);
+}
 
 function solarSystem(world, { belts = true, moon = true } = {}) {
   const s = world.addBody(sun());
   const made = {};
-  for (const [name, a, e, i, L, me, rkm, kind, color, band, atmo] of PLANETS) {
-    const b = makeBody({ name, kind, m: me * EARTH_MASS, r: km(rkm), color, band, atmo });
-    made[name] = orbit(world, s, b, a, e, i, 0, 0, L);
+  for (const [name, a, e, i, L, w, O, gm, rkm, kind, color, band, atmo] of PLANETS) {
+    // With the Moon simulated separately, Earth's own mass goes here and the pair shares the barycentre orbit.
+    const b = makeBody({ name, kind, m: massFromGM(gm), r: km(rkm), color, band, atmo });
+    made[name] = orbitLW(world, s, b, a, e, i, L, w, O);
   }
-  const pluto = makeBody({ name: 'Pluto', kind: 'rocky', m: 0.00218 * EARTH_MASS, r: km(1188), color: [214, 190, 160] });
-  orbit(world, s, pluto, 39.48, 0.2488, 17.16, 110.3, 113.8, 14.5);
-  const ceres = makeBody({ name: 'Ceres', kind: 'rocky', m: 4.7e-10, r: km(470), color: [150, 144, 136] });
-  orbit(world, s, ceres, 2.77, 0.0785, 10.6, 80.3, 73.6, 95);
+  // Pluto: Standish's earlier table (J2000); system GM 975.5 km³/s² (Pluto plus Charon).
+  const pluto = makeBody({ name: 'Pluto', kind: 'rocky', m: massFromGM(975.5), r: km(1188), color: [214, 190, 160] });
+  orbitLW(world, s, pluto, 39.48211675, 0.24882730, 17.14001206, 238.92903833, 224.06891629, 110.30393684);
+  // Ceres: JPL Small-Body Database elements; GM 62.6284 km³/s² (DE440).
+  const ceres = makeBody({ name: 'Ceres', kind: 'rocky', m: massFromGM(62.6284), r: km(470), color: [150, 144, 136] });
+  orbit(world, s, ceres, 2.7675, 0.0785, 10.59, 80.27, 73.73, 95);
   // Halley's real orbit (retrograde, i = 162°), placed shortly before perihelion so its tail is on show.
   const halley = makeBody({ name: "Halley's Comet", kind: 'rocky', comet: true, m: 1.1e-16, r: km(5.5), color: [196, 204, 214] });
   orbit(world, s, halley, 17.83, 0.967, 162.3, 58.4, 111.3, 357);
   if (moon) {
-    const m = makeBody({ name: 'Moon', kind: 'rocky', m: 0.0123 * EARTH_MASS, r: km(1737), color: [184, 182, 176] });
-    orbit(world, made.Earth, m, 0.00257, 0.055, 5.1);
+    // The Earth row above is the Earth-Moon barycentre: give Earth its own mass, then split the pair.
+    made.Earth.m = EARTH_MASS;
+    const m = makeBody({ name: 'Moon', kind: 'rocky', m: MOON_MASS, r: km(1737.4), color: [184, 182, 176] });
+    // Mean lunar elements at J2000 (Meeus, Astronomical Algorithms ch. 47; NASA Moon fact sheet):
+    // e 0.0549, i 5.145°, Ω 125.0445°, ϖ 83.3532°, L 218.3165°. Mean elements already include the Sun's
+    // perturbations, so the starting (osculating) semi-major axis is calibrated, 381,815 km, so the
+    // simulated mean sidereal month matches the measured 27.32166 days (mean distance stays ~384,400 km).
+    orbitLW(world, made.Earth, m, km(LUNAR_A), 0.0549, 5.145, 218.3165, 83.3532, 125.0445, true);
   }
   ring(world, made.Saturn, km(74500), km(136800), 9000, 26.7, PK.ICE);
   if (belts) {
@@ -143,8 +170,10 @@ export const PRESETS = [
     camera: { follow: 'Earth', dist: 0.009, pitch: 0.45, yaw: 0.2 },
     build(w) {
       const s = w.addBody(sun());
-      const e = orbit(w, s, makeBody({ name: 'Earth', kind: 'rocky', m: EARTH_MASS, r: km(6371), color: [64, 118, 214], atmo: [120, 180, 255] }), 1, 0, 0, 0, 0, 0);
-      orbit(w, e, makeBody({ name: 'Moon', kind: 'rocky', m: 0.0123 * EARTH_MASS, r: km(1737), color: [184, 182, 176] }), 0.00257, 0.055, 5.1, 0, 0, 90);
+      const e = makeBody({ name: 'Earth', kind: 'rocky', m: EARTH_MASS + MOON_MASS, r: km(6371), color: [64, 118, 214], atmo: [120, 180, 255] });
+      orbitLW(w, s, e, 1.00000261, 0.01671123, 0, 100.46457166, 102.93768193, 0);
+      e.m = EARTH_MASS;
+      orbitLW(w, e, makeBody({ name: 'Moon', kind: 'rocky', m: MOON_MASS, r: km(1737.4), color: [184, 182, 176] }), km(LUNAR_A), 0.0549, 5.145, 218.3165, 83.3532, 125.0445, true);
       toBarycenter(w.bodies);
     },
   },
@@ -155,17 +184,20 @@ export const PRESETS = [
     camera: { follow: 'Jupiter', dist: 0.03, pitch: 0.6, yaw: 0.3 },
     build(w) {
       const s = w.addBody(sun());
-      const j = orbit(w, s, makeBody({ name: 'Jupiter', kind: 'gas', m: 317.8 * EARTH_MASS, r: km(69911), color: [216, 182, 136], band: [170, 112, 74] }), 5.203, 0, 0, 0, 0, 0);
+      // Jupiter alone (GM 126,686,531.9 km³/s²) on its J2000 orbit; moon GMs from JPL's JUP365 solution.
+      const j = makeBody({ name: 'Jupiter', kind: 'gas', m: massFromGM(126712764.1), r: km(69911), color: [216, 182, 136], band: [170, 112, 74] });
+      orbitLW(w, s, j, 5.20288700, 0.04838624, 1.30439695, 34.39644051, 14.72847983, 100.47390909);
+      j.m = massFromGM(126686531.9);
       const moons = [
-        ['Io', 421700, 4.49e-8, 1821, [226, 204, 110]],
-        ['Europa', 671034, 2.41e-8, 1560, [210, 196, 176]],
-        ['Ganymede', 1070412, 7.45e-8, 2634, [160, 150, 138]],
-        ['Callisto', 1882709, 5.42e-8, 2410, [110, 100, 92]],
+        ['Io', 421700, massFromGM(5959.916), 1821, [226, 204, 110]],
+        ['Europa', 671034, massFromGM(3202.739), 1560, [210, 196, 176]],
+        ['Ganymede', 1070412, massFromGM(9887.834), 2634, [160, 150, 138]],
+        ['Callisto', 1882709, massFromGM(7179.289), 2410, [110, 100, 92]],
       ];
       // Phases chosen to respect the Laplace relation λIo − 3λEuropa + 2λGanymede = 180°.
       const phase = [0, 180, 0, 90];
       moons.forEach(([name, akm, m, r, color], k) => {
-        orbit(w, j, makeBody({ name, kind: 'rocky', m, r: km(r), color }), km(akm), 0.002, 0.2, 0, 0, phase[k]);
+        orbit(w, j, makeBody({ name, kind: 'rocky', m, r: km(r), color }), km(akm), 0.002, 0.2, 0, 0, phase[k], true);
       });
       toBarycenter(w.bodies);
     },
@@ -213,7 +245,7 @@ export const PRESETS = [
       const b = makeBody({ kind: 'star', m: 0.65, name: 'Kepler B' });
       w.addBody(a);
       orbit(w, a, b, 0.24, 0.15, 0, 0, 0, 0);
-      toBarycenter(w.bodies);
+      toBarycenter(w.bodies); // the binary's centre of mass is now at rest at the origin
       const bary = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, m: a.m + b.m };
       orbit(w, bary, makeBody({ name: 'Tatooine', kind: 'rocky', m: 1.6 * EARTH_MASS, r: km(7400), color: [214, 176, 120] }), 1.05, 0.02, 0.5);
       orbit(w, bary, makeBody({ name: 'Hoth', kind: 'gas', m: 22 * EARTH_MASS, r: km(25000), color: [170, 210, 230], band: [130, 180, 210] }), 1.9, 0.03, 1.5);

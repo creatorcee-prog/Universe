@@ -1,13 +1,19 @@
-// Simulation units: distance in AU, mass in solar masses, time in years.
-// With these units G = 4π² exactly (Kepler's third law: P² = a³ for 1 M☉).
-export const G = 4 * Math.PI * Math.PI;
+// Simulation units: distance in AU (IAU 2012: 149,597,870,700 m exactly), mass in solar masses,
+// time in Julian years (365.25 days). G is the Sun's gravitational parameter in these units:
+// GM☉ = 1.32712440041279419e20 m³/s² (JPL DE440, Park et al. 2021, AJ 161, 105), which gives
+// G ≈ 39.4769 AU³/(M☉·yr²), close to but not exactly 4π² (a 1 AU orbit takes 365.2569 days, not 365.25).
+export const GM_SUN_SI = 1.32712440041279419e20;
+export const G = (GM_SUN_SI * 3.15576e7 * 3.15576e7) / (1.495978707e11 ** 3);
 export const AU_KM = 1.495978707e8;
 export const LY_AU = 63241.077;
 export const KPC_AU = 2.0626e8;
 export const C_AU_YR = 63241.077; // speed of light in AU/yr (1 ly per yr)
-export const EARTH_MASS = 3.0035e-6; // in M☉
-export const JUPITER_MASS = 9.5458e-4;
-export const MOON_MASS = 3.694e-8;
+// Masses as ratios of DE440 gravitational parameters (km³/s²) to the Sun's (1.32712440041279419e11).
+const GMS = 132712440041.279419;
+export const EARTH_MASS = 398600.435507 / GMS;   // 3.00349e-6 M☉
+export const JUPITER_MASS = 126686531.9 / GMS;   // planet alone, without its moons
+export const MOON_MASS = 4902.800118 / GMS;
+export const massFromGM = (gmKm3s2) => gmKm3s2 / GMS;
 export const SUN_RADIUS = 6.957e5 / AU_KM;
 export const EARTH_RADIUS = 6371 / AU_KM;
 export const YEAR_S = 3.15576e7;

@@ -2,6 +2,8 @@ import { G } from './units.js';
 import { reclassify, refresh, isLuminous } from './bodies.js';
 import { thermalStep, mergeThermal, finishMerge, accreteHeat, accreteMaterial } from './thermal.js';
 import { evolveStar, stellarDeath, transientLum } from './stellar.js';
+import { IAS15, IAS15_NODES } from './ias15.js';
+import { Octree, particleGravity } from './tree.js';
 
 // Particle kinds (purely visual categories; particles carry mass but do not attract each other).
 export const PK = { DEBRIS: 0, HOT: 1, STAR_BLUE: 2, STAR_GOLD: 3, ICE: 4, DUST: 5, GAS: 6, ROCK: 7, SN_H: 8, SN_O: 9, SN_SI: 10, SN_FE: 11 };
@@ -66,6 +68,8 @@ export class World {
     this.dtMax = Infinity;
     this.collisions = true;
     this.eta = 0.02;
+    this.integ = new IAS15();
+    this.tree = new Octree();
     this.limited = false;
   }
 
@@ -206,10 +210,12 @@ export class World {
         const b = bs[j];
         const dx = b.x - ax0, dy = b.y - ay0, dz = b.z - az0;
         const rr = ar + b.r;
-        // Softening: galaxy cores use their own scale; overlapping bodies feel a smoothed force.
-        const d2 = dx * dx + dy * dy + dz * dz + as2 + b.soft * b.soft + 0.25 * rr * rr + 1e-30;
+        // Exact inverse-square law between spheres (shell theorem) while they are apart. Galaxy cores use
+        // Plummer softening at their own scale; once two bodies overlap (about to merge) the pull falls off
+        // linearly inside, as it does within a uniform sphere, instead of diverging.
+        const d2 = dx * dx + dy * dy + dz * dz + as2 + b.soft * b.soft + 1e-300;
         const d = Math.sqrt(d2);
-        const inv3 = 1 / (d2 * d);
+        const inv3 = d >= rr ? 1 / (d2 * d) : 1 / (rr * rr * rr);
         const fa = G * b.m * inv3, fb = G * am * inv3;
         aax += dx * fa; aay += dy * fa; aaz += dz * fa;
         b.ax -= dx * fb; b.ay -= dy * fb; b.az -= dz * fb;
@@ -454,15 +460,39 @@ export class World {
 
     let remaining = simDt;
     let steps = 0;
+    const integ = this.integ;
     while (remaining > 0) {
-      if (this.dirty) this.computeAcc();
-      let dt = Math.min(remaining, this.dtMax);
+      if (this.dirty) { this.computeAcc(); integ.invalidate(); }
+      if (this.bodies.length === 0) { this.t += remaining; remaining = 0; record(++steps); break; }
+      // IAS15 picks its own step; it is also capped at a fraction of the shortest pairwise orbital
+      // timescale so swept collision tests and particle checkpoints stay fine-grained.
+      const cap = 0.3 * this.dtMax / this.eta;
+      let dt = Math.min(remaining, integ.dt > 0 ? integ.dt : this.dtMax, cap);
       if (remaining - dt < dt * 1e-3) dt = remaining;
-      this.substep(dt);
-      remaining -= dt;
-      steps++;
-      record(steps);
-      if (steps >= MAX_STEPS) break;
+      const t0s = this.t;
+      const taken = integ.step(this.bodies, dt);
+      if (!(taken > 0)) break;
+      this.dtMax = this.eta * Math.sqrt(integ.minT2);
+      // Dense output: bodies' positions at the 7 Gauss-Radau nodes and the end of the step.
+      const idxs = att.map((x) => { const bb = this.resolve(x); return bb ? this.bodies.indexOf(bb) : -1; });
+      for (let k = 0; k < 8 && steps < MAX_STEPS; k++) {
+        const hk = k < 7 ? IAS15_NODES[k + 1] : 1;
+        this.t = t0s + hk * taken;
+        steps++;
+        cpT[steps] = this.t;
+        const o = steps * stride, xs = integ.sub[k];
+        for (let a = 0; a < na; a++) {
+          const q = o + a * 4, idx = idxs[a];
+          if (idx >= 0) { cp[q] = xs[3 * idx]; cp[q + 1] = xs[3 * idx + 1]; cp[q + 2] = xs[3 * idx + 2]; cp[q + 3] = this.bodies[idx].m; } else cp[q + 3] = 0;
+        }
+      }
+      this.t = t0s + taken;
+      remaining -= taken;
+      for (const bb of this.bodies) { bb.ax = 0; bb.ay = 0; bb.az = 0; }
+      const at = integ.at;
+      for (let i = 0; i < this.bodies.length; i++) { const bb = this.bodies[i]; bb.ax = at[3 * i]; bb.ay = at[3 * i + 1]; bb.az = at[3 * i + 2]; }
+      this.handleContacts(taken);
+      if (steps >= MAX_STEPS - 8) break;
       if (performance.now() - start > budgetMs) break;
     }
     if (remaining < simDt * 1e-9) remaining = 0;
@@ -470,6 +500,8 @@ export class World {
     this.limited = remaining > 0;
 
     this.stepParticles(att, steps, t0, done);
+    // Particles with mass pull on each other and on the bodies (Barnes-Hut tree).
+    particleGravity(this, done, this.tree);
     this.flushPending();
     this.evolveStars(done);
     thermalStep(this, done);

@@ -176,16 +176,45 @@ source list on every entry.
 
 ## What the simulation does
 
-- **Gravity**: direct-summation N-body, kick-drift-kick leapfrog with an adaptive step (2% of the shortest
-  pairwise dynamical time). Units are AU, solar masses and years, so G = 4π². Energy drift for the Solar
-  System is about 1e-8 per simulated year.
+- **Gravity**: direct-summation N-body. Every body pulls on every other with the exact inverse-square law;
+  by the shell theorem this is exact for spheres that aren't touching.
+  - *Integrator*: **IAS15** (Rein & Spiegel 2015, *MNRAS* 446, 1424), the default of the REBOUND research
+    code. It is a 15th-order adaptive Gauss–Radau method that keeps errors near the limit of
+    double-precision arithmetic. Its step size follows Pham, Rein & Spiegel (2024, *Open Journal of
+    Astrophysics*).
+  - *General relativity*: a first post-Newtonian (1PN) correction from stars and compact objects, which adds
+    Mercury's 43″ per century and the precession of orbits around black holes.
+  - *Units and constants*: AU (IAU 2012), solar masses and Julian years, with the Sun's gravitational
+    parameter GM☉ = 1.32712440041×10²⁰ m³/s² from JPL DE440, so G = 39.4769 rather than 4π².
+  - *Starting orbits*: planets start on JPL's J2000 orbital elements (Standish), with masses from DE440
+    (Park et al. 2021, *AJ* 161, 105). Moons are placed so the planet–moon pair keeps its orbit about the
+    Sun.
+
+  Measured over 100 simulated years (`node tools/gravitybench.mjs`):
+
+  | Quantity | Simulation | Real |
+  | --- | --- | --- |
+  | Earth's sidereal year | 365.2601 d | 365.2564 d |
+  | Moon's sidereal month | 27.3219 d | 27.3217 d |
+  | Lunar nodal cycle | 18.63 yr | 18.61 yr |
+  | Mercury's perihelion advance, total | 572″/century | ~575″/century |
+  | Mercury's perihelion advance, from relativity | 42.9″/century | 42.98″/century |
+  | Energy error | 2×10⁻⁹ | — |
+
+  The remaining differences come from starting with averaged orbital elements rather than JPL's exact state
+  vectors, which this build environment could not download.
 - **Collisions**: swept-sphere tests (fast bodies cannot tunnel), momentum-conserving mergers, impact
   heating, and debris whose amount scales with impact speed relative to escape speed.
 - **Tides**: bodies are torn apart inside the Roche limit, d = R·(2M/m)^⅓.
 - **Evolution on merge**: rocky to gas giant (> 10 M⊕), gas to star (> 0.08 M☉, hydrogen fusion), white
   dwarf to neutron star (> 1.44 M☉, the Chandrasekhar limit), neutron star to black hole (> 2.3 M☉).
 - **Particles** (asteroids, rings, debris, galaxy stars, up to 16,000) feel the 24 heaviest bodies, with
-  per-particle sub-stepping. Ring particles ride analytic circular orbits so they stay stable at any speed,
+  per-particle sub-stepping.
+  - *Self-gravity*: particles that carry mass (impact debris, ejecta, dust clouds) also pull on each other
+    and on the bodies. This uses a Barnes–Hut tree (θ = 0.6, about 1% force error) with softening about a
+    quarter of the mean particle spacing.
+  - *Check*: a cold dust cloud collapses on the analytic free-fall schedule. The simulation reaches 0.84 and
+    0.54 of its starting radius at 0.5 and 0.8 of the free-fall time; theory gives 0.837 and 0.531. Ring particles ride analytic circular orbits so they stay stable at any speed,
   and are released as free debris if their planet is destroyed.
 - **Comets** grow a blue ion tail and a dust tail pointing away from the strongest star once they come within a few AU.
 - **Stars** get radius, temperature, luminosity and black-body colour from main-sequence relations, and they
@@ -223,8 +252,17 @@ source list on every entry.
 
 Climate, composition and stellar evolution are simple parametric models, not radiative-transfer or
 stellar-structure codes. Rotation is visual only (no spin dynamics or tidal locking), and there is no
-soft-body deformation. Gravity is Newtonian, so there is no relativity,
-gravitational waves or light lensing. Particles do not attract each other. Galaxies are two softened
+soft-body deformation.
+
+Gravity is Newtonian plus a first-order relativistic correction:
+- It doesn't model strong-field effects such as the innermost stable orbit, gravitational waves or light
+  lensing.
+- Particles don't feel relativity.
+- Planets are spheres, with no oblateness (J2).
+- Particles orbiting bodies are stepped separately from their mutual pull, which is applied as frame-level
+  kicks.
+
+Galaxies are two softened
 mass points with test-particle disks, not self-gravitating dark-matter halos. Planetesimals in
 *Planet Formation* are given inflated radii so they collide on a watchable timescale.
 
