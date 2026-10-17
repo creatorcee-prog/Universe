@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pocket Universe</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="description" content="A gravity sandbox for your phone: planets, stars, black holes and galaxies with real N-body physics.">
+<meta name="theme-color" content="#04060d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Universe">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Saira+Semi+Condensed:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<!--APP-->
+<div id="app">
+  <canvas id="view" aria-label="Simulation view"></canvas>
+
+  <header class="topbar">
+    <button id="btn-scenarios" class="pill" type="button" aria-label="Choose scenario">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2.6"/><ellipse cx="12" cy="12" rx="9" ry="3.6" transform="rotate(-24 12 12)"/></svg>
+      <span>Scenarios</span>
+    </button>
+    <div class="clock">
+      <span id="scn-name" class="clock-name">Solar System</span>
+      <span id="sim-time" class="clock-time">T + 0 days</span>
+      <span id="limit" class="limit" hidden></span>
+    </div>
+    <button id="btn-settings" class="icon-btn" type="button" aria-label="Settings">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+    </button>
+  </header>
+
+  <section id="info" class="info" hidden aria-live="polite">
+    <div class="info-head">
+      <div>
+        <h2 id="i-name">—</h2>
+        <p id="i-type">—</p>
+      </div>
+      <button id="i-close" class="icon-btn small" type="button" aria-label="Close details">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <dl class="stats">
+      <div><dt>Mass</dt><dd id="i-mass">—</dd></div>
+      <div><dt>Radius</dt><dd id="i-radius">—</dd></div>
+      <div><dt>Temperature</dt><dd id="i-temp">—</dd></div>
+      <div><dt>Orbiting</dt><dd id="i-parent">—</dd></div>
+      <div><dt>Distance</dt><dd id="i-dist">—</dd></div>
+      <div><dt>Orbital speed</dt><dd id="i-speed">—</dd></div>
+      <div><dt>Period</dt><dd id="i-period">—</dd></div>
+      <div><dt>Eccentricity</dt><dd id="i-ecc">—</dd></div>
+    </dl>
+    <div class="info-actions">
+      <button id="i-follow" type="button">Follow</button>
+      <button id="i-half" type="button">Mass ½</button>
+      <button id="i-double" type="button">Mass ×2</button>
+      <button id="i-delete" class="danger" type="button">Delete</button>
+    </div>
+  </section>
+
+  <div id="toast" class="toast" hidden role="status"></div>
+
+  <div id="hint" class="hint">
+    <p><b>Drag</b> to orbit · <b>Pinch</b> to zoom · <b>Two fingers</b> to pan</p>
+    <p><b>Tap</b> an object for details · <b>Double-tap</b> to follow it</p>
+  </div>
+
+  <footer class="dock">
+    <div class="readout"><span id="stat-objects"></span><span id="stat-grid"></span></div>
+    <div id="tray" class="tray" hidden>
+      <div id="tray-list" class="tray-list"></div>
+    </div>
+    <div class="timebar">
+      <button id="btn-play" class="icon-btn play" type="button" aria-label="Pause">
+        <svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6v12M15 6v12"/></svg>
+        <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5l11 6.5-11 6.5z"/></svg>
+      </button>
+      <label class="speed">
+        <span class="sr">Time speed</span>
+        <input id="speed" type="range" min="0" max="1000" step="1" value="500">
+      </label>
+      <output id="speed-label" for="speed">1 month/s</output>
+    </div>
+    <nav class="tools" aria-label="Tools">
+      <button class="tool active" data-tool="view" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M21 4v5h-5"/><circle cx="12" cy="12" r="2"/></svg>
+        <span>View</span>
+      </button>
+      <button class="tool" data-tool="add" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        <span>Add <em id="add-current">Earth</em></span>
+      </button>
+      <span class="spacer"></span>
+      <button id="btn-trails" class="toggle" type="button" aria-label="Toggle orbit trails">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17c4-9 10-11 18-10" stroke-dasharray="2 2.6"/><circle cx="20" cy="7" r="1.8"/></svg>
+      </button>
+      <button id="btn-home" class="icon-btn" type="button" aria-label="Reset camera">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
+      </button>
+    </nav>
+  </footer>
+
+  <div id="scrim" class="scrim" hidden></div>
+
+  <section id="sheet-scenarios" class="sheet" hidden aria-label="Scenarios">
+    <div class="sheet-head">
+      <h2>Scenarios</h2>
+      <button class="icon-btn small" type="button" data-close aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div id="scenario-list" class="scenario-list"></div>
+  </section>
+
+  <section id="sheet-settings" class="sheet" hidden aria-label="Settings">
+    <div class="sheet-head">
+      <h2>Settings</h2>
+      <button class="icon-btn small" type="button" data-close aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="settings">
+      <label class="switch"><input id="set-trails" type="checkbox"><span>Orbit trails</span></label>
+      <label class="switch"><input id="set-trailsRelative" type="checkbox"><span>Draw trails relative to the followed object</span></label>
+      <label class="switch"><input id="set-labels" type="checkbox"><span>Name labels</span></label>
+      <label class="switch"><input id="set-grid" type="checkbox"><span>Reference grid</span></label>
+      <label class="switch"><input id="set-stars" type="checkbox"><span>Background stars</span></label>
+      <label class="switch"><input id="set-collisions" type="checkbox"><span>Collisions and mergers</span></label>
+      <div class="settings-actions">
+        <button id="btn-reset" type="button">Restart scenario</button>
+        <button id="btn-clear" type="button">Clear dust &amp; debris</button>
+      </div>
+      <p class="about">Newtonian N-body gravity in units of AU, solar masses and years. Sizes are true to scale, so small worlds show as dots until you zoom in. Bodies merge on contact and break apart inside the Roche limit.</p>
+    </div>
+  </section>
+</div>
+<!--/APP-->
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

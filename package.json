@@ -1,0 +1,13 @@
+{
+  "name": "pocket-universe",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A phone-first gravity sandbox: planets, stars, black holes and galaxies with real N-body physics.",
+  "type": "module",
+  "scripts": {
+    "start": "npx http-server -p 8080 -c-1 .",
+    "test": "node tools/simtest.mjs",
+    "build": "node tools/build-single.mjs",
+    "icons": "python3 tools/make_icons.py icons"
+  }
+}
