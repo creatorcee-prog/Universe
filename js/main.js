@@ -4,13 +4,14 @@ import { makeBody, catalogItem, reclassify } from './bodies.js';
 import { PRESETS } from './presets.js';
 import { Camera } from './camera.js';
 import { Renderer } from './render.js';
+import { Renderer3D } from './render3d.js';
 import { Input } from './input.js';
 import { UI } from './ui.js';
 
 const SETTINGS_KEY = 'universe-pocket-settings';
 
 function loadSettings() {
-  const defaults = { trails: true, labels: true, grid: true, stars: true, trailsRelative: true, collisions: true };
+  const defaults = { trails: true, labels: true, grid: true, stars: true, trailsRelative: true, collisions: true, view: 'realistic' };
   try {
     return { ...defaults, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') };
   } catch {
@@ -30,12 +31,36 @@ class App {
     this.rate = 0;
     this.ui = new UI(this);
     this.input = new Input(this.canvas, this);
-    window.addEventListener('resize', () => this.renderer.resize());
+    this.glCanvas = document.getElementById('gl');
+    this.r3d = null;
+    window.addEventListener('resize', () => { this.renderer.resize(); this.r3d?.resize(); });
     this.renderer.resize();
+    this.setView(this.settings.view, true);
     this.loadPreset('solar');
     this.last = performance.now();
     this.frame = this.frame.bind(this);
     requestAnimationFrame(this.frame);
+  }
+
+  // Realistic: WebGL draws the scene and the 2D canvas overlays trails, labels and markers.
+  // Classic: the 2D canvas draws everything.
+  setView(view, quiet = false) {
+    if (view === 'realistic' && !this.r3d) {
+      try {
+        this.r3d = new Renderer3D(this.glCanvas, this.world, this.cam, this.settings);
+      } catch (err) {
+        console.warn(err);
+        if (!quiet) this.ui.toast('The Realistic view needs WebGL 2, which this browser does not offer. Using Classic.', true);
+        view = 'classic';
+      }
+    }
+    const real = view === 'realistic';
+    this.settings.view = view;
+    this.renderer.overlay = real;
+    this.glCanvas.hidden = !real;
+    if (real) this.r3d.resize();
+    this.saveSettings();
+    this.ui?.onView?.(view);
   }
 
   saveSettings() {
@@ -52,6 +77,7 @@ class App {
     this.state.speed = p.speed;
     this.adding = null;
     this.renderer.resetTrails();
+    if (this.r3d) { this.r3d.looks.clear(); this.r3d.spin.clear(); }
     this.resetCamera();
     this.ui.onPreset(p);
   }
@@ -275,9 +301,10 @@ class App {
     const dtReal = Math.min(0.1, (now - this.last) / 1000);
     this.last = now;
     const w = this.world;
+    let done = 0;
     if (!this.state.paused && dtReal > 0) {
       const want = this.state.speed * Math.min(dtReal, 1 / 20);
-      const done = w.advance(want, 8);
+      done = w.advance(want, 8);
       this.rate = this.rate * 0.9 + (done / Math.min(dtReal, 1 / 20)) * 0.1;
       if (done > 0) this.renderer.sampleTrails();
     } else {
@@ -301,7 +328,9 @@ class App {
     this.updateAddPreview();
     const a = this.adding;
     const preview = a && a.v ? { x: a.P[0], y: a.P[1], z: a.P[2], path: a.path, bound: a.bound, hit: a.hit, dragTo: a.dragTo } : a ? { x: a.P[0], y: a.P[1], z: a.P[2] } : null;
-    this.renderer.draw(now, { selected: this.state.selected, preview });
+    const ui = { selected: this.state.selected, preview };
+    if (this.renderer.overlay) this.r3d.draw(now, ui, dtReal, done);
+    this.renderer.draw(now, ui);
     this.ui.tick(now);
   }
 }

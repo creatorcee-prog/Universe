@@ -5,7 +5,7 @@ import { reclassify, refresh, isLuminous } from './bodies.js';
 export const PK = { DEBRIS: 0, HOT: 1, STAR_BLUE: 2, STAR_GOLD: 3, ICE: 4, DUST: 5, GAS: 6, ROCK: 7 };
 
 const PCAP = 16000; // free particles
-const RCAP = 4000; // ring particles locked to a host body
+const RCAP = 12000; // ring particles locked to a host body
 const MAX_STEPS = 3000; // body substeps per frame
 const MAX_ATTRACTORS = 24; // bodies that pull on particles
 const PRIORITY = { rocky: 0, gas: 1, star: 2, wd: 3, ns: 4, bh: 5, core: 6 };
@@ -46,6 +46,7 @@ export class World {
     this.np = 0;
     this.nr = 0;
     this.pending = [];
+    this.ringOuter = new Map(); // host body -> outer ring radius
     this.events = [];
     this.flashes = [];
     this.dirty = true;
@@ -109,6 +110,7 @@ export class World {
     this.np = 0;
     this.nr = 0;
     this.pending.length = 0;
+    this.ringOuter.clear();
   }
 
   // A ring particle rides a circular orbit around its host, computed analytically.
@@ -116,6 +118,7 @@ export class World {
   addRingParticle(host, radius, phase, ux, uy, uz, wx, wy, wz, kind, m = 0) {
     if (this.nr >= RCAP) return;
     const i = this.nr++;
+    this.ringOuter.set(host, Math.max(this.ringOuter.get(host) || 0, radius));
     this.rHost[i] = host; this.rRad[i] = radius; this.rPhase[i] = phase; this.rk[i] = kind; this.rm[i] = m;
     const o = i * 6;
     this.rBasis[o] = ux; this.rBasis[o + 1] = uy; this.rBasis[o + 2] = uz;
@@ -140,11 +143,11 @@ export class World {
   }
 
   // Ring particles whose host was destroyed or swallowed become free particles.
-  releaseOrphanRings() {
+  releaseOrphanRings(forceHost = null) {
     const tmp = [0, 0, 0, 0, 0, 0];
     for (let i = this.nr - 1; i >= 0; i--) {
       const h = this.rHost[i];
-      if (h.alive) continue;
+      if (h.alive && h !== forceHost) continue;
       this.ringPosition(i, tmp);
       this.addParticle(tmp[0], tmp[1], tmp[2], tmp[3], tmp[4], tmp[5], this.rm[i], this.rk[i]);
       const j = --this.nr;
@@ -154,6 +157,25 @@ export class World {
         for (let k = 0; k < 6; k++) this.rBasis[i * 6 + k] = this.rBasis[j * 6 + k];
       }
       this.rHost[j] = null;
+    }
+    for (const h of this.ringOuter.keys()) if (!h.alive || h === forceHost) this.ringOuter.delete(h);
+  }
+
+  // Ring particles ride analytic orbits only while nothing disturbs them. A body that enters the
+  // ring zone frees them as ordinary particles, so they scatter, get swept up or rain onto the planet.
+  disturbRings() {
+    for (const [host, outer] of this.ringOuter) {
+      if (!host.alive) continue;
+      const lim = outer * 1.4;
+      for (const b of this.bodies) {
+        if (b === host) continue;
+        const d = Math.hypot(b.x - host.x, b.y - host.y, b.z - host.z);
+        if (d < lim + b.r) {
+          this.releaseOrphanRings(host);
+          this.events.push({ text: `${b.name} ploughed into ${host.name}'s rings. The debris is now flying free.`, body: host, big: true });
+          break;
+        }
+      }
     }
   }
 
@@ -326,6 +348,18 @@ export class World {
     s.heat = Math.min(1.5, s.heat + Math.min(1, 6 * ratio * (0.2 + q)));
     o.alive = false;
     o.mergedInto = s;
+    // Remember where the hit landed so the 3D view can scar and heat that patch of surface.
+    // Direction is in world axes from the survivor's centre; size is the impactor's angular radius.
+    if (s.kind !== 'bh' && s.kind !== 'core') {
+      s.impacts = s.impacts || [];
+      s.impacts.push({
+        x: nx, y: ny, z: nz,
+        e: Math.min(1, 0.2 + 8 * ratio * (0.2 + q)),
+        size: Math.min(1.2, Math.asin(Math.min(1, o.r / Math.max(s.r, 1e-12))) * 1.4 + 0.04),
+        t: performance.now(),
+      });
+      if (s.impacts.length > 8) s.impacts.shift();
+    }
     const ev = reclassify(s);
     this.flashes.push({ x: ix, y: iy, z: iz, r: Math.max(o.r * 4, s.r * Math.min(3, 0.5 + 8 * ratio)), born: performance.now(), life: 900 + 1400 * Math.min(1, ratio * 10), color: kind === PK.HOT ? [255, 230, 190] : [255, 170, 90] });
     const what = s.kind === 'bh' ? 'swallowed' : 'collided with';
@@ -403,6 +437,7 @@ export class World {
     this.stepParticles(att, steps, t0, done);
     this.flushPending();
     this.releaseOrphanRings();
+    if (this.ringOuter.size) this.disturbRings();
     return done;
   }
 
@@ -505,23 +540,46 @@ export class World {
       if (L >= LEVELS) L = LEVELS - 1;
       const ns = 1 << L, hh = span / ns;
       let minT2 = Infinity, hitA = -1;
+      // First sub-step sums every attractor and notes the dominant one (the "host").
+      // When many sub-steps are needed, the particle is deep in its host's well: later sub-steps
+      // re-evaluate only the host and hold the other bodies' (nearly uniform) pull fixed.
+      let host = -1, extx = 0, exty = 0, extz = 0;
       for (let k = 0; k < ns && hitA < 0; k++) {
         x += ux * hh * 0.5; y += uy * hh * 0.5; z += uz * hh * 0.5;
         const base = levelOff[L] + k * na * 4;
         let ax = 0, ay = 0, az = 0;
-        for (let a = 0; a < na; a++) {
-          const q = base + a * 4;
+        if (k === 0 || host < 0) {
+          let best = 0, hx = 0, hy = 0, hz = 0;
+          for (let a = 0; a < na; a++) {
+            const q = base + a * 4;
+            const m = samp[q + 3];
+            if (m === 0) continue;
+            const dx = samp[q] - x, dy = samp[q + 1] - y, dz = samp[q + 2] - z;
+            const r2 = dx * dx + dy * dy + dz * dz;
+            if (r2 < cap2[a]) { hitA = a; break; }
+            const d2 = r2 + soft2[a];
+            const d = Math.sqrt(d2);
+            const f = (G * m) / (d2 * d);
+            ax += dx * f; ay += dy * f; az += dz * f;
+            if (f * d > best) { best = f * d; host = a; hx = dx * f; hy = dy * f; hz = dz * f; }
+            const t2 = (d2 * d) / (G * m);
+            if (t2 < minT2) minT2 = t2;
+          }
+          extx = ax - hx; exty = ay - hy; extz = az - hz;
+        } else {
+          const q = base + host * 4;
           const m = samp[q + 3];
-          if (m === 0) continue;
-          const dx = samp[q] - x, dy = samp[q + 1] - y, dz = samp[q + 2] - z;
-          const r2 = dx * dx + dy * dy + dz * dz;
-          if (r2 < cap2[a]) { hitA = a; break; }
-          const d2 = r2 + soft2[a];
-          const d = Math.sqrt(d2);
-          const f = (G * m) / (d2 * d);
-          ax += dx * f; ay += dy * f; az += dz * f;
-          const t2 = (d2 * d) / (G * m);
-          if (t2 < minT2) minT2 = t2;
+          if (m !== 0) {
+            const dx = samp[q] - x, dy = samp[q + 1] - y, dz = samp[q + 2] - z;
+            const r2 = dx * dx + dy * dy + dz * dz;
+            if (r2 < cap2[host]) { hitA = host; break; }
+            const d2 = r2 + soft2[host];
+            const d = Math.sqrt(d2);
+            const f = (G * m) / (d2 * d);
+            ax = dx * f + extx; ay = dy * f + exty; az = dz * f + extz;
+            const t2 = (d2 * d) / (G * m);
+            if (t2 < minT2) minT2 = t2;
+          } else { ax = extx; ay = exty; az = extz; }
         }
         ux += ax * hh; uy += ay * hh; uz += az * hh;
         x += ux * hh * 0.5; y += uy * hh * 0.5; z += uz * hh * 0.5;

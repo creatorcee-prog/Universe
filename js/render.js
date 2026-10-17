@@ -8,6 +8,17 @@ const PARTICLE_RGB = {
   [PK.ICE]: [214, 220, 232], [PK.DUST]: [190, 160, 128], [PK.GAS]: [214, 184, 146], [PK.ROCK]: [164, 148, 132],
 };
 
+// On-screen radius in device pixels that both views give a body (tiny bodies get a minimum size).
+export function shownRadius(b, p, dpr) {
+  const R = b.r * p.s;
+  switch (b.kind) {
+    case 'star': case 'wd': case 'ns': return Math.max(R, 3 * dpr);
+    case 'bh': return Math.max(R * 2.6, 4.5 * dpr);
+    case 'core': return Math.min(Math.max(b.soft * p.s * 0.9, 6 * dpr) * 0.3, 14 * dpr);
+    default: return R < 1.6 * dpr ? (b.m > 1e-7 ? 2.4 : 1.6) * dpr : R;
+  }
+}
+
 const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
 const mix = (c, k) => [Math.round(c[0] * k), Math.round(c[1] * k), Math.round(c[2] * k)];
 const lighten = (c, k) => [Math.round(c[0] + (255 - c[0]) * k), Math.round(c[1] + (255 - c[1]) * k), Math.round(c[2] + (255 - c[2]) * k)];
@@ -15,7 +26,8 @@ const lighten = (c, k) => [Math.round(c[0] + (255 - c[0]) * k), Math.round(c[1] 
 export class Renderer {
   constructor(canvas, world, cam, settings) {
     this.canvas = canvas;
-    this.ctx = canvas.getContext('2d', { alpha: false });
+    this.ctx = canvas.getContext('2d');
+    this.overlay = false; // true when the 3D view draws the scene and this canvas only adds trails, labels and markers
     this.world = world;
     this.cam = cam;
     this.settings = settings;
@@ -93,6 +105,16 @@ export class Renderer {
     this.selected = ui.selected;
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
+    if (this.overlay) {
+      ctx.clearRect(0, 0, W, H);
+      this.gridSpacing = Math.pow(10, Math.floor(Math.log10(cam.dist / 1.5)));
+      if (this.settings.trails) this.drawTrails();
+      this.drawBodies(now, ui);
+      this.drawFlashes(now);
+      if (ui.preview) this.drawPreview(ui.preview);
+      if (this.settings.labels) this.drawLabels(ui);
+      return;
+    }
     const bg = ctx.createRadialGradient(W * 0.5, H * 0.45, 0, W * 0.5, H * 0.5, Math.max(W, H) * 0.8);
     bg.addColorStop(0, '#0a0e1a');
     bg.addColorStop(1, '#03040a');
@@ -298,7 +320,10 @@ export class Renderer {
     for (const [, b, p] of list) {
       const R = b.r * p.s;
       let shown = R;
-      switch (b.kind) {
+      if (this.overlay) {
+        shown = shownRadius(b, p, dpr);
+        if (b.comet) this.drawCometTail(b, p);
+      } else switch (b.kind) {
         case 'star': case 'wd': case 'ns': shown = this.drawStar(b, p, R, now); break;
         case 'bh': shown = this.drawBlackHole(b, p, R, up, upAng); break;
         case 'core': shown = this.drawCore(b, p); break;
@@ -514,7 +539,7 @@ export class Renderer {
       const nx = -ey / el, ny = ex / el;
       const w0 = 1.5 * dpr, w1 = Math.max(3 * dpr, el * 0.12);
       const g = ctx.createLinearGradient(p.x, p.y, tip.x, tip.y);
-      g.addColorStop(0, rgba(col, alpha * act));
+      g.addColorStop(0, rgba(col, alpha * act * Math.min(1, (500 * dpr) / el)));
       g.addColorStop(1, rgba(col, 0));
       ctx.fillStyle = g;
       ctx.beginPath();
@@ -525,9 +550,11 @@ export class Renderer {
       ctx.closePath();
       ctx.fill();
     }
+    // Up close the coma surrounds the camera; fade it so it doesn't wash out the view.
     const cr = Math.max(4 * dpr, 0.01 * L * p.s);
+    const near = Math.min(1, (60 * dpr) / cr);
     const coma = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, cr * 2.5);
-    coma.addColorStop(0, rgba([235, 245, 255], 0.9 * act));
+    coma.addColorStop(0, rgba([235, 245, 255], 0.9 * act * near));
     coma.addColorStop(1, rgba([150, 200, 255], 0));
     ctx.fillStyle = coma;
     ctx.fillRect(p.x - cr * 2.5, p.y - cr * 2.5, cr * 5, cr * 5);

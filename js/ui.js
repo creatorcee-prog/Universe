@@ -73,6 +73,10 @@ export class UI {
     });
     $('btn-reset').addEventListener('click', () => { app.loadPreset(app.state.preset.id); this.closeSheets(); });
     $('btn-clear').addEventListener('click', () => { app.world.clearParticles(); this.toast('Cleared all dust and debris'); });
+    for (const r of document.querySelectorAll('input[name=view]')) {
+      r.addEventListener('change', () => { if (r.checked) { app.setView(r.value); this.toast(r.value === 'realistic' ? 'Realistic view' : 'Classic view'); } });
+    }
+    this.onView(app.settings.view);
     for (const key of ['trails', 'labels', 'grid', 'stars', 'trailsRelative', 'collisions']) {
       const el = $('set-' + key);
       el.checked = !!app.settings[key];
@@ -130,6 +134,11 @@ export class UI {
     this.showInfo(null);
     document.querySelectorAll('.scenario').forEach((el) => el.classList.toggle('current', el.id === 'scn-' + p.id));
     this.toast(p.blurb);
+  }
+
+  onView(view) {
+    const r = document.getElementById('view-' + view);
+    if (r) r.checked = true;
   }
 
   setPaused(p) {

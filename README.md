@@ -42,6 +42,31 @@ Solar System (with Saturn's rings, the asteroid and Kuiper belts, Ceres and Hall
 Moon-Forming Impact · Planet Formation · Binary Star · Rogue Black Hole · Tidal Disruption ·
 Galaxy Collision · Empty Star.
 
+## Views
+
+Switch in **Settings → View**.
+
+- **Realistic** (default): WebGL 2 spheres with procedural surfaces that react to the simulation, worked out
+  for every point on the surface each frame:
+  - *Temperature*: day sides warm, poles cool, and the day–night swing depends on whether the world has air
+    and oceans to store heat. Oceans freeze below about 266 K and boil off above 373 K; ice caps advance or
+    retreat; rock and gas glow at their own black-body colour once they pass about 800 K.
+  - *Impacts*: each hit dents the surface at the exact spot it landed, glows white-hot, cools to red over a
+    few seconds, and leaves a dark scar that turns with the planet.
+  - *Tides*: a body stretches toward whatever pulls on it hardest, and glowing fissures open as it nears
+    its Roche limit.
+  - *Spin*: real axial tilts and rotation periods. The spin rate is capped on screen so fast time-warp
+    doesn't strobe.
+  - *Saturn's rings*: 6,000 sunlit debris chunks, shadowed by the planet. Fly something into them and they
+    break loose as free-flying debris.
+  - Stars show granulation, limb darkening and sunspots; black holes have a Doppler-brightened
+    accretion disk that flares when they feed.
+- **Classic**: the original 2D canvas renderer. Lighter on battery and older phones.
+- **NASA models**: planned, see [docs/ROADMAP.md](docs/ROADMAP.md).
+
+The renderer is written directly against WebGL 2 with no 3D library, so it works offline and adds
+about 50 KB.
+
 ## The book
 
 Tap **Read** on any object. Real objects (the Sun, the planets, the Moon, Jupiter's large moons, Ceres, Pluto,
@@ -99,5 +124,5 @@ npm run icons      # regenerate icons (needs Python + Pillow)
 ```
 
 Code map: `js/physics.js` (integrator, collisions, particles), `js/bodies.js` (object catalogue and
-stellar relations), `js/presets.js` (scenarios), `js/render.js` (canvas renderer), `js/camera.js`,
+stellar relations), `js/presets.js` (scenarios), `js/render.js` (Classic 2D renderer, and the overlay for trails and labels), `js/render3d.js` + `js/shaders.js` (Realistic WebGL view), `js/camera.js`,
 `js/input.js` (touch gestures), `js/ui.js` (panels), `js/book.js` + `js/facts.js` (the book), `js/main.js` (game loop, add tool, trajectory preview).

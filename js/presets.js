@@ -94,7 +94,7 @@ function solarSystem(world, { belts = true, moon = true } = {}) {
     const m = makeBody({ name: 'Moon', kind: 'rocky', m: 0.0123 * EARTH_MASS, r: km(1737), color: [184, 182, 176] });
     orbit(world, made.Earth, m, 0.00257, 0.055, 5.1);
   }
-  ring(world, made.Saturn, km(74500), km(136800), 1600, 26.7, PK.ICE);
+  ring(world, made.Saturn, km(74500), km(136800), 6000, 26.7, PK.ICE);
   if (belts) {
     for (let k = 0; k < 1500; k++) particleOrbit(world, s, between(2.1, 3.3), rand() * 0.15, rand() * 12, PK.ROCK);
     for (let k = 0; k < 700; k++) particleOrbit(world, s, between(39, 48), rand() * 0.12, rand() * 12, PK.ICE);

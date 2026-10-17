@@ -1,0 +1,703 @@
+import { PK } from './physics.js';
+import { isLuminous, tempToRGB } from './bodies.js';
+import { EARTH_MASS } from './units.js';
+import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, SPRITE_FS, SPRITE_VS } from './shaders.js';
+
+// Realistic view: WebGL2 spheres with procedural, physically driven surfaces.
+// Positions are taken relative to the camera in double precision before going to the GPU,
+// so the same scene works from a few kilometres up to galaxy scale.
+
+const D2R = Math.PI / 180;
+const HOUR_YR = 1 / 8766;
+const MAX_SPIN = Math.PI * 2 * 0.2; // visual cap: at most 0.2 turns per real second, so fast time doesn't strobe
+
+const c3 = (r, g, b) => [r / 255, g / 255, b / 255];
+
+// Appearance of named real bodies. tilt: axial tilt (deg); day: rotation period (hours).
+const LOOKS = {
+  Sun: { kind: 2, spots: 1, tilt: 7.25, day: 609 },
+  Mercury: { colA: c3(128, 122, 115), colB: c3(92, 87, 82), craters: 1, tilt: 0.03, day: 1407.6 },
+  Venus: { colA: c3(200, 160, 100), colB: c3(160, 120, 80), cloud: 1, colC: c3(236, 214, 160), atmo: c3(255, 220, 150), atmoK: 0.7, greenhouse: 480, tilt: 177.4, day: 5832.5 },
+  Earth: { colA: c3(120, 100, 70), colB: c3(150, 130, 95), ocean: 0.7, life: 1, cloud: 0.62, atmo: c3(90, 150, 255), atmoK: 1, greenhouse: 33, tilt: 23.4, day: 23.93 },
+  Moon: { colA: c3(160, 156, 150), colB: c3(92, 90, 88), craters: 1, tilt: 6.7, day: 655.7 },
+  Mars: { ice: 1, colA: c3(170, 84, 44), colB: c3(118, 58, 32), craters: 0.35, atmo: c3(230, 140, 90), atmoK: 0.25, greenhouse: 5, dry: 1.25, tilt: 25.2, day: 24.6 },
+  Ceres: { colA: c3(118, 115, 110), colB: c3(84, 82, 80), craters: 1, lumpy: 0.03, day: 9.07 },
+  Jupiter: { kind: 1, colA: c3(222, 200, 160), colB: c3(160, 108, 70), bands: 7, storm: [0.95, -0.32, 0.1, 0.17], colC: c3(190, 90, 60), atmo: c3(230, 210, 170), atmoK: 0.2, tilt: 3.1, day: 9.93 },
+  Saturn: { kind: 1, colA: c3(232, 214, 168), colB: c3(196, 168, 118), bands: 9, atmo: c3(240, 220, 170), atmoK: 0.2, tilt: 26.7, day: 10.7 },
+  Uranus: { kind: 1, colA: c3(170, 226, 232), colB: c3(150, 210, 220), bands: 3, atmo: c3(180, 240, 255), atmoK: 0.4, tilt: 97.8, day: 17.24 },
+  Neptune: { kind: 1, colA: c3(76, 112, 226), colB: c3(56, 88, 196), bands: 4, storm: [0.6, -0.5, 0.6, 0.12], colC: c3(30, 46, 120), atmo: c3(120, 160, 255), atmoK: 0.45, tilt: 28.3, day: 16.1 },
+  Pluto: { ice: 1, colA: c3(214, 190, 160), colB: c3(140, 100, 76), craters: 0.3, tilt: 122.5, day: 153.3 },
+  Io: { colA: c3(232, 214, 110), colB: c3(190, 140, 60), volc: 1, day: 42.5 },
+  Europa: { colA: c3(226, 218, 204), colB: c3(170, 130, 100), lineae: 1, day: 85.2 },
+  Ganymede: { colA: c3(150, 140, 126), colB: c3(98, 88, 78), craters: 0.6, day: 171.7 },
+  Callisto: { colA: c3(104, 94, 82), colB: c3(70, 62, 54), craters: 1, day: 400.5 },
+  "Halley's Comet": { colA: c3(48, 44, 40), colB: c3(30, 28, 26), lumpy: 0.45, craters: 0.5, day: 52.8 },
+  'Proto-Earth': { colA: c3(90, 50, 36), colB: c3(60, 34, 26), greenhouse: 950, day: 5 },
+  Theia: { colA: c3(140, 115, 96), colB: c3(100, 82, 70), craters: 0.5, day: 12 },
+};
+
+function seeded(id) {
+  let x = Math.sin(id * 12.9898 + 78.233) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+// Appearance for any body: a named look, or one derived from its kind, mass and colour.
+function lookFor(b) {
+  const named = LOOKS[b.name];
+  const r = seeded(b.id);
+  const base = b.color ? b.color.map((v) => v / 255) : [0.6, 0.6, 0.6];
+  const band = b.band ? b.band.map((v) => v / 255) : base.map((v) => v * 0.75);
+  if (b.kind === 'star') return { kind: 2, spots: b.temp < 6500 ? 1 : 0, tilt: 0, day: 600, ...(named || {}) };
+  if (b.kind === 'wd' || b.kind === 'ns') return { kind: 3, tilt: 0, day: b.kind === 'ns' ? 0.001 : 2 };
+  if (b.kind === 'bh') return { kind: 4, tilt: 0, day: 1 };
+  if (named) return { kind: 0, colA: base, colB: band, colC: [0.96, 0.97, 1], ...named };
+  const me = b.m / EARTH_MASS;
+  if (b.kind === 'gas') {
+    const ice = me < 50;
+    return { kind: 1, colA: base, colB: band, bands: ice ? 3 + r * 2 : 6 + r * 4, atmo: base, atmoK: 0.25, tilt: r * 30, day: 10 + r * 8 };
+  }
+  // Rocky worlds.
+  const look = { kind: 0, colA: base, colB: base.map((v) => v * 0.7), colC: [0.96, 0.97, 1], tilt: r * 30, day: 8 + r * 40 };
+  if (b.comet || me < 1e-4 || b.name.startsWith('Planetesimal')) Object.assign(look, { lumpy: b.comet ? 0.45 : 0.3, craters: 0.8, colA: base.map((v) => v * 0.8), day: 6 + r * 20 });
+  else if (me < 0.05) look.craters = 1;
+  else if (b.atmo) Object.assign(look, { ocean: 0.55 + r * 0.2, cloud: 0.5, atmo: b.atmo.map((v) => v / 255), atmoK: 0.8, greenhouse: 25, colA: [0.45, 0.38, 0.28], colB: [0.6, 0.52, 0.4] });
+  else if (me > 0.3) Object.assign(look, { ocean: r > 0.5 ? r * 0.6 : 0, craters: 0.25, greenhouse: 10, atmoK: 0.3, atmo: [0.7, 0.75, 0.85] });
+  else look.craters = 0.6;
+  if (!look.ocean) look.dry = 1.2;
+  return look;
+}
+
+// ---------- tiny matrix helpers (column-major, as WebGL expects) ----------
+
+function perspective(fovy, aspect, near, far) {
+  const f = 1 / Math.tan(fovy / 2), nf = 1 / (near - far);
+  return new Float32Array([f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, (far + near) * nf, -1, 0, 0, 2 * far * near * nf, 0]);
+}
+
+// Rotation for axial tilt (about x) then spin (about the body's own pole), as a column-major mat3.
+function tiltSpin(tilt, ang) {
+  const ct = Math.cos(tilt), st = Math.sin(tilt), ca = Math.cos(ang), sa = Math.sin(ang);
+  // Rx(tilt) * Ry(ang), row-major:
+  // [ ca,      0,    sa     ]
+  // [ st*sa,   ct,  -st*ca  ]
+  // [-ct*sa,   st,   ct*ca  ]
+  return new Float32Array([ca, st * sa, -ct * sa, 0, ct, st, sa, -st * ca, ct * ca]);
+}
+
+function sphere(seg, rings) {
+  const pos = [], idx = [];
+  for (let j = 0; j <= rings; j++) {
+    const v = j / rings, th = v * Math.PI;
+    for (let i = 0; i <= seg; i++) {
+      const ph = (i / seg) * Math.PI * 2;
+      pos.push(Math.sin(th) * Math.cos(ph), Math.cos(th), Math.sin(th) * Math.sin(ph));
+    }
+  }
+  for (let j = 0; j < rings; j++) for (let i = 0; i < seg; i++) {
+    const a = j * (seg + 1) + i, b = a + seg + 1;
+    idx.push(a, a + 1, b, b, a + 1, b + 1);
+  }
+  return { pos: new Float32Array(pos), idx: new Uint16Array(idx) };
+}
+
+const PARTICLE_RGB = {
+  [PK.DEBRIS]: c3(150, 120, 96), [PK.HOT]: c3(255, 170, 90), [PK.STAR_BLUE]: c3(150, 180, 255), [PK.STAR_GOLD]: c3(255, 214, 160),
+  [PK.ICE]: c3(214, 206, 190), [PK.DUST]: c3(150, 126, 100), [PK.GAS]: c3(214, 184, 146), [PK.ROCK]: c3(120, 112, 104),
+};
+const GLOW_KINDS = new Set([PK.HOT, PK.STAR_BLUE, PK.STAR_GOLD]);
+
+export class Renderer3D {
+  static supported() {
+    try {
+      const c = document.createElement('canvas');
+      return !!c.getContext('webgl2');
+    } catch { return false; }
+  }
+
+  constructor(canvas, world, cam, settings) {
+    this.canvas = canvas;
+    this.world = world;
+    this.cam = cam;
+    this.settings = settings;
+    const gl = canvas.getContext('webgl2', { antialias: true, alpha: false, powerPreference: 'high-performance' });
+    if (!gl) throw new Error('WebGL2 unavailable');
+    this.gl = gl;
+    this.looks = new Map();
+    this.spin = new Map();
+    this.dpr = 1;
+    this.lost = false;
+    canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); this.lost = true; });
+    canvas.addEventListener('webglcontextrestored', () => { this.init(); this.lost = false; });
+    this.init();
+  }
+
+  init() {
+    const gl = this.gl;
+    this.pBody = this.program(BODY_VS, BODY_FS);
+    this.pAtmo = this.program(BODY_VS, ATMO_FS);
+    this.pSprite = this.program(SPRITE_VS, SPRITE_FS);
+    this.pDisk = this.program(DISK_VS, DISK_FS);
+    this.pPoints = this.program(POINTS_VS, POINTS_FS);
+    this.pLines = this.program(LINES_VS, LINES_FS);
+    this.pSky = this.program(SKY_VS, SKY_FS);
+    this.spheres = [sphere(16, 12), sphere(40, 28), sphere(96, 64)].map((g) => {
+      const vao = gl.createVertexArray();
+      gl.bindVertexArray(vao);
+      const vb = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, vb);
+      gl.bufferData(gl.ARRAY_BUFFER, g.pos, gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(0);
+      gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+      const ib = gl.createBuffer();
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, g.idx, gl.STATIC_DRAW);
+      gl.bindVertexArray(null);
+      return { vao, n: g.idx.length };
+    });
+    this.quad = gl.createVertexArray();
+    gl.bindVertexArray(this.quad);
+    const qb = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, qb);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    gl.bindVertexArray(null);
+    this.dyn = this.dynamicSet(); // particles
+    this.dynGlow = this.dynamicSet();
+    this.dynLines = this.dynamicSet();
+    this.sky = this.makeSky();
+  }
+
+  program(vs, fs) {
+    const gl = this.gl;
+    const sh = (type, src) => {
+      const s = gl.createShader(type);
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error('Shader compile failed: ' + gl.getShaderInfoLog(s));
+      return s;
+    };
+    const p = gl.createProgram();
+    gl.attachShader(p, sh(gl.VERTEX_SHADER, vs));
+    gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error('Shader link failed: ' + gl.getProgramInfoLog(p));
+    const u = {};
+    const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+    for (let i = 0; i < n; i++) {
+      const info = gl.getActiveUniform(p, i);
+      u[info.name.replace('[0]', '')] = gl.getUniformLocation(p, info.name);
+    }
+    return { p, u };
+  }
+
+  // A VAO with four streaming attributes (position, colour, size, shade).
+  dynamicSet() {
+    const gl = this.gl;
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    const bufs = [3, 3, 1, 1].map((size, loc) => {
+      const b = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, b);
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0);
+      return b;
+    });
+    gl.bindVertexArray(null);
+    return { vao, bufs, cap: 0, pos: null, col: null, size: null, shade: null, n: 0 };
+  }
+
+  ensure(set, n) {
+    if (set.cap >= n) return;
+    set.cap = Math.max(n, set.cap * 2, 256);
+    set.pos = new Float32Array(set.cap * 3);
+    set.col = new Float32Array(set.cap * 3);
+    set.size = new Float32Array(set.cap);
+    set.shade = new Float32Array(set.cap);
+  }
+
+  upload(set) {
+    const gl = this.gl;
+    gl.bindVertexArray(set.vao);
+    const n = set.n;
+    gl.bindBuffer(gl.ARRAY_BUFFER, set.bufs[0]); gl.bufferData(gl.ARRAY_BUFFER, set.pos.subarray(0, n * 3), gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, set.bufs[1]); gl.bufferData(gl.ARRAY_BUFFER, set.col.subarray(0, n * 3), gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, set.bufs[2]); gl.bufferData(gl.ARRAY_BUFFER, set.size.subarray(0, n), gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, set.bufs[3]); gl.bufferData(gl.ARRAY_BUFFER, set.shade.subarray(0, n), gl.DYNAMIC_DRAW);
+  }
+
+  makeSky() {
+    const set = this.dynamicSet();
+    const n = 2200;
+    this.ensure(set, n);
+    for (let i = 0; i < n; i++) {
+      let x, y, z;
+      if (i % 5 < 2) {
+        const t = Math.random() * Math.PI * 2, lat = (Math.random() + Math.random() + Math.random() - 1.5) * 0.22;
+        x = Math.cos(t) * Math.cos(lat); y = Math.sin(lat); z = Math.sin(t) * Math.cos(lat);
+        const tilt = 1.05, y2 = y * Math.cos(tilt) - z * Math.sin(tilt);
+        z = y * Math.sin(tilt) + z * Math.cos(tilt); y = y2;
+      } else {
+        const u = Math.random() * 2 - 1, t = Math.random() * Math.PI * 2, s = Math.sqrt(1 - u * u);
+        x = s * Math.cos(t); y = u; z = s * Math.sin(t);
+      }
+      const b = Math.pow(Math.random(), 3), tint = Math.random();
+      const col = tint < 0.2 ? [0.7, 0.78, 1] : tint < 0.85 ? [0.92, 0.92, 0.95] : [1, 0.85, 0.7];
+      const k = 0.25 + b * 0.75;
+      set.pos.set([x, y, z], i * 3);
+      set.col.set(col.map((v) => v * k), i * 3);
+      set.size[i] = 1 + b * 2.4;
+      set.shade[i] = 1;
+    }
+    set.n = n;
+    this.upload(set);
+    return set;
+  }
+
+  resize() {
+    this.dpr = Math.min(2, window.devicePixelRatio || 1);
+    const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
+    this.canvas.width = Math.round(w * this.dpr);
+    this.canvas.height = Math.round(h * this.dpr);
+  }
+
+  look(b) {
+    let l = this.looks.get(b);
+    if (!l || l.kindAt !== b.kind) {
+      l = lookFor(b);
+      l.kindAt = b.kind;
+      this.looks.set(b, l);
+    }
+    return l;
+  }
+
+  // ---------- per-frame ----------
+
+  draw(now, ui, dtReal, simDt) {
+    if (this.lost) return;
+    const gl = this.gl, cam = this.cam, world = this.world;
+    const W = this.canvas.width, H = this.canvas.height;
+    if (W === 0 || H === 0) return;
+    gl.viewport(0, 0, W, H);
+    gl.clearColor(0.012, 0.016, 0.035, 1);
+    gl.clearDepth(1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    const near = Math.max(1e-12, cam.dist * 1e-6), far = 1e15;
+    this.P = perspective(cam.fov, W / H, near, far);
+    this.V = new Float32Array([cam.rx, cam.ux, -cam.fx, cam.ry, cam.uy, -cam.fy, cam.rz, cam.uz, -cam.fz]);
+    this.F = H / 2 / Math.tan(cam.fov / 2);
+    this.logFC = 2 / Math.log2(far + 1);
+    this.ex = cam.tx + cam.ox; this.ey = cam.ty + cam.oy; this.ez = cam.tz + cam.oz;
+
+    if (this.settings.stars) this.drawSky();
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL);
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
+    gl.enable(gl.CULL_FACE);
+    gl.cullFace(gl.BACK);
+
+    // Spin bodies (capped so fast time-warp doesn't strobe).
+    for (const b of world.bodies) {
+      const l = this.look(b);
+      let s = this.spin.get(b);
+      if (!s) { s = { ang: seeded(b.id) * 6.28 }; this.spin.set(b, s); }
+      const w = (Math.PI * 2) / Math.max(l.day * HOUR_YR, 1e-9);
+      s.ang += Math.min(w * simDt, MAX_SPIN * dtReal) * Math.sign(l.day);
+    }
+
+    const glows = [];
+    for (const b of world.bodies) this.drawBody(b, now, glows);
+    this.drawParticles(false);
+    if (this.settings.grid) this.drawGrid();
+
+    // Additive passes: atmospheres, disks, glows, hot particles.
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE);
+    gl.depthMask(false);
+    gl.disable(gl.CULL_FACE);
+    for (const g of glows) g();
+    this.drawParticles(true);
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
+  }
+
+  rel(b) {
+    return [(b.x - this.cam.tx) - this.cam.ox, (b.y - this.cam.ty) - this.cam.oy, (b.z - this.cam.tz) - this.cam.oz];
+  }
+
+  viewOf(x, y, z) {
+    const V = this.V;
+    return [V[0] * x + V[3] * y + V[6] * z, V[1] * x + V[4] * y + V[7] * z, V[2] * x + V[5] * y + V[8] * z];
+  }
+
+  // The two brightest light sources seen from body b: view-space directions and colour * intensity.
+  lightsFor(b) {
+    const L = [];
+    let flux = 0;
+    for (const s of this.world.bodies) {
+      if (s === b || !isLuminous(s)) continue;
+      const dx = s.x - b.x, dy = s.y - b.y, dz = s.z - b.z;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      const f = s.lum / Math.max(d2, 1e-18);
+      flux += f;
+      L.push({ f, dx, dy, dz, d: Math.sqrt(d2), s });
+    }
+    L.sort((a, c) => c.f - a.f);
+    const out = [];
+    for (let i = 0; i < 2; i++) {
+      const l = L[i];
+      if (!l) { out.push([0, 1, 0], [0, 0, 0]); continue; }
+      const rgb = tempToRGB(l.s.temp || 5800).map((v) => 0.5 + 0.5 * (v / 255));
+      // Light falls off as 1/d² in reality; a softer curve keeps the outer planets visible.
+      const I = Math.min(1.5, Math.max(0.3, Math.pow(l.f, 0.12)));
+      out.push(this.viewOf(l.dx / l.d, l.dy / l.d, l.dz / l.d), rgb.map((v) => v * I));
+    }
+    return { dirs: out, flux, primary: L[0] };
+  }
+
+  // Strongest tidal pull on b, as (Roche radius / distance)^3.
+  tideFor(b) {
+    let best = 0, dir = [0, 1, 0];
+    for (const o of this.world.bodies) {
+      if (o === b || o.m < 30 * b.m) continue;
+      const dx = o.x - b.x, dy = o.y - b.y, dz = o.z - b.z;
+      const d = Math.hypot(dx, dy, dz);
+      const roche = b.r * Math.cbrt((2 * o.m) / b.m);
+      const tau = Math.pow(roche / d, 3);
+      if (tau > best) { best = tau; dir = [dx / d, dy / d, dz / d]; }
+    }
+    return { tau: best, dir };
+  }
+
+  drawBody(b, now, glows) {
+    const gl = this.gl, cam = this.cam;
+    const [x, y, z] = this.rel(b);
+    const vp = this.viewOf(x, y, z);
+    const depth = -vp[2];
+    const l = this.look(b);
+    const dpr = this.dpr;
+    const pxPerAU = this.F / Math.max(depth, 1e-30);
+    let R = b.r;
+    const minPx = l.kind === 2 || l.kind === 3 ? 3 * dpr : l.kind === 4 ? 4.5 * dpr : (b.m > 1e-7 ? 2.4 : 1.6) * dpr;
+    if (l.kind === 4) R = b.r * 2.6;
+    if (b.kind === 'star') R *= 1 + 0.25 * Math.min(1, b.heat);
+    if (b.kind === 'core') { this.queueCoreGlow(b, vp, depth, glows); return; }
+    if (depth < -R * 2) return;
+    const Rpx = R * pxPerAU;
+    if (Rpx < minPx) R = minPx / pxPerAU;
+    const shownPx = Math.max(Rpx, minPx);
+    const lod = shownPx > (b.impacts ? 60 : 140) ? 2 : shownPx > 22 ? 1 : 0;
+
+    const spin = this.spin.get(b);
+    const rot = tiltSpin((l.tilt || 0) * D2R, spin ? spin.ang : 0);
+    const lights = l.kind === 0 || l.kind === 1 ? this.lightsFor(b) : null;
+    const tide = l.kind === 0 || l.kind === 1 || l.kind === 2 ? this.tideFor(b) : { tau: 0, dir: [0, 1, 0] };
+
+    // Impacts: convert new hits into the body's own rotating frame so the scar turns with the surface.
+    const imp = new Float32Array(32), impB = new Float32Array(32);
+    let nImp = 0;
+    if (b.impacts) {
+      for (const h of b.impacts) {
+        if (h.ox === undefined) {
+          // inverse rotation = transpose; rot is column-major so row i of R is (rot[i], rot[i+3], rot[i+6])
+          h.ox = rot[0] * h.x + rot[1] * h.y + rot[2] * h.z;
+          h.oy = rot[3] * h.x + rot[4] * h.y + rot[5] * h.z;
+          h.oz = rot[6] * h.x + rot[7] * h.y + rot[8] * h.z;
+        }
+        imp.set([h.ox, h.oy, h.oz, h.e], nImp * 4);
+        impB.set([h.size, (now - h.t) / 1000, 0, 0], nImp * 4);
+        nImp++;
+      }
+    }
+
+    let temp = b.temp;
+    if (lights) {
+      temp = 278.6 * Math.pow(0.7, 0.25) * Math.pow(lights.flux, 0.25) + (l.greenhouse || 0);
+    }
+    const snowLat = Math.max(0, Math.min(1.3, 0.9 + (temp - 288) / 60 + (l.dry || 0)));
+    const crack = l.kind === 0 ? Math.max(0, Math.min(1, (tide.tau - 0.3) / 0.5)) : 0;
+
+    const p = this.pBody, u = p.u;
+    gl.useProgram(p.p);
+    gl.uniformMatrix4fv(u.uProj, false, this.P);
+    gl.uniformMatrix3fv(u.uView, false, this.V);
+    gl.uniform3f(u.uCenter, x, y, z);
+    gl.uniformMatrix3fv(u.uRot, false, rot);
+    gl.uniform1f(u.uRadius, R);
+    gl.uniform3fv(u.uTideDir, tide.dir);
+    gl.uniform1f(u.uTide, Math.min(0.45, 1.5 * tide.tau));
+    gl.uniform1f(u.uLumpy, l.lumpy || 0);
+    gl.uniform1f(u.uSeed, seeded(b.id) * 40);
+    gl.uniform4fv(u.uImp, imp);
+    gl.uniform4fv(u.uImpB, impB);
+    gl.uniform1i(u.uImpN, nImp);
+    gl.uniform1f(u.uLogDepthFC, this.logFC);
+    gl.uniform1i(u.uKind, l.kind);
+    gl.uniform3fv(u.uColA, l.colA || [0.6, 0.6, 0.6]);
+    gl.uniform3fv(u.uColB, l.colB || [0.4, 0.4, 0.4]);
+    gl.uniform3fv(u.uColC, l.colC || [0.95, 0.96, 1]);
+    gl.uniform1f(u.uOcean, l.ocean || 0);
+    gl.uniform1f(u.uCloud, l.cloud || 0);
+    gl.uniform1f(u.uCraters, l.craters || 0);
+    gl.uniform1f(u.uLife, l.life || 0);
+    gl.uniform1f(u.uBands, l.bands || 6);
+    gl.uniform1f(u.uVolc, l.volc || 0);
+    gl.uniform1f(u.uLineae, l.lineae || 0);
+    gl.uniform1f(u.uSpots, l.spots || 0);
+    gl.uniform1f(u.uDayNight, l.kind === 1 ? 0.02 : l.atmo ? (l.cloud >= 1 ? 0.01 : 0.06) : 0.35);
+    gl.uniform1f(u.uFacet, l.lumpy ? 0.85 : nImp ? 0.12 : 0);
+    gl.uniform1f(u.uTemp, temp);
+    gl.uniform1f(u.uSnowLat, snowLat);
+    gl.uniform1f(u.uIce, l.ice ?? (l.ocean ? 1 : 0));
+    gl.uniform1f(u.uHeat, Math.min(1.5, b.heat));
+    gl.uniform1f(u.uCrack, crack);
+    gl.uniform1f(u.uTime, now / 1000);
+    gl.uniform4fv(u.uStorm, l.storm || [0, 0, 1, 0]);
+    const ld = lights ? lights.dirs : [[0, 1, 0], [0, 0, 0], [0, 1, 0], [0, 0, 0]];
+    gl.uniform3fv(u.uL0, ld[0]); gl.uniform3fv(u.uLc0, ld[1]);
+    gl.uniform3fv(u.uL1, ld[2]); gl.uniform3fv(u.uLc1, ld[3]);
+    gl.uniform3fv(u.uAtmo, l.atmo || [0, 0, 0]);
+    gl.uniform1f(u.uAtmoK, l.atmo ? l.atmoK ?? 0.5 : 0);
+    const g = this.spheres[lod];
+    gl.bindVertexArray(g.vao);
+    gl.drawElements(gl.TRIANGLES, g.n, gl.UNSIGNED_SHORT, 0);
+
+    // Glows and other additive layers, drawn after all solid bodies.
+    if (l.atmo && shownPx > 3) {
+      const thick = l.kind === 1 ? 1.015 : 1.035;
+      glows.push(() => {
+        const a = this.pAtmo, au = a.u;
+        gl.enable(gl.CULL_FACE);
+        gl.cullFace(gl.FRONT);
+        gl.useProgram(a.p);
+        gl.uniformMatrix4fv(au.uProj, false, this.P);
+        gl.uniformMatrix3fv(au.uView, false, this.V);
+        gl.uniform3f(au.uCenter, x, y, z);
+        gl.uniformMatrix3fv(au.uRot, false, rot);
+        gl.uniform1f(au.uRadius, R * thick);
+        gl.uniform3fv(au.uTideDir, tide.dir);
+        gl.uniform1f(au.uTide, Math.min(0.45, 1.5 * tide.tau));
+        gl.uniform1i(au.uImpN, 0);
+        gl.uniform1f(au.uLumpy, 0);
+        gl.uniform1f(au.uLogDepthFC, this.logFC);
+        gl.uniform3fv(au.uAtmo, l.atmo);
+        gl.uniform1f(au.uAtmoK, l.atmoK ?? 0.5);
+        gl.uniform3fv(au.uL0, ld[0]);
+        gl.bindVertexArray(g.vao);
+        gl.drawElements(gl.TRIANGLES, g.n, gl.UNSIGNED_SHORT, 0);
+        gl.cullFace(gl.BACK);
+        gl.disable(gl.CULL_FACE);
+      });
+    }
+    if (l.kind === 2 || l.kind === 3) {
+      const L = Math.max(b.lum, 1e-4);
+      const glowPx = Math.max(shownPx * 3.2, (6 + 4.5 * Math.log10(1 + L * 10)) * dpr) * (1 + 0.6 * Math.min(1, b.heat));
+      const rgb = tempToRGB(b.temp).map((v) => v / 255);
+      glows.push(() => this.sprite(vp, glowPx / pxPerAU, rgb.map((v) => v * 1.1), 0, 0, 0));
+      if (b.kind === 'ns') {
+        const ang = now * 0.004;
+        glows.push(() => this.sprite(vp, (glowPx * 2.6) / pxPerAU, [0.6, 0.75, 1], 3, ang, 0));
+      }
+    }
+    if (l.kind === 4) {
+      const heat = Math.min(1, b.heat);
+      glows.push(() => {
+        this.disk(vp, R, heat, now);
+        this.sprite(vp, R * 1.9, [1, 0.75, 0.45].map((v) => v * (0.7 + 0.4 * heat)), 2, 0, 1 / 1.9);
+      });
+    }
+  }
+
+  queueCoreGlow(b, vp, depth, glows) {
+    const pxPerAU = this.F / Math.max(depth, 1e-30);
+    const size = Math.max(b.soft * 0.9 * pxPerAU, 6 * this.dpr) / pxPerAU;
+    const col = (b.color || [255, 226, 180]).map((v) => (v / 255) * 0.9);
+    glows.push(() => this.sprite(vp, size, col, 1, 0, 0));
+    glows.push(() => this.sprite(vp, size * 0.12, [1, 0.95, 0.85], 0, 0, 0));
+  }
+
+  sprite(vp, size, color, type, angle, inner) {
+    const gl = this.gl, s = this.pSprite, u = s.u;
+    gl.useProgram(s.p);
+    gl.uniformMatrix4fv(u.uProj, false, this.P);
+    gl.uniform3fv(u.uCenter, vp);
+    gl.uniform1f(u.uSize, size);
+    gl.uniform1f(u.uAngle, angle);
+    gl.uniform3fv(u.uColor, color);
+    gl.uniform1i(u.uType, type);
+    gl.uniform1f(u.uInner, inner);
+    gl.uniform1f(u.uLogDepthFC, this.logFC);
+    gl.bindVertexArray(this.quad);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+
+  // Accretion disk in the black hole's equatorial plane (world x-z), sized from the shadow radius.
+  disk(vp, shadow, heat, now) {
+    const gl = this.gl, d = this.pDisk, u = d.u;
+    const outer = shadow * 3.4;
+    const ax = this.viewOf(outer, 0, 0), az = this.viewOf(0, 0, outer);
+    gl.useProgram(d.p);
+    gl.uniformMatrix4fv(u.uProj, false, this.P);
+    gl.uniform3fv(u.uCenter, vp);
+    gl.uniform3fv(u.uAxU, ax);
+    gl.uniform3fv(u.uAxV, az);
+    gl.uniform1f(u.uInner, 1.25 / 3.4);
+    gl.uniform1f(u.uTime, now / 1000);
+    gl.uniform1f(u.uHeat, 0.35 + heat);
+    gl.uniform1f(u.uLogDepthFC, this.logFC);
+    gl.bindVertexArray(this.quad);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+
+  drawSky() {
+    const gl = this.gl, s = this.pSky, u = s.u;
+    gl.disable(gl.DEPTH_TEST);
+    gl.depthMask(false);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE);
+    gl.useProgram(s.p);
+    gl.uniformMatrix4fv(u.uProj, false, this.P);
+    gl.uniformMatrix3fv(u.uView, false, this.V);
+    gl.bindVertexArray(this.sky.vao);
+    gl.drawArrays(gl.POINTS, 0, this.sky.n);
+    gl.disable(gl.BLEND);
+    gl.depthMask(true);
+  }
+
+  // Free particles and ring debris. Solid chunks are lit and shadowed; hot gas and stars glow.
+  drawParticles(glowPass) {
+    const gl = this.gl;
+    const set = glowPass ? this.dynGlow : this.dyn;
+    if (!glowPass) this.buildParticles();
+    if (set.n === 0) return;
+    this.upload(set);
+    const p = this.pPoints, u = p.u;
+    gl.useProgram(p.p);
+    gl.uniformMatrix4fv(u.uProj, false, this.P);
+    gl.uniformMatrix3fv(u.uView, false, this.V);
+    gl.uniform1f(u.uF, this.F);
+    gl.uniform1f(u.uMinPx, (glowPass ? 1.6 : 1.4) * this.dpr);
+    gl.uniform1f(u.uMaxPx, 64 * this.dpr);
+    gl.uniform1i(u.uGlow, glowPass ? 1 : 0);
+    gl.uniform3fv(u.uLight, this.particleLight || [0, 0, 1]);
+    gl.uniform1f(u.uLogDepthFC, this.logFC);
+    gl.bindVertexArray(set.vao);
+    gl.drawArrays(gl.POINTS, 0, set.n);
+  }
+
+  buildParticles() {
+    const world = this.world, cam = this.cam;
+    const solid = this.dyn, glow = this.dynGlow;
+    const total = world.np + world.nr;
+    this.ensure(solid, total);
+    this.ensure(glow, total);
+    let ns = 0, ng = 0;
+    const tx = cam.tx + cam.ox, ty = cam.ty + cam.oy, tz = cam.tz + cam.oz;
+    const add = (x, y, z, kind, size, shade, k) => {
+      const c = PARTICLE_RGB[kind];
+      const v = 0.82 + 0.36 * ((k * 0.61803) % 1);
+      if (GLOW_KINDS.has(kind)) {
+        glow.pos[ng * 3] = x; glow.pos[ng * 3 + 1] = y; glow.pos[ng * 3 + 2] = z;
+        const a = kind === PK.HOT ? 0.3 : 0.55;
+        glow.col[ng * 3] = c[0] * a * v; glow.col[ng * 3 + 1] = c[1] * a * v; glow.col[ng * 3 + 2] = c[2] * a * v;
+        glow.size[ng] = kind === PK.HOT ? size : 0;
+        glow.shade[ng] = 1;
+        ng++;
+      } else {
+        solid.pos[ns * 3] = x; solid.pos[ns * 3 + 1] = y; solid.pos[ns * 3 + 2] = z;
+        solid.col[ns * 3] = c[0] * v; solid.col[ns * 3 + 1] = c[1] * v; solid.col[ns * 3 + 2] = c[2] * v;
+        solid.size[ns] = size;
+        solid.shade[ns] = shade;
+        ns++;
+      }
+    };
+    const px = world.px, py = world.py, pz = world.pz, pm = world.pm, pk = world.pk;
+    for (let i = 0; i < world.np; i++) {
+      const m = pm[i];
+      const h = ((i * 2654435761) >>> 0) / 4294967296;
+      // Chunk radius from its mass at rock density; massless belt particles get 30-120 km.
+      const size = m > 0 ? Math.cbrt(m * 2.567e-8) : (2e-7 + h * 6e-7);
+      add(px[i] - tx, py[i] - ty, pz[i] - tz, pk[i], size, 1, i);
+    }
+    // Ring debris: shadowed where the planet blocks the Sun.
+    const tmp = [0, 0, 0, 0, 0, 0];
+    const hostLight = new Map();
+    this.particleLight = null;
+    for (let i = 0; i < world.nr; i++) {
+      const host = world.rHost[i];
+      let hl = hostLight.get(host);
+      if (!hl) {
+        const L = this.lightsFor(host).primary;
+        hl = L ? [L.dx / L.d, L.dy / L.d, L.dz / L.d] : [0, 1, 0];
+        hostLight.set(host, hl);
+        if (!this.particleLight) this.particleLight = this.viewOf(hl[0], hl[1], hl[2]);
+      }
+      world.ringPosition(i, tmp);
+      const rx = tmp[0] - host.x, ry = tmp[1] - host.y, rz = tmp[2] - host.z;
+      const along = rx * hl[0] + ry * hl[1] + rz * hl[2];
+      let shade = 1;
+      if (along < 0) {
+        const perp2 = rx * rx + ry * ry + rz * rz - along * along;
+        if (perp2 < host.r * host.r) shade = 0;
+      }
+      const h = ((i * 2246822519) >>> 0) / 4294967296;
+      add(tmp[0] - tx, tmp[1] - ty, tmp[2] - tz, world.rk[i], 3e-7 + h * h * 1.2e-6, shade, i + 7);
+    }
+    if (!this.particleLight) {
+      const L = world.bodies.find(isLuminous);
+      if (L) {
+        const dx = L.x - cam.tx, dy = L.y - cam.ty, dz = L.z - cam.tz, d = Math.hypot(dx, dy, dz) || 1;
+        this.particleLight = this.viewOf(dx / d, dy / d, dz / d);
+      }
+    }
+    solid.n = ns;
+    glow.n = ng;
+  }
+
+  drawGrid() {
+    const gl = this.gl, cam = this.cam;
+    const l = Math.log10(cam.dist / 1.5);
+    const s = Math.pow(10, Math.floor(l));
+    const N = 10, ext = N * s, SEG = 10;
+    const cx = Math.round(cam.tx / s) * s, cz = Math.round(cam.tz / s) * s, y = cam.ty;
+    const set = this.dynLines;
+    const segs = (2 * N + 1) * 2 * SEG * 2;
+    this.ensure(set, segs * 2);
+    let n = 0;
+    const ex = this.ex, ey = this.ey, ez = this.ez;
+    const push = (x, z, a, major) => {
+      set.pos[n * 3] = x - ex; set.pos[n * 3 + 1] = y - ey; set.pos[n * 3 + 2] = z - ez;
+      const k = a * (major ? 0.2 : 0.1);
+      set.col[n * 3] = 0.47 * k; set.col[n * 3 + 1] = 0.6 * k; set.col[n * 3 + 2] = 0.86 * k;
+      n++;
+    };
+    for (let i = -N; i <= N; i++) {
+      const majorX = Math.round((cx + i * s) / s) % 10 === 0;
+      const majorZ = Math.round((cz + i * s) / s) % 10 === 0;
+      for (let k = 0; k < SEG * 2; k++) {
+        const a = -ext + (k * ext) / SEG, b = a + ext / SEG;
+        const fa = Math.max(0, 1 - Math.hypot(i * s, a) / ext), fb = Math.max(0, 1 - Math.hypot(i * s, b) / ext);
+        if (fa <= 0 && fb <= 0) continue;
+        push(cx + i * s, cz + a, fa, majorX); push(cx + i * s, cz + b, fb, majorX);
+        const fa2 = Math.max(0, 1 - Math.hypot(a, i * s) / ext), fb2 = Math.max(0, 1 - Math.hypot(b, i * s) / ext);
+        push(cx + a, cz + i * s, fa2, majorZ); push(cx + b, cz + i * s, fb2, majorZ);
+      }
+    }
+    set.n = n;
+    this.upload(set);
+    const p = this.pLines, u = p.u;
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE);
+    gl.depthMask(false);
+    gl.useProgram(p.p);
+    gl.uniformMatrix4fv(u.uProj, false, this.P);
+    gl.uniformMatrix3fv(u.uView, false, this.V);
+    gl.uniform1f(u.uLogDepthFC, this.logFC);
+    gl.bindVertexArray(set.vao);
+    gl.drawArrays(gl.LINES, 0, n);
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
+  }
+}
