@@ -1,5 +1,5 @@
 import { PK } from './physics.js';
-import { isLuminous, tempToRGB } from './bodies.js';
+import { isLuminous, tempToRGB, schwarzschild } from './bodies.js';
 import { transientLum } from './stellar.js';
 import { EARTH_MASS } from './units.js';
 import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS, RIM_FS } from './shaders.js';
@@ -427,6 +427,34 @@ export class Renderer3D {
     gl.disable(gl.BLEND);
   }
 
+  // The (up to) four black holes and neutron stars bending the background most, seen from the eye.
+  findLenses(world) {
+    const ex = this.ex, ey = this.ey, ez = this.ez; // the eye (set in draw)
+    const L = [];
+    for (const b of world.bodies) {
+      if (b.kind !== 'bh' && b.kind !== 'ns') continue;
+      const dx = b.x - ex, dy = b.y - ey, dz = b.z - ez, D = Math.hypot(dx, dy, dz);
+      const rs = schwarzschild(b.m);
+      if (!(D > 3 * Math.max(rs, b.r))) continue;
+      const e2 = (2 * rs) / D;
+      if (e2 < 1e-10) continue; // Einstein ring under ~0.002″: nothing visible
+      // A black hole shows its shadow (2.6 r_s); a neutron star simply covers its own disc.
+      const sh = b.kind === 'bh' ? (2.598 * rs) / D : Math.asin(Math.min(1, b.r / D));
+      L.push({ x: dx / D, y: dy / D, z: dz / D, e2, sh });
+    }
+    L.sort((a, b) => b.e2 - a.e2);
+    this.lenses = L.slice(0, 4);
+  }
+
+  setLensUniforms(u) {
+    const gl = this.gl, L = this.lenses || [];
+    const v = new Float32Array(16), sh = new Float32Array(4);
+    L.forEach((l, i) => { v.set([l.x, l.y, l.z, l.e2], i * 4); sh[i] = l.sh; });
+    gl.uniform4fv(u.uLens, v);
+    gl.uniform1fv(u.uLensSh, sh);
+    gl.uniform1i(u.uLensN, L.length);
+  }
+
   drawMilkyWay() {
     const gl = this.gl, s = this.pMilky, u = s.u, cam = this.cam;
     const t = Math.tan(cam.fov / 2);
@@ -437,6 +465,7 @@ export class Renderer3D {
     gl.uniform3f(u.uGalN, 0, Math.cos(1.05), Math.sin(1.05));
     gl.uniform3f(u.uGalC, 1, 0, 0);
     gl.uniform1f(u.uBright, 1);
+    this.setLensUniforms(u);
     gl.bindVertexArray(this.quad);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
@@ -596,6 +625,7 @@ export class Renderer3D {
     this.ex = cam.tx + cam.ox; this.ey = cam.ty + cam.oy; this.ez = cam.tz + cam.oz;
 
     this.surface = ui.surface || null;
+    this.findLenses(world);
     if (this.settings.stars || this.surface) {
       gl.disable(gl.DEPTH_TEST);
       gl.disable(gl.BLEND);
@@ -1040,8 +1070,12 @@ export class Renderer3D {
     gl.useProgram(s.p);
     gl.uniformMatrix4fv(u.uProj, false, this.P);
     gl.uniformMatrix3fv(u.uView, false, this.V);
+    this.setLensUniforms(u);
     gl.bindVertexArray(this.sky.vao);
+    gl.uniform1i(u.uImage, 0);
     gl.drawArrays(gl.POINTS, 0, this.sky.n);
+    // Second images, inside the Einstein rings.
+    if (this.lenses && this.lenses.length) { gl.uniform1i(u.uImage, 1); gl.drawArrays(gl.POINTS, 0, this.sky.n); }
     gl.disable(gl.BLEND);
     gl.depthMask(true);
   }

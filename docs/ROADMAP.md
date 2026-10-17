@@ -140,7 +140,8 @@ Next:
 - **The Moon**: a real topography and albedo map (LRO). Craters at their real positions.
 - **Gas giants**: white ovals and polar cyclones (Juno). Uranus and Neptune banding.
 - **Stars**: flares, prominences and starspots on M dwarfs.
-- **Black holes**: true ray-traced lensing of the background stars.
+- **Black holes**: ~~lensing of the background stars~~ (done: point-lens + strong-deflection limit). Next: lens
+  bodies and particles behind the hole too (needs the scene's depth), and ray-trace the disk.
 
 ## Atmospheric scattering (SpaceEngine-style skies): what is next
 

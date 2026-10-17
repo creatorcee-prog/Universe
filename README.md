@@ -121,6 +121,13 @@ Switch in **Settings → View**.
   than the screen can show are drawn as smooth ellipses about their centre of mass instead of trails. The
   holes merge when their capture zones touch (15,000 km for stellar holes), not at their real horizons
   (~200 km), because the final orbits last milliseconds.
+- **Gravitational lensing**: black holes and neutron stars bend the light of the background sky. Light
+  passing at angle θ is deflected by θE²/θ (θE² = 2r_s/D, the point-mass deflection 4GM/c²b); near the
+  shadow the strong-deflection limit takes over (Bozza 2002), so a thin photon ring of the whole sky
+  forms at the shadow's edge. Stars get two images each, either side of the Einstein ring, with point-lens
+  magnifications. The Milky Way is stretched into arcs around the hole. Only the background is lensed:
+  planets, particles and the accretion disk behind a hole are drawn unbent for now (the disk has its own
+  approximate lensed image).
 - **Sound** (Settings → Sound effects): interface blips, and deep rumbles for giant impacts, tidal
   disruptions, star mergers and supernovae, loud when they happen where you're looking and faint far away.
   A drone swells as you approach a black hole (deeper for heavier holes, louder while it feeds). The

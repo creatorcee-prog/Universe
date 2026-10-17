@@ -837,18 +837,81 @@ void main() {
 `;
 
 // Background stars: directions only, drawn at infinity before everything else.
-export const SKY_VS = HEAD + `
+// Gravitational lensing of the background sky by black holes and neutron stars. Each lens is given by
+// its direction from the eye, its Einstein angle² θE² = 2r_s/D (light from infinity passing at angle θ is
+// bent by α = 4GM/(c²b) = θE²/θ), and its shadow radius θm = (3√3/2) r_s/D. Near the shadow the weak-field
+// formula fails; there the strong-deflection limit takes over (Bozza 2002, Schwarzschild):
+// α = −ln(θ/θm − 1) − 0.40, which diverges at the photon sphere, so light that loops round the hole
+// paints a thin ring of the whole sky at the shadow's edge.
+const LENS = `
+uniform vec4 uLens[4];     // xyz: world direction to the lens; w: θE²
+uniform float uLensSh[4];  // shadow (or surface) angular radius
+uniform int uLensN;
+float lensAngle(vec3 a, vec3 b) { return atan(length(cross(a, b)), dot(a, b)); } // accurate for tiny angles
+float deflection(float th, float e2, float tm) {
+  float x = th / tm - 1.0;
+  return max(e2 / th, x > 0.0 ? -log(x) - 0.40 : 1e3);
+}
+// The direction the light seen along d came from; hidden: d ends on a black hole's shadow.
+vec3 lensSource(vec3 d, out bool hidden) {
+  hidden = false;
+  vec3 s = d;
+  for (int i = 0; i < 4; i++) {
+    if (i >= uLensN) break;
+    vec3 L = uLens[i].xyz;
+    float th = lensAngle(s, L);
+    if (th < uLensSh[i]) { hidden = true; return s; }
+    vec3 t = s - L * dot(s, L);
+    float tl = length(t);
+    if (tl < 1e-12) continue;
+    t /= tl;
+    float beta = th - deflection(th, uLens[i].w, uLensSh[i]);
+    s = L * cos(beta) + t * sin(beta);
+  }
+  return s;
+}
+`;
+
+// Background stars. Near a lens each star has two images (Refsdal 1964): outside the Einstein ring at
+// θ₊ = (β + √(β² + 4θE²))/2 and inside it, on the far side, at θ₋ = (β − √(β² + 4θE²))/2, magnified by
+// μ± = (u² + 2)/(2u√(u² + 4)) ± ½ with u = β/θE. uImage picks which image this pass draws.
+export const SKY_VS = HEAD + LENS + `
 layout(location = 0) in vec3 aPos;
 layout(location = 1) in vec3 aCol;
 layout(location = 2) in float aSize;
 uniform mat4 uProj;
 uniform mat3 uView;
+uniform int uImage;
 out vec3 vCol;
 void main() {
-  vec4 p = uProj * vec4(uView * aPos, 1.0);
-  gl_Position = p.xyww;
-  gl_PointSize = aSize;
-  vCol = aCol;
+  vec3 s = normalize(aPos);
+  vec3 dir = s;
+  float mag = 1.0;
+  // The lens that affects this star most (smallest β/θE).
+  int best = -1; float bu = 1e9;
+  for (int i = 0; i < 4; i++) {
+    if (i >= uLensN) break;
+    float u = lensAngle(s, uLens[i].xyz) / sqrt(uLens[i].w);
+    if (u < bu) { bu = u; best = i; }
+  }
+  bool show = uImage == 0;
+  if (best >= 0) {
+    vec3 L = uLens[best].xyz;
+    float e2 = uLens[best].w, beta = lensAngle(s, L), u = max(bu, 1e-4);
+    float root = sqrt(beta * beta + 4.0 * e2);
+    float th = uImage == 0 ? 0.5 * (beta + root) : 0.5 * (beta - root);
+    mag = (u * u + 2.0) / (2.0 * u * sqrt(u * u + 4.0)) + (uImage == 0 ? 0.5 : -0.5);
+    show = abs(th) > uLensSh[best] && mag > 0.02;
+    vec3 t = s - L * dot(s, L);
+    float tl = length(t);
+    t = tl > 1e-12 ? t / tl : normalize(cross(L, vec3(0.31, 0.83, 0.47)));
+    dir = L * cos(th) + t * sin(th);
+  }
+  vec4 p = uProj * vec4(uView * dir * 1e6, 1.0);
+  gl_Position = show ? p.xyww : vec4(2.0, 2.0, 2.0, 1.0);
+  mag = min(mag, 30.0);
+  gl_PointSize = aSize * clamp(sqrt(mag), 1.0, 3.0);
+  vCol = aCol * mag / clamp(mag, 1.0, 9.0); // brighter images also get bigger, so share the gain
 }
 `;
 
@@ -876,7 +939,7 @@ void main() {
 
 // Procedural Milky Way: a band of unresolved starlight with a brighter bulge toward the galactic
 // centre, dark dust lanes along the mid-plane, faint emission nebulae and a dusting of faint stars.
-export const MILKYWAY_FS = HEAD + NOISE + `
+export const MILKYWAY_FS = HEAD + NOISE + LENS + `
 in vec2 vUV;
 uniform mat3 uView;
 uniform vec2 uTan;       // tan(fov/2) * aspect, tan(fov/2)
@@ -886,6 +949,9 @@ out vec4 outColor;
 void main() {
   vec3 dv = normalize(vec3((vUV.x * 2.0 - 1.0) * uTan.x, (vUV.y * 2.0 - 1.0) * uTan.y, -1.0));
   vec3 d = transpose(uView) * dv;
+  bool hidden;
+  d = lensSource(d, hidden);
+  if (hidden) { outColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
   float b = dot(d, uGalN);
   vec3 e = normalize(cross(uGalN, uGalC));
   float lon = atan(dot(d, e), dot(d, uGalC));
