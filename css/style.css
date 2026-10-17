@@ -182,7 +182,8 @@ input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border-radius: 
   -webkit-user-select: text; user-select: text;
 }
 .sheet.open { transform: none; opacity: 1; }
-.sheet-head { position: sticky; top: 0; background: var(--panel-solid); display: flex; align-items: center; justify-content: space-between; padding: 10px 0 8px; z-index: 1; }
+.sheet-head { position: sticky; top: 0; background: var(--panel-solid); display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 0 8px; z-index: 1; }
+.sheet-head h2 { flex: 1; }
 .sheet h2 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
 
 .scenario-list { display: grid; gap: 8px; }

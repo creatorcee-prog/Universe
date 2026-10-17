@@ -78,6 +78,12 @@ vec4 mapTex(sampler2D s, vec3 d) {
   if (abs(gx2.x) + abs(gy2.x) < abs(gx.x) + abs(gy.x)) { gx = gx2; gy = gy2; }
   return textureGrad(s, uv, gx, gy);
 }
+// Donor map (a real world's pattern borrowed by one without a map): brightness relative to its mean,
+// looked up in a turned frame.
+uniform sampler2D uDonor;
+uniform mat3 uDonorRot;
+uniform float uDonorK, uDonorMean;
+float donorT(vec3 d) { return dot(mapTex(uDonor, uDonorRot * d).rgb, vec3(0.3, 0.55, 0.15)) / uDonorMean; }
 `;
 const MAPTEX_VS = `
 vec4 mapTex(sampler2D s, vec3 d) {
@@ -524,6 +530,11 @@ void main() {
       }
     } else {
       col = mix(uColA, uColB, band * uBandK);
+      if (uDonorK > 0.0) {
+        // A real giant's band and storm pattern, recoloured with this planet's own two colours.
+        float t = donorT(vObj);
+        col = mix(col, mix(uColB, uColA, smoothstep(0.65, 1.3, t)) * (0.8 + 0.2 * t), uDonorK);
+      }
       col *= 0.94 + 0.12 * vnoise(vec3(vObj.x * 3.0, vObj.y * 46.0, vObj.z * 3.0) + uSeed);
       // Eddies and filaments where neighbouring jets shear past each other (band edges).
       float eddy = fbm(vec3(vObj.x * 6.0, vObj.y * 24.0, vObj.z * 6.0) + turb * 2.5 + uSeed + vec3(uTime * 0.01, 0.0, 0.0), 5);
@@ -643,6 +654,8 @@ void main() {
     bool cmapR = uMapMode > 4.5 && uMapMode < 8.5;
     if (uMapMode > 4.5 && uMapMode < 5.5) land = MP.rgb;
     if (uMapMode > 6.5 && uMapMode < 8.5) { float t = 2.0 * MP.r; land = mix(uColB, uColA, clamp(t, 0.0, 1.0)) * t; }
+    // Donor map: the borrowed world's light and dark terrain, over this world's own (climate) colours.
+    if (uDonorK > 0.0) land *= mix(1.0, clamp(donorT(vObj), 0.15, 2.2), uDonorK);
     // Close up, land shows finer texture (fields of terrain and vegetation patches).
     if (uPx > 250.0) land *= 0.86 + 0.28 * fbm(q * 70.0 + 3.0, 3);
     if (uProfile > 4.5 && uProfile < 5.5 && !cmapR) {
@@ -1082,6 +1095,7 @@ void main() {
     col = soil;
     if (uMapMode > 2.5 && uMapMode < 3.5) col *= 0.6 + 0.8 * mapTex(uMap, vDir).r;
     // Colour map: the ground takes the colour seen from orbit, varied by the local soil pattern.
+    if (uDonorK > 0.0) { float t = donorT(vDir); soil *= mix(1.0, clamp(t, 0.2, 2.0), uDonorK * 0.8); rock *= mix(1.0, clamp(t, 0.4, 1.6), uDonorK * 0.5); col = soil; }
     if (uMapMode > 4.5 && uMapMode < 8.5) { vec3 mc = mapTex(uMap, vDir).rgb; if (uMapMode > 6.5) { float t = 2.0 * mc.r; mc = mix(uColB, uColA, clamp(t, 0.0, 1.0)) * t; } soil = mc * (soil / max(dot(mix(uColA, uColB, 0.5), vec3(0.333)), 0.05)) * 0.5 + mc * 0.5; rock = mix(rock, mc * 0.75, 0.6); col = soil; }
     if (uLife > 0.0) {
       float warm = smoothstep(255.0, 280.0, T) * smoothstep(335.0, 305.0, T);

@@ -278,6 +278,7 @@
   <section id="sheet-scenarios" class="sheet" hidden aria-label="Scenarios">
     <div class="sheet-head">
       <h2>Scenarios</h2>
+      <button id="btn-settings" class="icon-btn small" type="button" aria-label="Settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
       <button class="icon-btn small" type="button" data-close aria-label="Close">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
@@ -322,6 +323,22 @@
         <label class="speed"><span class="sr">Time speed</span><input id="speed" type="range" min="0" max="1000" step="1" value="500"></label>
       </div>
       <label class="switch"><input id="set-collisions" type="checkbox"><span>Collisions and mergers</span></label>
+      <div class="settings-actions">
+        <button id="btn-reset" type="button">Restart scenario</button>
+        <button id="btn-clear" type="button">Clear dust &amp; debris</button>
+        <button id="btn-settings2" type="button">Settings…</button>
+        <button id="btn-menu2" type="button">Scenarios…</button>
+      </div>
+      <p class="about">Newtonian N-body gravity in units of AU, solar masses and years. Sizes are true to scale, so small worlds show as dots until you zoom in. Bodies merge on contact and break apart inside the Roche limit. Climate, atmospheres and stellar ageing run alongside.</p>
+    </div>
+  </section>
+
+  <section id="sheet-settings" class="sheet" hidden aria-label="Settings">
+    <div class="sheet-head">
+      <h2>Settings</h2>
+      <button class="icon-btn small" type="button" data-close aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="settings">
       <label class="switch"><input id="set-sound" type="checkbox"><span>Sound effects (impacts, supernovae, black holes)</span></label>
       <label class="switch"><input id="set-music" type="checkbox"><span>Background music (shuffled, with pauses between tracks)</span></label>
       <label class="switch"><input id="set-uiSound" type="checkbox"><span>Interface sounds (taps and menus)</span></label>
@@ -329,12 +346,6 @@
       <label class="switch"><input id="set-sharp" type="checkbox"><span>Full resolution (sharpest; may lower the frame rate)</span></label>
       <label class="switch"><input id="set-bassBoost" type="checkbox"><span>Bass boost for the phone speaker (off for headphones)</span></label>
       <label class="switch"><input id="set-perf" type="checkbox"><span>Show performance (frame rate, physics and drawing time)</span></label>
-      <div class="settings-actions">
-        <button id="btn-reset" type="button">Restart scenario</button>
-        <button id="btn-clear" type="button">Clear dust &amp; debris</button>
-        <button id="btn-menu2" type="button" class="wide">Scenarios…</button>
-      </div>
-      <p class="about">Newtonian N-body gravity in units of AU, solar masses and years. Sizes are true to scale, so small worlds show as dots until you zoom in. Bodies merge on contact and break apart inside the Roche limit. Climate, atmospheres and stellar ageing run alongside.</p>
     </div>
   </section>
 

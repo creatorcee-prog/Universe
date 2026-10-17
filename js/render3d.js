@@ -51,6 +51,49 @@ function photoMap(b) {
   const img = loadImage(p[1], p[4]);
   return img ? { mode: p[2], img, W: img.width, H: img.height, ver: 1 } : null;
 }
+// Donor maps: a world with no map of its own (one you create, or a random planetesimal) borrows the
+// brightness pattern of a real one of its type (cratered highlands, ice, dust, volcanic plains, small
+// moons, giant-planet cloud bands), turned to a random orientation and tinted with its own colours
+// and climate. So each new world gets realistic detail of its own kind, and no two look the same.
+const DONORS = { cratered: ['moon', 'callisto', 'ganymede'], icy: ['europa', 'ganymede', 'charon', 'pluto'], dusty: ['mars'], volcanic: ['io'], small: ['phobos', 'deimos'], giant: ['jupiter', 'saturn'] };
+const donorMean = new Map(); // image -> mean luminance
+function donorFor(b, l) {
+  if (LOOKS[b.name] || PHOTO.some(([re]) => re.test(b.name)) || /^(Earth|Moon)( \d+)?$/.test(b.name)) return null;
+  let type;
+  if (l.kind === 1) type = 'giant';
+  else if (l.kind !== 0) return null;
+  else if (l.lumpy) type = 'small';
+  else if (l.volc) type = 'volcanic';
+  else if (l.lineae || b.compKey === 'icemoon') type = 'icy';
+  else if (l.ocean > 0 || b.life) return null; // ocean worlds keep their own continents
+  else if (l.atmo || (b.color && b.color[0] > 1.3 * b.color[1])) type = 'dusty'; // thin air, or rust-red
+  else type = 'cratered';
+  const r = seeded(b.id), r2 = seeded(b.id * 7 + 3), r3 = seeded(b.id * 13 + 5);
+  const list = DONORS[type], file = list[Math.floor(r * list.length) % list.length];
+  const img = loadImage(file);
+  if (!img) return null;
+  if (!donorMean.has(img)) {
+    let m = 0.5;
+    try {
+      const c = document.createElement('canvas'); c.width = 64; c.height = 32;
+      const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(img, 0, 0, 64, 32);
+      const d = g.getImageData(0, 0, 64, 32).data; let s = 0;
+      for (let i = 0; i < d.length; i += 4) s += (0.3 * d[i] + 0.55 * d[i + 1] + 0.15 * d[i + 2]) / 255;
+      m = s / (d.length / 4);
+    } catch { /* keep 0.5 */ }
+    donorMean.set(img, Math.max(0.05, m));
+  }
+  // Orientation: any for solid worlds; giants only spin about their axis (and may flip north-south),
+  // so the bands stay parallel to the equator.
+  const a = r2 * Math.PI * 2, bt = type === 'giant' ? (r3 > 0.5 ? Math.PI : 0) : (r3 - 0.5) * Math.PI, c = type === 'giant' ? 0 : r * Math.PI * 2;
+  const ca = Math.cos(a), sa = Math.sin(a), cb = Math.cos(bt), sb = Math.sin(bt), cc = Math.cos(c), sc = Math.sin(c);
+  // R = Ry(a) * Rx(bt) * Ry(c), column-major for GLSL
+  const Ry = (co, si) => [co, 0, -si, 0, 1, 0, si, 0, co], Rx = (co, si) => [1, 0, 0, 0, co, si, 0, -si, co];
+  const mul = (A, B) => { const o = new Array(9); for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) o[j * 3 + i] = A[i] * B[j * 3] + A[3 + i] * B[j * 3 + 1] + A[6 + i] * B[j * 3 + 2]; return o; };
+  const rot = new Float32Array(mul(mul(Ry(ca, sa), Rx(cb, sb)), Ry(cc, sc)));
+  return { img, rot, mean: donorMean.get(img), k: type === 'giant' ? 0.85 : type === 'small' ? 0.9 : 0.8 };
+}
+
 // Earth: land, sea depth, mountains and ice decoded from a NASA hypsometric relief map (the hand-traced
 // geography fills the 40° of longitude the source lacked), in the same channels as earthMap(). Read back
 // to pixels because painting edits it. Until it has loaded, the hand-traced map stands in.
@@ -103,8 +146,9 @@ const LOOKS = {
   Enceladus: { colA: c3(244, 246, 250), colB: c3(214, 222, 232), lineae: 0.6, craters: 0.3, day: 32.9, locked: 1 },
   Triton: { colA: c3(226, 204, 198), colB: c3(190, 160, 150), craters: 0.2, lineae: 0.3, day: -141, locked: 1 },
   Charon: { colA: c3(170, 166, 160), colB: c3(120, 100, 90), craters: 0.6, day: 153.3, locked: 1 },
-  Phobos: { colA: c3(100, 92, 84), colB: c3(70, 64, 58), lumpy: 0.25, craters: 1, day: 7.65, locked: 1 },
-  Deimos: { colA: c3(140, 128, 112), colB: c3(110, 100, 88), lumpy: 0.2, craters: 0.6, day: 30.3, locked: 1 },
+  // Phobos and Deimos are among the darkest bodies known (geometric albedo ~0.07, about half the Moon's).
+  Phobos: { colA: c3(74, 68, 62), colB: c3(50, 46, 42), lumpy: 0.25, craters: 1, day: 7.65, locked: 1 },
+  Deimos: { colA: c3(80, 72, 64), colB: c3(56, 50, 45), lumpy: 0.2, craters: 0.6, day: 30.3, locked: 1 },
   Vesta: { colA: c3(160, 150, 140), colB: c3(110, 102, 96), lumpy: 0.12, craters: 1, day: 5.34 },
   'Proto-Earth': { colA: c3(90, 50, 36), colB: c3(60, 34, 26), day: 5 },
   Theia: { colA: c3(140, 115, 96), colB: c3(100, 82, 70), craters: 0.5, day: 12 },
@@ -675,6 +719,7 @@ export class Renderer3D {
     gl.uniform1f(u.uOcean, th ? th.ocean : 0);
     gl.uniform1f(u.uMapMode, b.surfaceMap && this.mapTex.get(b) ? b.surfaceMap.mode : 0);
     if (b.surfaceMap && this.mapTex.get(b)) { gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, this.mapTex.get(b).tex); gl.uniform1i(u.uMap, 5); gl.activeTexture(gl.TEXTURE0); }
+    this.bindDonor(u, b, l);
     gl.uniform1f(u.uRelief, 4000 * reliefK);
     gl.uniform1f(u.uCraters, l.craters ? Math.min(1, l.craters * 2.5) : 0);
     gl.uniform1f(u.uRough, 1);
@@ -742,6 +787,41 @@ export class Renderer3D {
     const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
     this.canvas.width = Math.round(w * this.dpr);
     this.canvas.height = Math.round(h * this.dpr);
+  }
+
+  // One texture per donor image, shared by every world that borrows it.
+  donorTex(img) {
+    const gl = this.gl;
+    this.dTex ||= new Map();
+    let t = this.dTex.get(img);
+    if (!t) {
+      t = gl.createTexture();
+      gl.activeTexture(gl.TEXTURE7);
+      gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+      gl.generateMipmap(gl.TEXTURE_2D);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.activeTexture(gl.TEXTURE0);
+      this.dTex.set(img, t);
+    }
+    return t;
+  }
+
+  // Bind a world's donor map (or switch it off) for the current program.
+  bindDonor(u, b, l) {
+    const gl = this.gl;
+    if (b.donor === undefined || (b.donor === null && !b.donorTried)) { b.donor = donorFor(b, l); b.donorTried = !!b.donor || (b.donorTries = (b.donorTries || 0) + 1) > 120; }
+    const d = b.donor;
+    gl.uniform1f(u.uDonorK, d ? d.k : 0);
+    if (!d) return;
+    gl.activeTexture(gl.TEXTURE7);
+    gl.bindTexture(gl.TEXTURE_2D, this.donorTex(d.img));
+    gl.uniform1i(u.uDonor, 7);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.uniformMatrix3fv(u.uDonorRot, false, d.rot);
+    gl.uniform1f(u.uDonorMean, d.mean);
   }
 
   look(b) {
@@ -1122,6 +1202,9 @@ export class Renderer3D {
       gl.activeTexture(gl.TEXTURE0);
     }
     gl.uniform1f(u.uMapMode, sm ? sm.mode : 0);
+    this.bindDonor(u, b, l);
+    // A donor already brings real craters; keep only a trace of the generated ring-shaped ones.
+    if (b.donor && !imgMap) gl.uniform1f(u.uCraters, (l.craters || 0) * 0.3);
     const city = /^Earth( \d+)?$/.test(b.name) && b.life && (b.lifeAge || 0) > 3.7e9;
     gl.uniform1f(u.uCity, city ? 1 : 0);
     // Where the lights are: NASA Black Marble (city lights only, the moonlit ground and snow removed).

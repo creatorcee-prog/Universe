@@ -89,7 +89,7 @@ Galaxy Collision · Empty Star.
 
 ## Views
 
-Switch in **Settings → View**.
+Switch in the **View** panel.
 
 - **Realistic** (default): WebGL 2 spheres with procedural surfaces that react to the simulation, worked out
   for every point on the surface each frame:
@@ -166,6 +166,11 @@ Switch in **Settings → View**.
   - *Jupiter*: rebuilt from the Hubble OPAL 2016 photograph: the photographed hemisphere is reprojected
     (limb darkening removed, the ultraviolet aurora masked out); the unseen longitudes are filled with
     offset copies of it, crossfaded, with the Great Red Spot only once (tools/jupiter_build.py).
+  - *Donor maps for new worlds*: a world without a map of its own (anything you create, or a random
+    planetesimal) borrows the brightness pattern of a real world of its type — cratered (Moon,
+    Callisto, Ganymede), icy (Europa, Ganymede, Charon, Pluto), dusty (Mars), volcanic (Io), small
+    (Phobos, Deimos) or giant (Jupiter, Saturn bands) — at a random orientation, tinted with its own
+    colours and climate, so each new world has realistic detail and no two look alike.
   - *Earth*: land, sea depth (continental shelves), mountains and ice decoded from a NASA hypsometric
     relief map (the hand-traced coastlines fill its missing 40°), and city lights from NASA Black
     Marble.

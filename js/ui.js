@@ -95,6 +95,8 @@ export class UI {
     $('lock-chip').addEventListener('click', () => app.toggleLock());
     $('surf-lock').addEventListener('click', () => { app.surfaceLock = !app.surfaceLock; this.toast(app.surfaceLock ? 'Surface lock on: the camera turns with the planet' : 'Surface lock off'); });
     $('btn-menu2').addEventListener('click', () => this.openSheet('sheet-scenarios'));
+    $('btn-settings').addEventListener('click', () => this.openSheet('sheet-settings'));
+    $('btn-settings2').addEventListener('click', () => this.openSheet('sheet-settings'));
     $('i-seed').addEventListener('click', () => {
       const b = app.state.selected;
       if (!b || b.kind !== 'rocky') return;
