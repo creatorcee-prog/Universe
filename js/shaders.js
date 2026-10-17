@@ -36,6 +36,17 @@ float fbm(vec3 p, int oct) {
   }
   return s;
 }
+float crater(vec3 p) {
+  vec3 i = floor(p), f = fract(p);
+  float d = 8.0;
+  for (int z = -1; z <= 1; z++) for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {
+    vec3 g = vec3(float(x), float(y), float(z));
+    vec3 o = vec3(hash(i + g), hash(i + g + 19.1), hash(i + g + 47.7));
+    vec3 r = g + o - f;
+    d = min(d, dot(r, r) * (0.6 + hash(i + g + 7.3)));
+  }
+  return sqrt(d);
+}
 `;
 
 const BLACKBODY = `
@@ -118,7 +129,127 @@ void main() {
 }
 `;
 
-export const BODY_FS = HEAD + NOISE + BLACKBODY + MAPTEX_FS + `
+// ---------- Clouds ----------
+// A cloud layer drawn on its own shell above the ground. The cloud clock (uCloudT, days) follows the
+// simulation, capped so fast-forward does not strobe. Winds carry the clouds along latitude circles:
+// on Earth-like worlds easterly trades near the equator, westerlies around 45°, polar easterlies; a
+// planet-wide deck (Venus, Titan) super-rotates as a whole. Two copies of the field, each carried by
+// the wind for one cycle and then replaced by a newly formed one, crossfade, so clouds drift, shear,
+// form and dissipate without the shear growing forever.
+const CLOUDS = `
+uniform float uCloudT;   // days
+uniform float uWind;     // angular wind speed at the deck, rad/day (U / R)
+uniform float uDeck;     // 1: a planet-wide deck
+float windAt(float latD) {
+  if (uDeck > 0.5) return cos(radians(latD));
+  float a = abs(latD);
+  return -0.5 * exp(-latD * latD / 300.0) + exp(-pow((a - 45.0) / 13.0, 2.0)) - 0.3 * smoothstep(62.0, 75.0, a);
+}
+// Raw cloud noise (about 0.5 mean) for one generation of clouds, 'age' days old.
+float cloudRaw(vec3 d, float seed, float age, float gen, int oct) {
+  float latD = degrees(asin(clamp(d.y, -1.0, 1.0)));
+  float sh = uWind * windAt(latD) * age;
+  float c = cos(sh), sn = sin(sh);
+  vec3 v = vec3(d.x * c - d.z * sn, d.y, d.x * sn + d.z * c);
+  float sd = seed + gen * 7.31;
+  vec3 wv = vec3(fbm(v * 2.1 + sd + 1.3, 3), fbm(v * 2.1 + sd + 7.9, 3), fbm(v * 2.1 + sd + 4.4, 3)) - 0.5;
+  // Storm systems: the field is twisted into spirals around a few lows (anticlockwise in the north).
+  vec3 vS = v;
+  float spiral = 0.0;
+  for (int k = 0; k < 4; k++) {
+    float fk = float(k);
+    float clat = (0.6 + 0.35 * hash(vec3(fk, 1.0, sd))) * (mod(fk, 2.0) < 0.5 ? 1.0 : -1.0) * 0.9;
+    float clon = 6.2831853 * hash(vec3(fk, 2.0, sd));
+    vec3 cc = vec3(cos(clat) * cos(clon), sin(clat), cos(clat) * sin(clon));
+    float dd = length(vS - cc);
+    float ang = 5.5 * exp(-dd * dd / 0.012) * sign(cc.y) * smoothstep(0.0, 0.3, age / 3.0 + 0.3);
+    vS = vS * cos(ang) + cross(cc, vS) * sin(ang) + cc * dot(cc, vS) * (1.0 - cos(ang));
+    spiral += exp(-dd * dd / 0.02);
+  }
+  vec3 cq = vec3(vS.x * 3.2, vS.y * 5.5, vS.z * 3.2) + wv * 1.8 + sd * 1.7;
+  return fbm(cq, oct) + 0.12 * spiral;
+}
+// x: cloud density 0..1, y: how thick (bright tops). px: the body's size on screen (detail level).
+vec2 cloudField(vec3 d, float cover, float seed, float px) {
+  float T = uDeck > 0.5 ? 6.0 : 2.5;
+  float ph = uCloudT / T;
+  float a = fract(ph), b = fract(ph + 0.5);
+  int oct = px > 250.0 ? 6 : px > 60.0 ? 5 : 4;
+  float wa = 1.0 - abs(2.0 * a - 1.0), wb = 1.0 - wa;
+  float r1 = cloudRaw(d, seed, a * T, floor(ph), oct);
+  float r2 = cloudRaw(d, seed, b * T, floor(ph + 0.5) + 0.5, oct);
+  // Blend, then restore the contrast that averaging two independent fields takes away.
+  float cl = 0.5 + ((r1 - 0.5) * wa + (r2 - 0.5) * wb) / sqrt(wa * wa + wb * wb);
+  float lat = abs(d.y);
+  float zone = 0.55 + 0.3 * exp(-lat * lat / 0.012) + 0.35 * exp(-pow(lat - 0.78, 2.0) / 0.02) - 0.35 * exp(-pow(lat - 0.45, 2.0) / 0.015);
+  if (uDeck > 0.5) zone = 1.0;
+  float thr = 0.5 + (0.5 - clamp(cover * zone * 1.2, 0.0, 1.0)) * 0.34;
+  float cloud = smoothstep(thr - 0.04, thr + 0.12, cl);
+  // Fair-weather cumulus: fields of small puffy cells over the tropics, carried with the trade winds.
+  if (px > 80.0 && uDeck < 0.5) {
+    float sh = uWind * windAt(0.0) * uCloudT;
+    vec3 v = vec3(d.x * cos(sh) - d.z * sin(sh), d.y, d.x * sin(sh) + d.z * cos(sh));
+    float cellC = crater(v * 160.0 + seed + floor(uCloudT / 1.5) * 3.7);
+    float cum = (1.0 - smoothstep(0.05, 0.42, cellC)) * smoothstep(0.56, 0.7, fbm(v * 9.0 + seed + 2.0, 4));
+    cloud = max(cloud, cum * exp(-lat * lat / 0.1) * 0.55 * clamp(cover * 1.4, 0.0, 1.0) * smoothstep(80.0, 250.0, px));
+  }
+  // Wind-stretched texture: cloud edges are torn into streaks and wisps along the flow (east-west).
+  float sh2 = uWind * windAt(degrees(asin(clamp(d.y, -1.0, 1.0)))) * uCloudT;
+  vec3 vw = vec3(d.x * cos(sh2) - d.z * sin(sh2), d.y, d.x * sin(sh2) + d.z * cos(sh2));
+  if (px > 120.0) {
+    float wisp = fbm(vec3(vw.x * 30.0, vw.y * 95.0, vw.z * 30.0) + seed + 5.0, 4);
+    float edge = cloud * (1.0 - cloud) * 4.0;
+    cloud = clamp(cloud + (wisp - 0.5) * 1.3 * edge * smoothstep(120.0, 300.0, px), 0.0, 1.0);
+  }
+  // Close up: crisper, finer structure in the cloud edges.
+  if (px > 250.0) {
+    float fine = fbm(d * 60.0 + seed + 3.0 + vec3(uCloudT * 0.05), 4) - 0.5;
+    cloud = smoothstep(0.15, 0.85, clamp(cloud + fine * 0.6 * cloud * (1.0 - cloud) * 4.0, 0.0, 1.0));
+  }
+  // Cirrus: thin, translucent streaks high up in the mid-latitude jets.
+  if (uDeck < 0.5) {
+    float cir = smoothstep(0.6, 0.78, fbm(vec3(vw.x * 6.0, vw.y * 34.0, vw.z * 6.0) + seed + 11.0 + floor(uCloudT / 2.5) * 1.9, 4));
+    cloud = max(cloud, cir * 0.35 * exp(-pow((lat - 0.6) / 0.22, 2.0)) * clamp(cover * 2.0, 0.0, 1.0));
+  }
+  if (cover > 0.95) cloud = clamp(cloud + 0.75, 0.0, 1.0);
+  return vec2(cloud, smoothstep(thr, thr + 0.25, cl));
+}
+`;
+
+// The cloud shell itself (BODY_VS at the deck's radius).
+export const CLOUD_FS = HEAD + NOISE + CLOUDS + `
+in vec3 vObj;
+in vec3 vViewPos;
+in vec3 vN;
+` + LOGDEPTH_F + `
+uniform vec3 uL0, uLc0, uL1, uLc1, uColC;
+uniform float uCloud, uSeed, uPx, uTime, uEcl;
+out vec4 outColor;
+void main() {
+  vec3 V = normalize(-vViewPos);
+  vec3 N = normalize(vN);
+  float mu = clamp(dot(N, V), 0.0, 1.0);
+  vec2 cf = cloudField(normalize(vObj), uCloud, uSeed, uPx);
+  // Seen obliquely, toward the limb, the layer is crossed along a longer path and looks denser.
+  float a = 1.0 - pow(1.0 - clamp(cf.x, 0.0, 0.995), 1.0 / max(mu, 0.2));
+  float d0 = dot(N, uL0), d1 = dot(N, uL1);
+  float lit0 = smoothstep(-0.1, 0.12, d0) * (0.3 + 0.7 * max(d0, 0.0));
+  float lit1 = smoothstep(-0.1, 0.12, d1) * (0.3 + 0.7 * max(d1, 0.0));
+  // Thick tops are brighter, thin edges greyer.
+  vec3 col = uColC * (0.72 + 0.32 * cf.y) * (uLc0 * lit0 * (1.0 - uEcl) + uLc1 * lit1 + 0.012);
+  // Lightning: brief blue-white flashes inside thick clouds on the night side.
+  if (cf.x > 0.6) {
+    float night = 1.0 - smoothstep(-0.1, 0.05, d0);
+    vec3 g = vObj * 40.0, cell = floor(g);
+    float fl = step(0.9965, hash(cell + floor(uTime * 7.0))) * smoothstep(0.5, 0.05, length(fract(g) - 0.5));
+    col += vec3(0.75, 0.8, 1.0) * fl * night * 1.6 * smoothstep(80.0, 200.0, uPx);
+  }
+  outColor = vec4(col * a, a);
+  ` + WRITE_DEPTH + `
+}
+`;
+
+export const BODY_FS = HEAD + NOISE + BLACKBODY + MAPTEX_FS + CLOUDS + `
 in vec3 vObj;
 in vec3 vViewPos;
 in vec3 vN;
@@ -156,6 +287,7 @@ uniform float uRingProf[16]; // ring opacity profile from the actual ring partic
 uniform sampler2D uMap;    // surface map: 1 = land/mountains/ice (Earth, painted worlds), 2 = albedo (lunar maria)
 uniform float uMapMode;
 uniform float uCity;       // night-side city lights (Earth)
+uniform float uDeckH;      // cloud deck height (body radii), for the shadows
 uniform sampler2D uNight;  // where they are (Black Marble), when uNightMap = 1
 uniform float uNightMap;
 uniform vec4 uOcc[4];      // bodies that can eclipse this one: centre relative to the eye (world axes), radius
@@ -219,17 +351,6 @@ float ringShadow(vec3 P, vec3 L) {
   return uRingProf[k];
 }
 
-float crater(vec3 p) {
-  vec3 i = floor(p), f = fract(p);
-  float d = 8.0;
-  for (int z = -1; z <= 1; z++) for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {
-    vec3 g = vec3(float(x), float(y), float(z));
-    vec3 o = vec3(hash(i + g), hash(i + g + 19.1), hash(i + g + 47.7));
-    vec3 r = g + o - f;
-    d = min(d, dot(r, r) * (0.6 + hash(i + g + 7.3)));
-  }
-  return sqrt(d);
-}
 
 // Crisp terminator, softened slightly where there is an atmosphere to scatter light.
 uniform float uSoft;
@@ -608,68 +729,19 @@ void main() {
   vec3 lit = vec3(0.015) + uLc0 * lightTerm(N, uL0) * (1.0 - 0.85 * rs) * (1.0 - ecl) + uLc1 * lightTerm(N, uL1);
   // Giant planets darken toward the limb (sunlight there is scattered in the haze above the clouds).
   if (uKind == 1) lit *= 0.55 + 0.45 * pow(mu, 0.45);
+  // The clouds themselves are drawn on their own layer above (CLOUD_FS); here only their shadows,
+  // cast toward the light's opposite side by the deck's height.
   float cloud = 0.0;
-  if (uCloud > 0.0) {
-    // Clouds: domain-warped noise gives swirls and cyclones; cover is heaviest along the equator
-    // (the ITCZ) and the mid-latitude storm tracks, thinnest over the subtropical highs.
-    vec3 drift = vec3(uTime * 0.03, 0.0, uTime * 0.012);
-    vec3 wv = vec3(fbm(vObj * 2.1 + uSeed + 1.3, 3), fbm(vObj * 2.1 + uSeed + 7.9, 3), fbm(vObj * 2.1 + uSeed + 4.4, 3)) - 0.5;
-    float zone = 0.55 + 0.3 * exp(-lat * lat / 0.012) + 0.35 * exp(-pow(lat - 0.78, 2.0) / 0.02) - 0.35 * exp(-pow(lat - 0.45, 2.0) / 0.015);
-    // Stretched east-west by zonal winds; fbm values cluster near 0.5, so the threshold maps cover.
-    // Mid-latitude storm systems: the cloud field is twisted into spirals around a few low-pressure
-    // centres (anticlockwise in the north, clockwise in the south, seen from above).
-    vec3 vS = vObj;
-    float spiral = 0.0;
-    for (int k = 0; k < 5; k++) {
-      float fk = float(k);
-      float clat = (0.6 + 0.35 * hash(vec3(fk, 1.0, uSeed))) * (mod(fk, 2.0) < 0.5 ? 1.0 : -1.0) * 0.9;
-      float clon = 6.2831853 * hash(vec3(fk, 2.0, uSeed)) + uTime * 0.004;
-      vec3 c = vec3(cos(clat) * cos(clon), sin(clat), cos(clat) * sin(clon));
-      float dd = length(vS - c);
-      float ang = 5.5 * exp(-dd * dd / 0.012) * sign(c.y);
-      // Rodrigues rotation of the sample point about the storm's axis.
-      vS = vS * cos(ang) + cross(c, vS) * sin(ang) + c * dot(c, vS) * (1.0 - cos(ang));
-      spiral += exp(-dd * dd / 0.02);
-    }
-    vec3 cq = vec3(vS.x * 3.2, vS.y * 5.5, vS.z * 3.2) + wv * 1.8 + drift + uSeed * 1.7;
-    float cl = fbm(cq, 6) + 0.08 * (vnoise(cq * 6.0) - 0.5) + 0.12 * spiral;
-    float thr = 0.5 + (0.5 - clamp(uCloud * zone * 1.2, 0.0, 1.0)) * 0.34;
-    cloud = smoothstep(thr - 0.04, thr + 0.12, cl);
-    // Fair-weather cumulus: fields of small puffy cells over the tropical oceans and warm land.
-    if (uPx > 80.0) {
-      float cellC = crater(vObj * 160.0 + uSeed);
-      float cum = (1.0 - smoothstep(0.05, 0.42, cellC)) * smoothstep(0.56, 0.7, fbm(vObj * 9.0 + uSeed + 2.0, 4));
-      cloud = max(cloud, cum * exp(-lat * lat / 0.1) * 0.55 * clamp(uCloud * 1.4, 0.0, 1.0) * smoothstep(80.0, 250.0, uPx));
-    }
-    // Close up: crisper, finer structure in the cloud edges.
-    if (uPx > 250.0) {
-      float fine = fbm(cq * 7.0 + 3.0, 4) - 0.5;
-      cloud = smoothstep(0.15, 0.85, clamp(cloud + fine * 0.6 * cloud * (1.0 - cloud) * 4.0, 0.0, 1.0));
-    }
-    cloud = clamp(cloud + (uCloud > 0.95 ? 0.75 : 0.0), 0.0, 1.0) * (1.0 - boiled * 0.6);
-    // Cloud shadows on the ground, offset toward the Sun.
+  if (uCloud > 0.0 && uCloud < 0.95) {
     vec3 Lo = transpose(uRot) * (transpose(uView) * uL0);
-    vec3 sp = vObj + Lo * 0.015;
-    float cs = smoothstep(thr - 0.04, thr + 0.12, fbm(vec3(sp.x * 3.2, sp.y * 5.5, sp.z * 3.2) + wv * 1.8 + drift + uSeed * 1.7, 5));
-    col *= 1.0 - 0.45 * cs * (1.0 - cloud) * uCloud;
-    // Thick cloud tops are brighter, thin edges greyer.
-    vec3 cc = uColC * (0.72 + 0.32 * smoothstep(thr, thr + 0.25, cl));
-    // Haze map (Titan): the real brightness pattern of the haze top, relative to its mean.
-    if (uMapMode > 3.5 && uMapMode < 4.5) cc *= 2.0 * mapTex(uMap, vObj).r;
-    col = mix(col, cc, cloud);
+    float cs = cloudField(normalize(vObj + Lo * uDeckH), uCloud, uSeed, min(uPx, 60.0)).x;
+    col *= 1.0 - 0.45 * cs * smoothstep(-0.05, 0.2, dot(N, uL0));
   }
   vec3 Hv = normalize(uL0 + V);
   float spec = pow(max(dot(N, Hv), 0.0), 90.0) * 0.4 * water * (1.0 - cloud);
   // Sunglint on water widens and brightens toward the limb (Fresnel).
   spec += pow(max(dot(N, Hv), 0.0), 12.0) * 0.12 * water * (1.0 - cloud) * pow(1.0 - mu, 3.0);
   vec3 outc = col * lit + spec * uLc0 * (1.0 - rs) * (1.0 - ecl);
-  // Lightning: brief blue-white flashes inside thick clouds on the night side.
-  if (uCloud > 0.0 && cloud > 0.6) {
-    float nightL = 1.0 - smoothstep(-0.1, 0.05, dot(N, uL0));
-    vec3 g = vObj * 40.0, cell = floor(g);
-    float fl = step(0.9965, hash(cell + floor(uTime * 7.0))) * smoothstep(0.5, 0.05, length(fract(g) - 0.5));
-    outc += vec3(0.75, 0.8, 1.0) * fl * nightL * cloud * 1.6 * smoothstep(80.0, 200.0, uPx);
-  }
   // City lights on the night side: clustered along coasts and in lowlands, absent from ice and desert.
   if (uCity > 0.0 && uKind == 0) {
     float night = 1.0 - smoothstep(-0.12, 0.08, dot(N, uL0));

@@ -146,6 +146,12 @@ Switch in **Settings → View**.
   headphones); Settings → "Bass boost for the phone speaker" turns it on.
   Sound starts on the first tap (a browser rule). It plays even with the iPhone on silent, unless
   Settings → "Quiet when the iPhone is on silent" is on (that mode also lets your music keep playing).
+- **Clouds** on their own layer above the ground (about 1.2 scale heights up, ~10 km on Earth), casting
+  shadows below. They move with simulation time (capped at 0.4 days per real second) on latitude-
+  dependent winds: easterly trades, westerlies near 45°, polar easterlies, ~20 m/s; a planet-wide deck
+  (Venus, Titan) super-rotates at ~100 m/s (Venus's clouds circle it in about 4 days). Two generations of
+  cloud field crossfade every few days, so clouds form, shear and dissipate. Cover follows the climate
+  model, so the weather changes as the planet warms, cools or loses its oceans.
 - **Image maps** (assets/maps, equirectangular, 0° longitude at the centre):
   - *Colour maps*: Mars (Viking colour mosaic), Io (Galileo/Voyager), Pluto (New Horizons), Jupiter and
     Saturn (Cassini; their contrast-enhanced colours scaled back to the app's true-colour calibration).

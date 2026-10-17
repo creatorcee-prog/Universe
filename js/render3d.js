@@ -2,7 +2,7 @@ import { PK } from './physics.js';
 import { isLuminous, tempToRGB, schwarzschild } from './bodies.js';
 import { transientLum } from './stellar.js';
 import { EARTH_MASS } from './units.js';
-import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS, RIM_FS, TERRAIN_VS, TERRAIN_FS, RING_FS } from './shaders.js';
+import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS, RIM_FS, TERRAIN_VS, TERRAIN_FS, RING_FS, CLOUD_FS } from './shaders.js';
 import { atmosphereOptics, setOpticsUniforms, atmosphereTop, groundLight } from './optics.js';
 import { heatOutput } from './thermal.js';
 import { earthMap, moonMap } from './geography.js';
@@ -233,6 +233,7 @@ export class Renderer3D {
     this.pBody = this.program(BODY_VS, BODY_FS);
     this.pAtmo = this.program(BODY_VS, ATMO_FS);
     this.pRim = this.program(BODY_VS, RIM_FS);
+    this.pCloud = this.program(BODY_VS, CLOUD_FS);
     this.pSprite = this.program(SPRITE_VS, SPRITE_FS);
     this.pDisk = this.program(DISK_VS, DISK_FS);
     this.pPoints = this.program(POINTS_VS, POINTS_FS);
@@ -840,6 +841,9 @@ export class Renderer3D {
       const w = (Math.PI * 2) / Math.max(l.day * HOUR_YR, 1e-9);
       s.ang += Math.min(w * simDt, MAX_SPIN * dtReal) * Math.sign(l.day);
     }
+    // Cloud clock (days): follows the simulation, at most 0.4 days per real second so fast-forward
+    // churns the weather without strobing.
+    if (dtReal > 0 && dtReal < 1) this.cloudT = (this.cloudT || 0) + Math.min(Math.max(simDt || 0, 0) * 365.25, 0.4 * dtReal);
 
     // Ring geometry per planet, measured from its ring particles: plane, extent and a 16-bin opacity
     // profile (so gaps such as the Cassini Division show in the shadow the rings cast on the planet).
@@ -1028,8 +1032,17 @@ export class Renderer3D {
     // Giants show their bands, not a rocky planet's cloud deck. A haze too thick to see through (Titan's,
     // optical depth ~5) hides the ground from space just as a full cloud deck does.
     let cover = th && l.kind === 0 ? th.cloud : 0;
-    if (l.kind === 0 && cover < 1) { const o = atmosphereOptics(b); if (o && o.tauM > 3) cover = 1; }
+    const opt0 = l.kind === 0 ? atmosphereOptics(b) : null;
+    if (l.kind === 0 && cover < 1 && opt0 && opt0.tauM > 3) cover = 1;
     gl.uniform1f(u.uCloud, cover);
+    // The cloud deck: low (about 1.2 scale heights) for weather clouds, high (~4.4, Venus's tops at
+    // ~70 km) for a planet-wide deck, which super-rotates (~100 m/s; Earth's winds aloft ~20 m/s).
+    const deck = cover >= 0.95 ? 1 : 0;
+    const Rm = b.r * 1.495978707e11;
+    // (A planet-wide deck hides the ground anyway, so it sits just above it, where the air's glow is fitted.)
+    const deckH = deck ? 0.0006 : Math.max(0.0015, Math.min(0.02, opt0 ? (1.2 * opt0.H) / Rm : 0.002));
+    const wind = ((deck ? 100 : 20) / Rm) * 86400;
+    gl.uniform1f(u.uCloudT, this.cloudT || 0); gl.uniform1f(u.uWind, wind); gl.uniform1f(u.uDeck, deck); gl.uniform1f(u.uDeckH, deckH);
     // An image map already shows the real craters and lineae; procedural ones would double them.
     const imgMap = b.surfaceMap && b.surfaceMap.mode >= 5;
     gl.uniform1f(u.uCraters, imgMap ? 0 : l.craters || 0);
@@ -1179,6 +1192,36 @@ export class Renderer3D {
     gl.bindVertexArray(g.vao);
     gl.drawElements(gl.TRIANGLES, g.n, g.type, 0);
 
+    // The cloud layer: its own shell just above the ground, alpha-blended, under the atmosphere's glow.
+    if (cover > 0.001 && shownPx > 3 && !(this.surface && this.surface.body === b) && Math.hypot(x, y, z) > R * (1 + deckH) * 1.0005) {
+      const lc = ld.map((v) => Array.from(v)), colC = l.colC || [0.95, 0.96, 1];
+      glows.push(() => {
+        const c = this.pCloud, cu = c.u;
+        gl.enable(gl.CULL_FACE);
+        gl.cullFace(gl.BACK);
+        gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+        gl.useProgram(c.p);
+        gl.uniformMatrix4fv(cu.uProj, false, this.P);
+        gl.uniformMatrix3fv(cu.uView, false, this.V);
+        gl.uniform3f(cu.uCenter, x, y, z);
+        gl.uniformMatrix3fv(cu.uRot, false, rot);
+        gl.uniform1f(cu.uRadius, R * (1 + deckH));
+        gl.uniform3fv(cu.uTideDir, tide.dir);
+        gl.uniform1f(cu.uTide, Math.min(0.45, 1.5 * tide.tau));
+        gl.uniform1i(cu.uImpN, 0);
+        gl.uniform1f(cu.uLumpy, 0);
+        gl.uniform1f(cu.uLogDepthFC, this.logFC);
+        gl.uniform3fv(cu.uL0, lc[0]); gl.uniform3fv(cu.uLc0, lc[1]); gl.uniform3fv(cu.uL1, lc[2]); gl.uniform3fv(cu.uLc1, lc[3]);
+        gl.uniform3fv(cu.uColC, colC);
+        gl.uniform1f(cu.uCloud, cover); gl.uniform1f(cu.uSeed, seeded(b.id) * 40); gl.uniform1f(cu.uPx, shownPx);
+        gl.uniform1f(cu.uTime, performance.now() / 1000); gl.uniform1f(cu.uEcl, 0);
+        gl.uniform1f(cu.uCloudT, this.cloudT || 0); gl.uniform1f(cu.uWind, wind); gl.uniform1f(cu.uDeck, deck);
+        gl.bindVertexArray(g.vao);
+        gl.drawElements(gl.TRIANGLES, g.n, g.type, 0);
+        gl.blendFunc(gl.ONE, gl.ONE);
+        gl.disable(gl.CULL_FACE);
+      });
+    }
     // Glows and other additive layers, drawn after all solid bodies.
     if ((atmo || optics) && shownPx > 3 && !(this.surface && this.surface.body === b)) {
       const top = optics ? atmosphereTop(optics) : l.kind === 1 ? 1.015 : 1.035;
