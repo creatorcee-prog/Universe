@@ -130,3 +130,14 @@ Next:
 - **Laser settings**: beam radius and wavelength.
 - **Tidal locking**: and planets' spin-down.
 - **Launch placement**: aim and power.
+
+## Earth geography, paint, eclipses: what is next
+
+- **Real data**: a real Earth texture (NASA Blue Marble, public domain) and Natural Earth coastlines. The
+  hand-traced outlines are about 2–5° accurate; downloads were blocked in the build environment.
+- **Paint**: painted water and land don't yet feed the climate model's ocean inventory. Other ideas: undo,
+  a vegetation brush, and paint for gas giants (storms).
+- **The Moon**: a real topography and albedo map (LRO). Craters at their real positions.
+- **Gas giants**: white ovals and polar cyclones (Juno). Uranus and Neptune banding.
+- **Stars**: flares, prominences and starspots on M dwarfs.
+- **Black holes**: true ray-traced lensing of the background stars.

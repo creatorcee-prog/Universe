@@ -4,6 +4,9 @@ import { transientLum } from './stellar.js';
 import { EARTH_MASS } from './units.js';
 import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS } from './shaders.js';
 import { heatOutput } from './thermal.js';
+import { earthMap, moonMap } from './geography.js';
+
+let EARTH_MAP = null, MOON_MAP = null; // built once, on first use
 
 // Realistic view: WebGL2 spheres with procedural, physically driven surfaces.
 // Positions are taken relative to the camera in double precision before going to the GPU,
@@ -21,25 +24,25 @@ const LOOKS = {
   Mercury: { colA: c3(128, 122, 115), colB: c3(92, 87, 82), craters: 1, tilt: 0.03, day: 1407.6 },
   Venus: { colA: c3(200, 160, 100), colB: c3(160, 120, 80), cloud: 1, colC: c3(236, 214, 160), atmo: c3(255, 220, 150), atmoK: 0.7, tilt: 177.4, day: 5832.5 },
   Earth: { colA: c3(120, 100, 70), colB: c3(150, 130, 95), ocean: 0.7, life: 1, cloud: 0.62, atmo: c3(90, 150, 255), atmoK: 1, tilt: 23.4, day: 23.93 },
-  Moon: { colA: c3(160, 156, 150), colB: c3(92, 90, 88), craters: 1, tilt: 6.7, day: 655.7 },
+  Moon: { colA: c3(160, 156, 150), colB: c3(92, 90, 88), craters: 1, tilt: 6.7, day: 655.7, locked: 1 },
   Mars: { colA: c3(170, 84, 44), colB: c3(118, 58, 32), craters: 0.35, atmo: c3(230, 140, 90), atmoK: 0.25, tilt: 25.2, day: 24.6 },
   Ceres: { colA: c3(118, 115, 110), colB: c3(84, 82, 80), craters: 1, lumpy: 0.03, day: 9.07 },
-  Jupiter: { kind: 1, colA: c3(234, 218, 190), colB: c3(176, 126, 88), bands: 7, storm: [0.95, -0.32, 0.1, 0.17], colC: c3(190, 90, 60), atmo: c3(230, 210, 170), atmoK: 0.2, tilt: 3.1, day: 9.93 },
+  Jupiter: { kind: 1, colA: c3(234, 218, 190), colB: c3(176, 126, 88), bands: 7, storm: [0.95, -0.32, 0.1, 0.078], colC: c3(190, 90, 60), atmo: c3(230, 210, 170), atmoK: 0.2, tilt: 3.1, day: 9.93 },
   Saturn: { kind: 1, colA: c3(240, 228, 196), colB: c3(214, 192, 148), bands: 9, bandK: 0.45, atmo: c3(240, 220, 170), atmoK: 0.2, tilt: 26.7, day: 10.7, hex: 1 },
   Uranus: { kind: 1, colA: c3(170, 226, 232), colB: c3(150, 210, 220), bands: 3, atmo: c3(180, 240, 255), atmoK: 0.4, tilt: 97.8, day: 17.24 },
   Neptune: { kind: 1, colA: c3(76, 112, 226), colB: c3(56, 88, 196), bands: 4, storm: [0.6, -0.5, 0.6, 0.12], colC: c3(30, 46, 120), atmo: c3(120, 160, 255), atmoK: 0.45, tilt: 28.3, day: 16.1 },
   Pluto: { colA: c3(214, 190, 160), colB: c3(140, 100, 76), craters: 0.3, tilt: 122.5, day: 153.3 },
-  Io: { colA: c3(232, 214, 110), colB: c3(190, 140, 60), volc: 1, day: 42.5 },
-  Europa: { colA: c3(226, 218, 204), colB: c3(170, 130, 100), lineae: 1, day: 85.2 },
-  Ganymede: { colA: c3(150, 140, 126), colB: c3(98, 88, 78), craters: 0.6, day: 171.7 },
-  Callisto: { colA: c3(104, 94, 82), colB: c3(70, 62, 54), craters: 1, day: 400.5 },
+  Io: { colA: c3(232, 214, 110), colB: c3(190, 140, 60), volc: 1, day: 42.5, locked: 1 },
+  Europa: { colA: c3(226, 218, 204), colB: c3(170, 130, 100), lineae: 1, day: 85.2, locked: 1 },
+  Ganymede: { colA: c3(150, 140, 126), colB: c3(98, 88, 78), craters: 0.6, day: 171.7, locked: 1 },
+  Callisto: { colA: c3(104, 94, 82), colB: c3(70, 62, 54), craters: 1, day: 400.5, locked: 1 },
   "Halley's Comet": { colA: c3(48, 44, 40), colB: c3(30, 28, 26), lumpy: 0.45, craters: 0.5, day: 52.8 },
-  Titan: { colA: c3(150, 110, 60), colB: c3(110, 80, 50), cloud: 1, colC: c3(214, 150, 70), atmo: c3(230, 160, 70), atmoK: 1, day: 382.7 },
-  Enceladus: { colA: c3(244, 246, 250), colB: c3(214, 222, 232), lineae: 0.6, craters: 0.3, day: 32.9 },
-  Triton: { colA: c3(226, 204, 198), colB: c3(190, 160, 150), craters: 0.2, lineae: 0.3, day: -141 },
-  Charon: { colA: c3(170, 166, 160), colB: c3(120, 100, 90), craters: 0.6, day: 153.3 },
-  Phobos: { colA: c3(100, 92, 84), colB: c3(70, 64, 58), lumpy: 0.25, craters: 1, day: 7.65 },
-  Deimos: { colA: c3(140, 128, 112), colB: c3(110, 100, 88), lumpy: 0.2, craters: 0.6, day: 30.3 },
+  Titan: { colA: c3(150, 110, 60), colB: c3(110, 80, 50), cloud: 1, colC: c3(214, 150, 70), atmo: c3(230, 160, 70), atmoK: 1, day: 382.7, locked: 1 },
+  Enceladus: { colA: c3(244, 246, 250), colB: c3(214, 222, 232), lineae: 0.6, craters: 0.3, day: 32.9, locked: 1 },
+  Triton: { colA: c3(226, 204, 198), colB: c3(190, 160, 150), craters: 0.2, lineae: 0.3, day: -141, locked: 1 },
+  Charon: { colA: c3(170, 166, 160), colB: c3(120, 100, 90), craters: 0.6, day: 153.3, locked: 1 },
+  Phobos: { colA: c3(100, 92, 84), colB: c3(70, 64, 58), lumpy: 0.25, craters: 1, day: 7.65, locked: 1 },
+  Deimos: { colA: c3(140, 128, 112), colB: c3(110, 100, 88), lumpy: 0.2, craters: 0.6, day: 30.3, locked: 1 },
   Vesta: { colA: c3(160, 150, 140), colB: c3(110, 102, 96), lumpy: 0.12, craters: 1, day: 5.34 },
   'Proto-Earth': { colA: c3(90, 50, 36), colB: c3(60, 34, 26), day: 5 },
   Theia: { colA: c3(140, 115, 96), colB: c3(100, 82, 70), craters: 0.5, day: 12 },
@@ -158,6 +161,7 @@ export class Renderer3D {
     this.gl = gl;
     this.looks = new Map();
     this.spin = new Map();
+    this.mapTex = new Map(); // body -> surface-map texture
     this.dpr = 1;
     this.lost = false;
     canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); this.lost = true; });
@@ -579,6 +583,17 @@ export class Renderer3D {
       const l = this.look(b);
       let s = this.spin.get(b);
       if (!s) { s = { ang: seeded(b.id) * 6.28 }; this.spin.set(b, s); }
+      if (l.locked) {
+        // Tidally locked: the same face (body +x, longitude 0) always points at the parent planet,
+        // the one closest in tidal terms (smallest distance / cube root of mass).
+        let par = null, best = Infinity;
+        for (const o of world.bodies) {
+          if (o === b || o.m <= b.m) continue;
+          const k = Math.hypot(o.x - b.x, o.y - b.y, o.z - b.z) / Math.cbrt(o.m);
+          if (k < best) { best = k; par = o; }
+        }
+        if (par) { s.ang = Math.atan2(-(par.z - b.z), par.x - b.x); continue; }
+      }
       const w = (Math.PI * 2) / Math.max(l.day * HOUR_YR, 1e-9);
       s.ang += Math.min(w * simDt, MAX_SPIN * dtReal) * Math.sign(l.day);
     }
@@ -788,6 +803,68 @@ export class Renderer3D {
       gl.uniform1f(u.uRelief, Math.max(0.25, Math.min(1.6, (0.8 * 9.81) / Math.max(g, 0.1))));
     }
     gl.uniform1f(u.uHex, l.hex || 0);
+    // Convection cells: ~40 across the Sun's disc (shown as fine texture), a handful on supergiants.
+    gl.uniform1f(u.uGran, Math.max(3.5, Math.min(40, 40 / Math.sqrt(Math.max(1, b.r / 0.00465)))));
+    // Surface maps: Earth's geography and the Moon's maria are built in; painting adds one to any world.
+    if (!b.surfaceMap && /^Earth( \d+)?$/.test(b.name) && b.kind === 'rocky') b.surfaceMap = { mode: 1, W: 512, H: 256, data: (EARTH_MAP ||= earthMap()).slice(), ver: 1 };
+    if (!b.surfaceMap && /^Moon( \d+)?$/.test(b.name) && b.kind === 'rocky') b.surfaceMap = { mode: 2, W: 512, H: 256, data: (MOON_MAP ||= moonMap()).slice(), ver: 1 };
+    const sm = b.surfaceMap;
+    if (sm) {
+      let t = this.mapTex.get(b);
+      if (!t) {
+        t = { tex: gl.createTexture(), ver: -1 };
+        this.mapTex.set(b, t);
+        gl.bindTexture(gl.TEXTURE_2D, t.tex);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      }
+      gl.activeTexture(gl.TEXTURE5);
+      gl.bindTexture(gl.TEXTURE_2D, t.tex);
+      if (t.ver !== sm.ver) {
+        if (t.ver < 0 || !sm.dirtyRows) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, sm.W, sm.H, 0, gl.RGBA, gl.UNSIGNED_BYTE, sm.data);
+        else {
+          const [y0, y1] = sm.dirtyRows;
+          gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y0, sm.W, y1 - y0 + 1, gl.RGBA, gl.UNSIGNED_BYTE, sm.data.subarray(y0 * sm.W * 4, (y1 + 1) * sm.W * 4));
+        }
+        sm.dirtyRows = null;
+        t.ver = sm.ver;
+      }
+      gl.uniform1i(u.uMap, 5);
+      gl.activeTexture(gl.TEXTURE0);
+    }
+    gl.uniform1f(u.uMapMode, sm ? sm.mode : 0);
+    gl.uniform1f(u.uCity, /^Earth( \d+)?$/.test(b.name) && b.life && (b.lifeAge || 0) > 3.7e9 ? 1 : 0);
+    // Eclipses: up to four bodies that sit between this one and its light, nearest the light path first.
+    {
+      const P = lights && lights.primary;
+      let nOcc = 0;
+      const occ = this.occBuf || (this.occBuf = new Float32Array(16));
+      if (P && P.d > 0) {
+        const Lx = P.dx / P.d, Ly = P.dy / P.d, Lz = P.dz / P.d;
+        const sunR = P.s && P.s.r ? P.s.r : 0.00465;
+        const sunAng = sunR / P.d;
+        gl.uniform1f(u.uSunAng, sunAng);
+        const cand = [];
+        for (const o of this.world.bodies) {
+          if (o === b || !(o.r > 0) || isLuminous(o) || o.kind === 'core') continue;
+          const ox = o.x - b.x, oy = o.y - b.y, oz = o.z - b.z;
+          const t = ox * Lx + oy * Ly + oz * Lz;
+          if (t <= 0 || t > P.d) continue;
+          const lat2 = ox * ox + oy * oy + oz * oz - t * t;
+          const reach = b.r + o.r + t * sunAng;
+          if (lat2 < reach * reach) cand.push([lat2, o]);
+        }
+        cand.sort((a, c) => a[0] - c[0]);
+        for (const [, o] of cand.slice(0, 4)) {
+          occ.set([o.x - this.ex, o.y - this.ey, o.z - this.ez, o.r], nOcc * 4);
+          nOcc++;
+        }
+      }
+      gl.uniform4fv(u.uOcc, occ);
+      gl.uniform1i(u.uOccN, nOcc);
+    }
     const ring = this.ringInfo && this.ringInfo.get(b);
     if (ring) {
       const nv = this.viewOf(ring.n[0], ring.n[1], ring.n[2]);
@@ -860,6 +937,10 @@ export class Renderer3D {
       glows.push(() => {
         this.disk(vp, R, heat, now);
         this.sprite(vp, R * 1.9, [1, 0.75, 0.45].map((v) => v * (0.7 + 0.4 * heat)), 2, 0, 1 / 1.9);
+        // Lensed far side of the disk and the photon ring, oriented by the disk's axis on screen.
+        const n = this.viewOf(0, 1, 0);
+        const edgeOn = 1 - Math.min(1, Math.abs(n[2]));
+        this.sprite(vp, R * 3.8, [1, 0.86, 0.68].map((v) => v * (0.55 + 0.5 * heat)), 4, Math.atan2(n[1], n[0]) - Math.PI / 2, edgeOn);
       });
     }
   }

@@ -205,6 +205,17 @@
       <output id="laser-label" class="laser-label">1e26 W</output>
       <button id="laser-done" class="icon-btn small" type="button" aria-label="Put the laser away"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     </div>
+    <div id="paintbar" class="addbar paint" hidden>
+      <div class="seg" role="group" aria-label="Brush">
+        <button type="button" data-brush="land" class="on">Land</button>
+        <button type="button" data-brush="water">Water</button>
+        <button type="button" data-brush="ice">Ice</button>
+        <button type="button" data-brush="mountain">Peaks</button>
+        <button type="button" data-brush="scorch">Scorch</button>
+      </div>
+      <label class="laser-power"><span class="sr">Brush size</span><input id="brush-size" type="range" min="1" max="25" step="1" value="6"></label>
+      <button id="paint-done" class="icon-btn small" type="button" aria-label="Stop painting"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
     <div class="bar-main">
       <button id="btn-play" class="icon-btn play" type="button" aria-label="Pause">
         <svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6v12M15 6v12"/></svg>
@@ -365,6 +376,7 @@
       <button class="tool-card" data-tool="view" type="button"><b>Select &amp; look</b><small>Tap objects for details, drag to orbit the camera, pinch to zoom.</small></button>
       <button class="tool-card" data-tool="add" type="button"><b>Create</b><small>Drop planets, stars, black holes and dust into the scene.</small></button>
       <button class="tool-card" data-tool="laser" type="button"><b>Laser</b><small>Hold on an object to pour energy into it: watch it heat, melt and glow. Its light also pushes gently.</small></button>
+      <button class="tool-card" data-tool="paint" type="button"><b>Paint</b><small>Paint land, oceans, ice, mountains or scorch marks straight onto a rocky world.</small></button>
       <button class="tool-card" data-tool="delete" type="button"><b>Delete</b><small>Tap objects to remove them.</small></button>
       <button class="tool-card" data-tool="surface" type="button"><b>Surface view</b><small>Stand on the selected rocky world and look at its sky.</small></button>
     </div>

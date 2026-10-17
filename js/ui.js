@@ -79,6 +79,10 @@ export class UI {
     $('add-more').addEventListener('click', () => this.openSheet('sheet-create'));
     $('add-done').addEventListener('click', () => this.setTool('view'));
     $('laser-done').addEventListener('click', () => this.setTool('view'));
+    $('paint-done').addEventListener('click', () => this.setTool('view'));
+    app.brush = 'land'; app.brushSize = 6;
+    document.querySelectorAll('[data-brush]').forEach((b) => b.addEventListener('click', () => { app.brush = b.dataset.brush; document.querySelectorAll('[data-brush]').forEach((x) => x.classList.toggle('on', x === b)); }));
+    $('brush-size').addEventListener('input', (e) => { app.brushSize = +e.target.value; });
     $('laser-power').addEventListener('input', (e) => this.setLaserPower(+e.target.value));
     document.querySelectorAll('[data-method]').forEach((b) => b.addEventListener('click', () => this.setMethod(b.dataset.method)));
     document.querySelectorAll('[data-cat]').forEach((b) => b.addEventListener('click', () => this.filterCreate(b.dataset.cat)));
@@ -320,6 +324,8 @@ export class UI {
     document.querySelectorAll('.tool-card').forEach((b) => b.classList.toggle('on', b.dataset.tool === t));
     $('tray').hidden = t !== 'add';
     $('laserbar').hidden = t !== 'laser';
+    $('paintbar').hidden = t !== 'paint';
+    if (t === 'paint') this.toast('Drag across a rocky world to paint it. Zoom in close for detail.');
     $('btn-create').classList.toggle('on', t === 'add');
     if (t === 'add') this.toast(app.state.addMethod === 'place' ? 'Tap to place it at rest. Drag to fling it.' : 'Tap to drop into orbit. Drag to fling it.');
     if (t === 'laser') this.toast('Hold your finger on an object to fire the laser at it.');

@@ -39,6 +39,9 @@ export class Input {
       } else if (this.app.state.tool === 'add') {
         this.mode = 'add';
         this.app.addBegin(x, y);
+      } else if (this.app.state.tool === 'paint') {
+        this.mode = 'paint';
+        this.app.paintAt(x, y, true);
       } else if (this.app.state.tool === 'laser') {
         this.mode = 'laser';
         this.app.laserStart(x, y);
@@ -86,6 +89,8 @@ export class Input {
       this.app.addMove(x, y);
     } else if (this.mode === 'laser') {
       this.app.laserMove(x, y);
+    } else if (this.mode === 'paint') {
+      this.app.paintAt(x, y, false);
     } else if (this.mode === 'pinch' && this.app.surface) {
       // no zoom while standing on a surface
     } else if (this.mode === 'pinch' && this.pointers.size >= 2) {

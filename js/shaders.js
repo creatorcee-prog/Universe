@@ -132,7 +132,30 @@ uniform float uHex;        // Saturn's north-polar hexagon
 uniform vec3 uRingN;       // ring-plane normal (view space); zero when there are no rings
 uniform vec2 uRingR;       // ring inner/outer radius in planet radii
 uniform float uRingProf[16]; // ring opacity profile from the actual ring particles
+uniform sampler2D uMap;    // surface map: 1 = land/mountains/ice (Earth, painted worlds), 2 = albedo (lunar maria)
+uniform float uMapMode;
+uniform float uCity;       // night-side city lights (Earth)
+uniform vec4 uOcc[4];      // bodies that can eclipse this one: centre relative to the eye (world axes), radius
+uniform int uOccN;
+uniform float uSunAng;     // angular radius of the light source seen from here (penumbra width)
+uniform float uGran;       // star convection-cell frequency (fewer, larger cells for bigger stars)
 out vec4 outColor;
+
+// Fraction of the light blocked by other bodies (eclipses, moons' shadows on giant planets), with a
+// penumbra as wide as the Sun's disc seen from the surface.
+float eclipse(vec3 P, vec3 L) {
+  float s = 0.0;
+  for (int i = 0; i < 4; i++) {
+    if (i >= uOccN) break;
+    vec3 C = uView * uOcc[i].xyz;
+    float t = dot(C - P, L);
+    if (t <= 0.0) continue;
+    float d = length(C - P - L * t);
+    float pen = t * uSunAng;
+    s = max(s, smoothstep(uOcc[i].w + pen, uOcc[i].w - pen, d));
+  }
+  return s;
+}
 
 // Shadow cast by the planet's ring onto its surface (fraction of light blocked).
 float ringShadow(vec3 P, vec3 L) {
@@ -213,13 +236,21 @@ void main() {
       vec3 col = mix(c, vec3(1.0), 0.55) * (0.65 + 0.35 * mu) * 1.25;
       outColor = vec4(col + glow, 1.0);
     } else {
-      float gran = fbm(vObj * 26.0 + vec3(uTime * 0.12, uTime * 0.07, 0.0), 4);
+      // Convection cells: bright upwelling centres, dark lanes of sinking gas. Their size relative to the
+      // star grows with its radius: invisible-small on the Sun at this scale, a few huge cells on a red
+      // supergiant (as imaged on Betelgeuse and R Doradus).
+      float cellC = crater(vObj * uGran + vec3(uTime * 0.02, 0.0, uTime * 0.013) + uSeed);
+      float warpN = fbm(vObj * uGran * 2.5 + uSeed + vec3(uTime * 0.03), 4);
+      float lanes = smoothstep(0.25, 0.7, cellC + 0.35 * (warpN - 0.5));
+      float gran = fbm(vObj * 26.0 + vec3(uTime * 0.12, uTime * 0.07, 0.0), 4) * (1.0 - lanes * 0.6) + (1.0 - lanes) * 0.25 * step(uGran, 24.0);
       // Sunspots: small, and only in the low-latitude belts where real ones appear.
       float sp = vnoise(vObj * 7.0 + uSeed + vec3(uTime * 0.01));
       float spot = smoothstep(0.82, 0.88, sp) * smoothstep(0.55, 0.1, abs(vObj.y)) * uSpots;
       // Limb darkening: the edge shows cooler, higher layers, so it is dimmer and redder.
       vec3 limb = blackbody(uTemp * (0.7 + 0.3 * sqrt(mu)));
-      float I = (0.5 + 0.5 * sqrt(mu)) * (0.9 + 0.2 * gran) * (1.0 - 0.75 * spot);
+      // Giant cells stand out strongly on supergiants (bright plumes, dark cool lanes).
+      float big = smoothstep(26.0, 6.0, uGran);
+      float I = (0.5 + 0.5 * sqrt(mu)) * (0.9 + 0.2 * gran) * (1.0 - 0.75 * spot) * (1.0 - big * (0.4 * lanes - 0.12)) * (1.0 + big * 0.25 * (warpN - 0.5));
       vec3 col = limb * I * 1.05 + c * glow * 1.5;
       outColor = vec4(col, 1.0);
     }
@@ -235,6 +266,7 @@ void main() {
   T += glow * 2600.0 + uHeat * 1700.0;
   vec3 col;
   float water = 0.0, frozen = 0.0, boiled = 0.0;
+  float cityLand = 0.0, cityE = 1.0, cityIce = 0.0; // passed from the surface block to the night lights
 
   if (uKind == 1) {
     float turb = fbm(vec3(vObj.x * 2.0, vObj.y * 7.0, vObj.z * 2.0) + uSeed, 5);
@@ -242,11 +274,27 @@ void main() {
     float band = 0.5 + 0.5 * sin(b * 6.2831853);
     col = mix(uColA, uColB, band * uBandK);
     col *= 0.94 + 0.12 * vnoise(vec3(vObj.x * 3.0, vObj.y * 46.0, vObj.z * 3.0) + uSeed);
-    if (uStorm.w > 0.0) {
+    // Eddies and filaments where neighbouring jets shear past each other (band edges).
+    float edgeW = 1.0 - abs(sin(b * 6.2831853));
+    float eddy = fbm(vec3(vObj.x * 6.0, vObj.y * 24.0, vObj.z * 6.0) + turb * 2.5 + uSeed + vec3(uTime * 0.01, 0.0, 0.0), 5);
+    col = mix(col, mix(uColA * 1.06, uColB * 0.78, step(0.52, eddy)), edgeW * 0.45 * smoothstep(0.38, 0.68, eddy) * uBandK);
+    if (uStorm.w > 0.0 && dot(vObj, normalize(uStorm.xyz)) > 0.0) {
+      // A great storm (Jupiter's Great Red Spot, Neptune's Dark Spot): an anticyclone about twice as
+      // wide as it is tall, its clouds spiralling inward, ringed by a pale collar, with a turbulent wake.
       vec3 sd = normalize(uStorm.xyz);
-      vec3 d = vObj - sd * dot(vObj, sd);
-      float e = length(vec2(length(d.xz) * 0.55, d.y)) / uStorm.w;
-      col = mix(col, uColC, smoothstep(1.0, 0.6, e) * step(0.0, dot(vObj, sd)));
+      vec3 east = normalize(cross(vec3(0.0, 1.0, 0.0), sd));
+      vec3 north = cross(sd, east);
+      vec2 uv = vec2(dot(vObj, east), dot(vObj, north)) / uStorm.w;
+      float er = length(vec2(uv.x / 1.5, uv.y)); // GRS ~16,000 x 11,000 km (Juno, 2017-19)
+      float sw = 2.6 * (1.0 - smoothstep(0.0, 1.3, er));
+      vec2 ruv = mat2(cos(sw), -sin(sw), sin(sw), cos(sw)) * uv;
+      float swirlN = fbm(vec3(ruv * 5.0, uSeed), 4);
+      float inside = smoothstep(1.05, 0.85, er);
+      vec3 spot = mix(mix(uColC, col, 0.25) * 1.1, uColC * 0.8 + vec3(0.1, 0.05, 0.02), smoothstep(0.85, 0.2, er)) * (0.8 + 0.45 * swirlN);
+      col = mix(col, spot, inside);
+      col = mix(col, vec3(0.93, 0.9, 0.84), exp(-pow((er - 1.12) / 0.09, 2.0)) * 0.7);
+      float wake = smoothstep(1.2, 2.6, -uv.x) * smoothstep(1.4, 0.3, abs(uv.y)) * smoothstep(5.0, 2.5, -uv.x);
+      col = mix(col, col * (0.75 + 0.5 * fbm(vec3(uv * 3.0, uSeed + 4.0), 4)), wake);
     }
     // Saturn's north-polar hexagon: a six-sided jet stream around a bluish polar vortex (Cassini).
     if (uHex > 0.0 && vObj.y > 0.7) {
@@ -263,11 +311,29 @@ void main() {
     // Terrain: continents from low-frequency noise, ridged mountain ranges on land, fine detail.
     float h = fbm(q, 6);
     float sea = 0.3 + 0.36 * uOcean; // fbm is roughly 0.3-0.7, so this tracks the ocean fraction
-    float e = h - sea;                // elevation above sea level, in noise units
+    // Elevation above sea level, in noise units; dry worlds measure it from their mean surface instead.
+    float e = uOcean > 0.0 ? h - sea : h - 0.56;
     float rg = 1.0 - abs(2.0 * vnoise(q * 3.1 + 11.0) - 1.0);
     float rg2 = 1.0 - abs(2.0 * vnoise(q * 7.3 + 3.0) - 1.0);
     float mtn = rg * rg * (0.65 + 0.35 * rg2) * smoothstep(0.0, 0.1, e);
     float landMask = uOcean > 0.0 ? smoothstep(sea, sea + 0.012, h) : 1.0;
+    // Surface map (equirectangular, east-positive longitude): real or painted geography.
+    vec4 MP = vec4(0.0);
+    float coast = 0.5, mapW = 0.0;
+    if (uMapMode > 0.5) {
+      vec2 uvM = vec2(atan(-vObj.z, vObj.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(vObj.y, -1.0, 1.0)) / 3.14159265);
+      MP = texture(uMap, uvM);
+      if (uMapMode < 1.5) {
+        mapW = MP.a;
+        coast = MP.r + (h - 0.5) * 0.5; // coastline at 0.5, roughened by the noise
+        // A (alpha) says where the map sets land and sea; mountains (G) and ice (B) apply anywhere,
+        // so painting them onto a procedural world keeps its own coastlines.
+        landMask = mix(landMask, smoothstep(0.48, 0.52, coast), mapW);
+        e = mix(e, min((coast - 0.5) * 0.12, 0.05), mapW) + 0.22 * MP.g;
+        mtn = max(mtn, rg * rg * (0.35 + 0.65 * rg2) * MP.g * 1.7);
+        landMask = max(landMask, smoothstep(0.15, 0.35, MP.g));
+      }
+    }
     float Hgt = (uOcean > 0.0 ? max(e, 0.0) : h - 0.5) + 0.14 * mtn + 0.006 * vnoise(q * 38.0);
     // Relief shading: tilt the normal by the slope of the height field (screen-space bump mapping),
     // so mountain ranges and valleys show, most of all near the terminator.
@@ -300,7 +366,7 @@ void main() {
     frozen = smoothstep(272.0, 260.0, T);
     boiled = smoothstep(uBoil, uBoil + 30.0, T);
     // Oceans: deep blue, turquoise over shallow shelves near the coast.
-    float depth = sea - h;
+    float depth = mix(sea - h, (0.5 - coast) * 0.45, mapW);
     vec3 ocean = mix(vec3(0.01, 0.045, 0.15), vec3(0.03, 0.17, 0.36), smoothstep(0.14, 0.02, depth));
     ocean = mix(ocean, vec3(0.06, 0.34, 0.40), smoothstep(0.035, 0.0, depth) * 0.75);
     vec3 seabed = mix(uColB * 0.55, uColA * 0.45, h);
@@ -311,9 +377,17 @@ void main() {
     // Ice caps creep toward the equator as the planet cools.
     float snow = smoothstep(uSnowLat, uSnowLat + 0.07, lat + 0.12 * (fbm(q * 3.0, 3) - 0.5));
     col = mix(col, ice, snow * smoothstep(290.0, 268.0, T) * uIce);
+    cityLand = landMask; cityE = e; cityIce = MP.b;
+    // Mapped ice sheets (Greenland, Antarctica) and painted ice.
+    col = mix(col, ice * (0.92 + 0.08 * rg2), (uMapMode < 1.5 ? 1.0 : 0.0) * smoothstep(0.35, 0.6, MP.b));
+    // Albedo maps: dark basaltic maria and bright ray systems on the Moon.
+    if (uMapMode > 1.5) {
+      col = mix(col, vec3(0.2, 0.2, 0.21) * (0.85 + 0.3 * vnoise(q * 12.0)), MP.r * 0.85);
+      col = mix(col, vec3(0.78, 0.77, 0.75), MP.b * 0.55);
+    }
     // Snow on high peaks: air cools with height (about 6.5 K per km on Earth).
     // Only worlds with a water cycle (liquid oceans) get snow-capped peaks.
-    float Tz = T - 50.0 * max(e, 0.0) - 95.0 * mtn;
+    float Tz = T - 40.0 * max(e, 0.0) - 85.0 * mtn * mtn;
     col = mix(col, ice * (0.9 + 0.1 * rg2), smoothstep(266.0, 256.0, Tz) * landMask * step(0.001, uOcean) * smoothstep(0.03, 0.1, e));
     if (uCraters > 0.0) {
       float c = crater(vObj * 4.0 + uSeed);
@@ -332,7 +406,8 @@ void main() {
   // Lighting, with the shadow of the planet's own rings.
   vec3 Pc = vViewPos - uView * uCenter;
   float rs = ringShadow(Pc, uL0);
-  vec3 lit = vec3(0.015) + uLc0 * lightTerm(N, uL0) * (1.0 - 0.85 * rs) + uLc1 * lightTerm(N, uL1);
+  float ecl = uOccN > 0 ? eclipse(Pc + uView * uCenter, uL0) : 0.0;
+  vec3 lit = vec3(0.015) + uLc0 * lightTerm(N, uL0) * (1.0 - 0.85 * rs) * (1.0 - ecl) + uLc1 * lightTerm(N, uL1);
   float cloud = 0.0;
   if (uCloud > 0.0) {
     // Clouds: domain-warped noise gives swirls and cyclones; cover is heaviest along the equator
@@ -359,7 +434,15 @@ void main() {
   float spec = pow(max(dot(N, Hv), 0.0), 90.0) * 0.4 * water * (1.0 - cloud);
   // Sunglint on water widens and brightens toward the limb (Fresnel).
   spec += pow(max(dot(N, Hv), 0.0), 12.0) * 0.12 * water * (1.0 - cloud) * pow(1.0 - mu, 3.0);
-  vec3 outc = col * lit + spec * uLc0 * (1.0 - rs);
+  vec3 outc = col * lit + spec * uLc0 * (1.0 - rs) * (1.0 - ecl);
+  // City lights on the night side: clustered along coasts and in lowlands, absent from ice and desert.
+  if (uCity > 0.0 && uKind == 0) {
+    float night = 1.0 - smoothstep(-0.12, 0.08, dot(N, uL0));
+    float cl0 = smoothstep(0.6, 0.85, vnoise(q * 60.0)) * smoothstep(0.42, 0.62, fbm(q * 7.0 + 3.0, 3));
+    float coastal = 1.0 - smoothstep(0.0, 0.12, cityE);
+    float lights = cl0 * (0.35 + 0.65 * coastal) * cityLand * (1.0 - smoothstep(0.3, 0.6, cityIce / 1.0)) * (1.0 - frozen) * smoothstep(0.0, 0.4, 1.0 - lat);
+    outc += vec3(1.0, 0.7, 0.36) * lights * night * 0.9 * (1.0 - cloud * 0.7);
+  }
 
   // Heat. Rocky worlds grow a dark basalt crust broken by pools of glowing lava; the pools spread
   // and merge as the temperature climbs until the whole surface is molten. Gas giants glow in bands.
@@ -479,6 +562,15 @@ void main() {
     a = exp(-r * r * 5.0) * 0.8;
   } else if (uType == 2) {
     a = exp(-pow((r - uInner) / 0.05, 2.0)) * 0.9 + exp(-pow((r - uInner) / 0.25, 2.0)) * 0.25;
+  } else if (uType == 4) {
+    // Gravitationally lensed image of the accretion disk: light from the far side of the disk is bent
+    // over and under the shadow, so an edge-on disk shows bright arcs above and below the black hole
+    // (as in Luminet 1979 and the Interstellar renders), plus a thin photon ring at the shadow's edge.
+    // vC.y points along the disk's projected axis; uInner = how edge-on the disk is (0 face-on, 1 edge-on).
+    float cphi = abs(vC.y) / max(r, 1e-4);
+    float arc = exp(-pow((r - 0.36) / (0.05 + 0.05 * cphi), 2.0)) * (0.35 + 0.9 * pow(cphi, 1.2) * uInner + 0.5 * (1.0 - uInner));
+    float photon = exp(-pow((r - 0.265) / 0.012, 2.0)) * 0.9;
+    a = arc * 0.85 + photon;
   } else {
     a = exp(-vC.y * vC.y * 500.0) * (1.0 - abs(vC.x)) * 0.5;
   }

@@ -135,6 +135,24 @@ Switch in **Settings → View**.
     density, Cassini Division included.
   - *Hot giants*: they glow through turbulent bands with dark vortices.
   - *Surface view*: a moving cloud deck overhead, lit white by day and pink-orange at sunset.
+- **Earth's real geography**:
+  - *Coastlines*: hand-traced continents and major islands (about 2–5° accurate), roughened by noise.
+  - *Relief and ice*: the Himalaya, Andes, Rockies, Alps and other ranges, plus the Greenland and Antarctic
+    ice sheets.
+  - *City lights*: on the night side, clustered along coasts.
+- **The Moon's real face**: the maria at their real selenographic positions, Tycho's and Copernicus's
+  ray systems, and tidal locking. The Moon and the large moons of Jupiter, Saturn, Neptune and Pluto keep
+  the same face toward their planet.
+- **Eclipses and transits**: moons and planets cast shadows on each other, with a penumbra as wide as the
+  Sun's disc seen from there. Io's shadow crosses Jupiter, and the Moon can eclipse the Sun on Earth.
+- **The Great Red Spot**: a spiralling anticyclone at its measured size (about 16,000 km), with a pale
+  collar and a turbulent wake. Jupiter's band edges carry sheared eddies and filaments.
+- **Stars**: convection cells scale with the star's size. They're fine texture on the Sun, and a few giant
+  mottled cells on red supergiants, as imaged on Betelgeuse.
+- **Black holes**: the accretion disk's far side is lensed into arcs above and below the shadow, with a
+  thin photon ring at the shadow's edge (after Luminet 1979).
+- **Paint tool** (Tools → Paint): brush land, water, ice, mountains or scorch marks onto any rocky world.
+  Painted water freezes on a cold planet like Mars, and scorch marks glow and cool like impact scars.
 - **Classic**: the original 2D canvas renderer. Lighter on battery and older phones.
 - **NASA models**: planned, see [docs/ROADMAP.md](docs/ROADMAP.md).
 

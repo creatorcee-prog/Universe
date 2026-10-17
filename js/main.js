@@ -262,6 +262,68 @@ class App {
     this.ui.toast(`Removed ${b.name}`);
   }
 
+  // ---------- Paint tool ----------
+  // Paints into the body's surface map (equirectangular RGBA: R land, G mountains, B ice, A land override).
+
+  paintAt(sx, sy, first) {
+    if (!this.r3d) { if (first) this.ui.toast('Painting needs the Realistic or Pixel view.'); return; }
+    const d = this.renderer.dpr, cam = this.cam;
+    const dir = cam.ray(sx * d, sy * d);
+    const E = [cam.tx + cam.ox, cam.ty + cam.oy, cam.tz + cam.oz];
+    let hit = null, best = Infinity;
+    for (const b of this.world.bodies) {
+      if (b.kind !== 'rocky' || !(b.r > 0)) continue;
+      const ox = E[0] - b.x, oy = E[1] - b.y, oz = E[2] - b.z;
+      const bq = ox * dir[0] + oy * dir[1] + oz * dir[2], c = ox * ox + oy * oy + oz * oz - b.r * b.r;
+      const disc = bq * bq - c;
+      if (disc < 0) continue;
+      const t = -bq - Math.sqrt(disc);
+      if (t > 0 && t < best) { best = t; hit = b; }
+    }
+    if (!hit) { if (first) this.ui.toast('Touch a rocky world to paint it'); return; }
+    const b = hit;
+    const P = [E[0] + dir[0] * best - b.x, E[1] + dir[1] * best - b.y, E[2] + dir[2] * best - b.z];
+    const R = this.r3d.bodyRotation(b); // column-major object -> world; object = Rᵀ · world
+    const o = [R[0] * P[0] + R[1] * P[1] + R[2] * P[2], R[3] * P[0] + R[4] * P[1] + R[5] * P[2], R[6] * P[0] + R[7] * P[1] + R[8] * P[2]];
+    const ol = Math.hypot(o[0], o[1], o[2]) || 1;
+    const lat = Math.asin(Math.max(-1, Math.min(1, o[1] / ol))), lon = Math.atan2(-o[2] / ol, o[0] / ol);
+    if (this.brush === 'scorch') {
+      // Scorching reuses the impact effects: a glowing, cooling burn scar at that spot.
+      const now = performance.now();
+      if (first || now - (this.lastScorch || 0) > 90) {
+        this.lastScorch = now;
+        const n = [P[0] / b.r, P[1] / b.r, P[2] / b.r];
+        b.impacts = b.impacts || [];
+        b.impacts.push({ x: n[0], y: n[1], z: n[2], e: 0.9, size: (this.brushSize * Math.PI) / 180, t: now });
+        if (b.impacts.length > 16) b.impacts.shift();
+      }
+      return;
+    }
+    const sm = b.surfaceMap || (b.surfaceMap = { mode: 1, W: 512, H: 256, data: new Uint8Array(512 * 256 * 4), ver: 0 });
+    if (sm.mode !== 1) return; // the Moon's albedo map is not paintable
+    const W = sm.W, H = sm.H, data = sm.data;
+    const rad = (this.brushSize * Math.PI) / 180;
+    const y0 = Math.max(0, Math.floor(((Math.PI / 2 - lat - rad) / Math.PI) * H)), y1 = Math.min(H - 1, Math.ceil(((Math.PI / 2 - lat + rad) / Math.PI) * H));
+    const sl = Math.sin(lat), cl = Math.cos(lat);
+    for (let y = y0; y <= y1; y++) {
+      const la = Math.PI / 2 - ((y + 0.5) / H) * Math.PI, sla = Math.sin(la), cla = Math.cos(la);
+      for (let x = 0; x < W; x++) {
+        const lo = ((x + 0.5) / W) * 2 * Math.PI - Math.PI;
+        const cosd = sl * sla + cl * cla * Math.cos(lo - lon);
+        const dist = Math.acos(Math.max(-1, Math.min(1, cosd)));
+        if (dist > rad) continue;
+        const f = 0.35 * (1 - (dist / rad) ** 2); // soft brush, builds up as you drag
+        const i = (y * W + x) * 4;
+        if (this.brush === 'land') { data[i] = Math.min(255, data[i] + 255 * f * 2); data[i + 3] = Math.min(255, data[i + 3] + 255 * f * 3); }
+        else if (this.brush === 'water') { data[i] = Math.max(0, data[i] - 255 * f * 2); data[i + 1] = Math.max(0, data[i + 1] - 255 * f * 2); data[i + 3] = Math.min(255, data[i + 3] + 255 * f * 3); }
+        else if (this.brush === 'ice') data[i + 2] = Math.min(255, data[i + 2] + 255 * f * 2);
+        else if (this.brush === 'mountain') data[i + 1] = Math.min(255, data[i + 1] + 255 * f);
+      }
+    }
+    sm.dirtyRows = sm.dirtyRows ? [Math.min(sm.dirtyRows[0], y0), Math.max(sm.dirtyRows[1], y1)] : [y0, y1];
+    sm.ver++;
+  }
+
   // ---------- Laser tool ----------
   // A beam from the camera pours power into the target: it heats (impact-style internal heat in the
   // climate model) and is pushed by radiation pressure, F = P / c.

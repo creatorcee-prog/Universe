@@ -367,6 +367,8 @@ input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border-radius: 
 .addbar-text { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .addbar-text b { color: var(--accent); }
 .addbar .seg button { height: 26px; padding: 0 10px; font-size: 12px; }
+.addbar.paint { border-color: rgba(120,200,255,.45); }
+.addbar.paint .seg button { padding: 0 8px; }
 .addbar.laser { border-color: rgba(255,90,80,.5); }
 .laser-power { width: 110px; display: flex; }
 .laser-label { font: 500 11px var(--font-data); color: #ff9c8f; min-width: 64px; }
