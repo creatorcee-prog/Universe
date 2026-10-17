@@ -86,6 +86,8 @@ const MARIA = [
   [-15.6, 32.8, 18], [17.5, 28, 11], [31.4, 8.5, 13], [59.1, 17, 8.5], [53.7, -7.8, 11],
   [-16.6, -21.3, 11], [-57.4, 18.4, 22], [-40, 0, 18], [-30.9, 7.5, 7], [1.4, 56, 6], [-20, 56, 6], [20, 56, 5],
   [35.5, -15.2, 5.5], [-38.6, -24.4, 6], [3.6, 13.3, 4], [-22, -10, 7], [-45, 30, 12],
+  // Oceanus Procellarum is a huge irregular lowland, not a basin: build it from overlapping pieces.
+  [-62, 28, 13], [-52, 6, 14], [-66, 4, 11], [-46, -12, 10], [-56, 40, 9],
 ];
 
 function rasterPolys(data, W, H, polys, value, channel) {
@@ -171,10 +173,15 @@ export function moonMap(W = 512, H = 256) {
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const lat = 90 - ((y + 0.5) / H) * 180, lon = ((x + 0.5) / W) * 360 - 180;
     let m = 0;
+    // A smooth warp and lobed outlines, so the maria have the irregular shores of flooded lava plains.
+    const wl = lon + 3.5 * Math.sin(lat * 0.21 + lon * 0.13) + 1.8 * Math.sin(lat * 0.53 - lon * 0.31 + 1.3);
+    const wt = lat + 3.0 * Math.sin(lon * 0.19 - lat * 0.11 + 0.7) + 1.5 * Math.sin(lon * 0.47 + lat * 0.37);
     for (const [mx, my, r] of MARIA) {
       const cl = Math.cos((lat * Math.PI) / 180);
-      const dx = (lon - mx) * cl, dy = lat - my, dd = Math.sqrt(dx * dx + dy * dy) / r;
-      m = Math.max(m, 1 - Math.min(1, Math.max(0, (dd - 0.75) / 0.35)));
+      const dx = (wl - mx) * cl, dy = wt - my, ang = Math.atan2(dy, dx);
+      const lobe = 1 + 0.16 * Math.sin(ang * 4 + mx * 0.1) + 0.09 * Math.sin(ang * 9 + my * 0.2) + 0.05 * Math.sin(ang * 17 + r);
+      const dd = Math.sqrt(dx * dx + dy * dy) / (r * lobe);
+      m = Math.max(m, 1 - Math.min(1, Math.max(0, (dd - 0.75) / 0.3)));
     }
     let rays = 0;
     for (const [cx, cy, len] of [[-11.2, -43.3, 35], [-20.1, 9.6, 18], [-38, 8.1, 12]]) {

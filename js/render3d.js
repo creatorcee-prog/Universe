@@ -2,7 +2,7 @@ import { PK } from './physics.js';
 import { isLuminous, tempToRGB, schwarzschild } from './bodies.js';
 import { transientLum } from './stellar.js';
 import { EARTH_MASS } from './units.js';
-import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS, RIM_FS, TERRAIN_VS, TERRAIN_FS } from './shaders.js';
+import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS, RIM_FS, TERRAIN_VS, TERRAIN_FS, RING_FS } from './shaders.js';
 import { atmosphereOptics, setOpticsUniforms, atmosphereTop, groundLight } from './optics.js';
 import { heatOutput } from './thermal.js';
 import { earthMap, moonMap } from './geography.js';
@@ -24,14 +24,14 @@ const LOOKS = {
   Sun: { kind: 2, spots: 1, tilt: 7.25, day: 609 },
   Mercury: { colA: c3(128, 122, 115), colB: c3(92, 87, 82), craters: 1, tilt: 0.03, day: 1407.6 },
   Venus: { colA: c3(200, 160, 100), colB: c3(160, 120, 80), cloud: 1, colC: c3(236, 214, 160), atmo: c3(255, 220, 150), atmoK: 0.7, tilt: 177.4, day: 5832.5 },
-  Earth: { colA: c3(120, 100, 70), colB: c3(150, 130, 95), ocean: 0.7, life: 1, cloud: 0.62, atmo: c3(90, 150, 255), atmoK: 1, tilt: 23.4, day: 23.93 },
+  Earth: { aurora: 1, colA: c3(120, 100, 70), colB: c3(150, 130, 95), ocean: 0.7, life: 1, cloud: 0.62, atmo: c3(90, 150, 255), atmoK: 1, tilt: 23.4, day: 23.93 },
   Moon: { colA: c3(160, 156, 150), colB: c3(92, 90, 88), craters: 1, tilt: 6.7, day: 655.7, locked: 1 },
-  Mars: { colA: c3(170, 84, 44), colB: c3(118, 58, 32), craters: 0.35, atmo: c3(230, 140, 90), atmoK: 0.25, tilt: 25.2, day: 24.6 },
+  Mars: { profile: 5, aurora: 0, colA: c3(196, 112, 64), colB: c3(150, 82, 48), craters: 0.35, atmo: c3(230, 140, 90), atmoK: 0.25, tilt: 25.2, day: 24.6 },
   Ceres: { colA: c3(118, 115, 110), colB: c3(84, 82, 80), craters: 1, lumpy: 0.03, day: 9.07 },
-  Jupiter: { kind: 1, colA: c3(234, 218, 190), colB: c3(176, 126, 88), bands: 7, storm: [0.95, -0.32, 0.1, 0.078], colC: c3(190, 90, 60), atmo: c3(230, 210, 170), atmoK: 0.2, tilt: 3.1, day: 9.93 },
-  Saturn: { kind: 1, colA: c3(240, 228, 196), colB: c3(214, 192, 148), bands: 9, bandK: 0.45, atmo: c3(240, 220, 170), atmoK: 0.2, tilt: 26.7, day: 10.7, hex: 1 },
-  Uranus: { kind: 1, colA: c3(170, 226, 232), colB: c3(150, 210, 220), bands: 3, atmo: c3(180, 240, 255), atmoK: 0.4, tilt: 97.8, day: 17.24 },
-  Neptune: { kind: 1, colA: c3(76, 112, 226), colB: c3(56, 88, 196), bands: 4, storm: [0.6, -0.5, 0.6, 0.12], colC: c3(30, 46, 120), atmo: c3(120, 160, 255), atmoK: 0.45, tilt: 28.3, day: 16.1 },
+  Jupiter: { kind: 1, profile: 1, aurora: 2, colA: c3(234, 218, 190), colB: c3(176, 126, 88), bands: 7, storm: [0.92, -0.38, 0.1, 0.07], colC: c3(196, 104, 72), atmo: c3(230, 210, 170), atmoK: 0.2, tilt: 3.1, day: 9.93 },
+  Saturn: { kind: 1, profile: 2, aurora: 2, colA: c3(240, 228, 196), colB: c3(214, 192, 148), bands: 9, bandK: 0.45, atmo: c3(240, 220, 170), atmoK: 0.2, tilt: 26.7, day: 10.7, hex: 1 },
+  Uranus: { kind: 1, profile: 3, colA: c3(170, 226, 232), colB: c3(150, 210, 220), bands: 3, atmo: c3(180, 240, 255), atmoK: 0.4, tilt: 97.8, day: 17.24 },
+  Neptune: { kind: 1, profile: 4, colA: c3(76, 112, 226), colB: c3(56, 88, 196), bands: 4, storm: [0.6, -0.5, 0.6, 0.12], colC: c3(30, 46, 120), atmo: c3(120, 160, 255), atmoK: 0.45, tilt: 28.3, day: 16.1 },
   Pluto: { colA: c3(214, 190, 160), colB: c3(140, 100, 76), craters: 0.3, tilt: 122.5, day: 153.3 },
   Io: { colA: c3(232, 214, 110), colB: c3(190, 140, 60), volc: 1, day: 42.5, locked: 1 },
   Europa: { colA: c3(226, 218, 204), colB: c3(170, 130, 100), lineae: 1, day: 85.2, locked: 1 },
@@ -214,6 +214,7 @@ export class Renderer3D {
     this.pPixel = this.program(FULL_VS, PIXEL_FS);
     this.pSurfSky = this.program(FULL_VS, SURFACE_SKY_FS);
     this.pTerrain = this.program(TERRAIN_VS, TERRAIN_FS);
+    this.pRing = this.program(DISK_VS, RING_FS);
     this.pField = this.program(FULL_VS, TEMP_FIELD_FS);
     this.hdr = !!gl.getExtension('EXT_color_buffer_float');
     this.post = null;
@@ -819,7 +820,7 @@ export class Renderer3D {
       if (depth <= 0) continue;
       const px = Math.min(this.Hcur * 0.6, (12 + 14 * Math.log10(1 + L)) * this.dpr);
       const rgb = tempToRGB(t.temp).map((v) => (v / 255) * 1.6);
-      glows.push(() => this.sprite(vp, (px * depth) / this.F, rgb, 0, 0, 0));
+      glows.push(() => this.sprite(vp, (px * depth) / this.F, rgb, 0, 0, 1));
     }
     this.drawParticles(false);
     if (this.settings.grid && !this.surface) this.drawGrid();
@@ -972,6 +973,9 @@ export class Renderer3D {
     gl.uniform1f(u.uVolc, l.volc || 0);
     gl.uniform1f(u.uLineae, l.lineae || 0);
     gl.uniform1f(u.uSpots, l.spots || 0);
+    gl.uniform1f(u.uProfile, l.profile || 0);
+    gl.uniform1f(u.uAurora, l.aurora || 0);
+    gl.uniform1f(u.uPx, shownPx);
     gl.uniform1f(u.uSoft, l.atmo && l.kind === 0 ? 0.08 : 0.02);
     gl.uniform1f(u.uDayNight, l.kind === 1 ? 0.02 : l.atmo ? (l.cloud >= 1 ? 0.01 : 0.06) : 0.35);
     gl.uniform1f(u.uFacet, l.lumpy ? 0.85 : nImp ? 0.12 : 0);
@@ -1119,11 +1123,43 @@ export class Renderer3D {
         gl.disable(gl.CULL_FACE);
       });
     }
+    // Rings as a smooth sheet (the particles are shown too when the camera is among them).
+    if (ring && shownPx > 2) {
+      glows.push(() => {
+        const rp = this.pRing, ru = rp.u, n = ring.n;
+        const a0 = Math.abs(n[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+        let ux = [n[1] * a0[2] - n[2] * a0[1], n[2] * a0[0] - n[0] * a0[2], n[0] * a0[1] - n[1] * a0[0]];
+        const ul = Math.hypot(...ux); ux = ux.map((v) => v / ul);
+        const vx = [n[1] * ux[2] - n[2] * ux[1], n[2] * ux[0] - n[0] * ux[2], n[0] * ux[1] - n[1] * ux[0]];
+        const ro = ring.rout * 1.01;
+        gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+        gl.useProgram(rp.p);
+        gl.uniformMatrix4fv(ru.uProj, false, this.P);
+        gl.uniform3fv(ru.uCenter, vp);
+        gl.uniform3fv(ru.uAxU, this.viewOf(ux[0] * ro, ux[1] * ro, ux[2] * ro));
+        gl.uniform3fv(ru.uAxV, this.viewOf(vx[0] * ro, vx[1] * ro, vx[2] * ro));
+        gl.uniform3fv(ru.uNv, this.viewOf(n[0], n[1], n[2]));
+        gl.uniform3fv(ru.uL0, ld[0]);
+        gl.uniform3fv(ru.uLight, ld[1]);
+        gl.uniform3fv(ru.uPlanetV, vp);
+        gl.uniform1f(ru.uPR, b.r);
+        gl.uniform1f(ru.uRin, ring.rin / ro);
+        gl.uniform1fv(ru.uProf, ring.prof);
+        gl.uniform3fv(ru.uTint, ring.ice ? [0.84, 0.79, 0.7] : [0.5, 0.46, 0.42]);
+        gl.uniform1f(ru.uSaturn, /^Saturn( \d+)?$/.test(b.name) ? 1 : 0);
+        gl.uniform1f(ru.uLogDepthFC, this.logFC);
+        gl.bindVertexArray(this.quad);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        gl.blendFunc(gl.ONE, gl.ONE);
+      });
+    }
     if (l.kind === 2 || l.kind === 3) {
       const L = Math.max(b.lum, 1e-4);
       const glowPx = Math.max(shownPx * 3.2, (6 + 4.5 * Math.log10(1 + L * 10)) * dpr) * (1 + 0.6 * Math.min(1, b.heat));
       const rgb = tempToRGB(b.temp).map((v) => v / 255);
-      glows.push(() => this.sprite(vp, glowPx / pxPerAU, rgb.map((v) => v * (this.post ? 0.75 : 1.1)), 0, 0, 0));
+      // Diffraction spikes only while the star is a point; a resolved disc doesn't show them.
+      const spikes = Math.max(0, Math.min(1, 1.6 - shownPx / 25));
+      glows.push(() => this.sprite(vp, glowPx / pxPerAU, rgb.map((v) => v * (this.post ? 0.75 : 1.1)), 0, 0, spikes));
       if (b.kind === 'ns') {
         const ang = now * 0.004;
         glows.push(() => this.sprite(vp, (glowPx * 2.6) / pxPerAU, [0.6, 0.75, 1], 3, ang, 0));
@@ -1147,7 +1183,7 @@ export class Renderer3D {
     const size = Math.max(b.soft * 0.9 * pxPerAU, 6 * this.dpr) / pxPerAU;
     const col = (b.color || [255, 226, 180]).map((v) => (v / 255) * 0.9);
     glows.push(() => this.sprite(vp, size, col, 1, 0, 0));
-    glows.push(() => this.sprite(vp, size * 0.12, [1, 0.95, 0.85], 0, 0, 0));
+    glows.push(() => this.sprite(vp, size * 0.12, [1, 0.95, 0.85], 0, 0, 1));
   }
 
   sprite(vp, size, color, type, angle, inner) {
@@ -1263,9 +1299,18 @@ export class Renderer3D {
     this.particleLight = null;
     // Standing on a ringed world, the sky shader draws its rings as a smooth arc instead.
     const skip = this.surface ? this.surface.body : null;
+    // Far from a ring the smooth ring sheet stands in for its particles.
+    const far = new Map();
     for (let i = 0; i < world.nr; i++) {
       const host = world.rHost[i];
       if (host === skip) continue;
+      let f = far.get(host);
+      if (f === undefined) {
+        const ri = this.ringInfo && this.ringInfo.get(host);
+        f = !!ri && Math.hypot(host.x - this.ex, host.y - this.ey, host.z - this.ez) > 1.25 * ri.rout;
+        far.set(host, f);
+      }
+      if (f) continue;
       let hl = hostLight.get(host);
       if (!hl) {
         const L = this.lightsFor(host).primary;

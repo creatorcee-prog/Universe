@@ -135,6 +135,20 @@ Switch in **Settings → View**.
   overtones the ear hears as the low pitch (+14 dB in the 200 Hz–1 kHz band). Headphones still sound best.
   Sound starts on the first tap (a browser rule). It plays even with the iPhone on silent, unless
   Settings → "Quiet when the iPhone is on silent" is on (that mode also lets your music keep playing).
+- **Surface view terrain**: standing on a world you see real ground around you, a mesh from your feet to
+  ~150 km built from the same continental noise as the globe (Earth's real continents line up), with
+  rolling hills, mountain ridges, dunes and crater fields. Ground cover follows the globe's climate
+  rules (deserts, vegetation, bare rock on slopes, beaches, polar snow); oceans have waves, sky
+  reflections and sun glitter; molten worlds show lava. Distant ground fades into the horizon sky colour
+  (aerial perspective), lit by the same scattering model as the sky. On Earth you are placed on the
+  nearest land.
+- **Planets from space**: Jupiter, Saturn, Uranus and Neptune use measured band layouts (Jupiter's NEB,
+  EZ, SEB, the Great Red Spot's zone, festoons, white ovals, polar cyclones) with sheared, domain-warped
+  cloud texture and limb darkening; Saturn's rings are a smooth lit sheet with the measured gaps and the
+  planet's shadow. Earth gets fractal coastlines, biome colours (rainforest, savanna, desert, boreal
+  forest, tundra), spiral storm systems, cumulus fields, aurorae, lightning and point-like city lights.
+  Mars shows Syrtis Major, Hellas, Valles Marineris and the Tharsis volcanoes; the Moon irregular maria;
+  the Sun sunspot groups with penumbrae and faculae.
 - **Surface view**: select a rocky world and tap **Stand on the surface** (Realistic or Pixel view). You stand
   on the ground and turn with the planet; pick the day side, night side or either pole, and drag to look
   around. Time slows so a local day lasts about two minutes. The sky is computed from what is in the

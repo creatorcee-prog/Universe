@@ -191,3 +191,14 @@ Done: 2.5PN inspiral for black-hole and neutron-star pairs, radiated mass and re
 GW150914 scenario, ellipses for orbits too fast to trail.
 Next: a chirp sound rising in pitch as the pair closes in; neutron-star mergers making a kilonova (gold and
 platinum ejecta) and a short gamma-ray burst; black-hole spin (Kerr) and its effect on the remnant.
+
+## Planets and surfaces round: what is next
+Done: Surface-view terrain (mesh, hills, craters, oceans, lava, haze, lighting from the sky model), real
+band profiles for the giants, Saturn's ring sheet, Earth's coasts/biomes/storms/cumulus/aurorae/lightning
+/city lights, Mars landmarks, lunar maria, sunspot groups. Interface sounds off (event sounds on).
+Next:
+- Rocks and boulders near the observer; grass/tree silhouettes on vegetated worlds.
+- Rain, snow and fog in the Surface view; rainbows opposite a low sun after rain.
+- Cast shadows from hills at sunrise/sunset.
+- Real textures once the network allows (NASA Blue Marble, LRO).
+- Venus's faint UV cloud patterns; Neptune's spot visibility; random gas giants from the band tables.

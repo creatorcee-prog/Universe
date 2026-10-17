@@ -142,7 +142,33 @@ uniform vec4 uOcc[4];      // bodies that can eclipse this one: centre relative 
 uniform int uOccN;
 uniform float uSunAng;     // angular radius of the light source seen from here (penumbra width)
 uniform float uGran;       // star convection-cell frequency (fewer, larger cells for bigger stars)
+uniform float uProfile;    // giant planets with measured band layouts: 1 Jupiter, 2 Saturn, 3 Uranus, 4 Neptune
+uniform float uPx;         // the body's radius on screen (pixels): more detail octaves when it is large
+uniform float uAurora;     // 1 Earth-like (oxygen green/red), 2 giant planet (H2, violet-pink)
 out vec4 outColor;
+
+// Belts and zones by latitude (degrees): Jupiter after Voyager/Cassini/Juno maps (north polar region,
+// north temperate belt, NEB 7-18°N, the Equatorial Zone, SEB 7-20°S, the South Tropical Zone that holds
+// the Great Red Spot, ...); Saturn's pale golden bands after Cassini.
+vec3 bandTable(float lat, float which) {
+  float E[12]; vec3 C[13];
+  if (which < 1.5) {
+    E = float[12](55.0, 43.0, 35.0, 27.0, 18.0, 7.0, -7.0, -20.0, -27.0, -34.0, -43.0, -55.0);
+    C = vec3[13](vec3(0.55, 0.52, 0.49), vec3(0.74, 0.67, 0.58), vec3(0.88, 0.83, 0.74), vec3(0.6, 0.45, 0.35),
+                 vec3(0.95, 0.91, 0.84), vec3(0.55, 0.35, 0.24), vec3(0.94, 0.87, 0.74), vec3(0.58, 0.40, 0.28),
+                 vec3(0.96, 0.92, 0.85), vec3(0.66, 0.52, 0.41), vec3(0.88, 0.82, 0.73), vec3(0.68, 0.61, 0.53),
+                 vec3(0.55, 0.52, 0.49));
+  } else {
+    E = float[12](70.0, 60.0, 47.0, 38.0, 28.0, 20.0, -20.0, -28.0, -38.0, -47.0, -60.0, -70.0);
+    C = vec3[13](vec3(0.66, 0.66, 0.62), vec3(0.79, 0.73, 0.59), vec3(0.86, 0.80, 0.66), vec3(0.79, 0.71, 0.55),
+                 vec3(0.90, 0.84, 0.70), vec3(0.83, 0.75, 0.57), vec3(0.95, 0.89, 0.72), vec3(0.84, 0.76, 0.57),
+                 vec3(0.91, 0.85, 0.70), vec3(0.81, 0.73, 0.57), vec3(0.86, 0.80, 0.66), vec3(0.77, 0.71, 0.59),
+                 vec3(0.68, 0.65, 0.60));
+  }
+  vec3 col = C[0];
+  for (int i = 0; i < 12; i++) col = mix(col, C[i + 1], smoothstep(E[i] + 0.9, E[i] - 0.9, lat));
+  return col;
+}
 
 // Fraction of the light blocked by other bodies (eclipses, moons' shadows on giant planets), with a
 // penumbra as wide as the Sun's disc seen from the surface.
@@ -247,15 +273,22 @@ void main() {
       float warpN = fbm(vObj * uGran * 2.5 + uSeed + vec3(uTime * 0.03), 4);
       float lanes = smoothstep(0.25, 0.7, cellC + 0.35 * (warpN - 0.5));
       float gran = fbm(vObj * 26.0 + vec3(uTime * 0.12, uTime * 0.07, 0.0), 4) * (1.0 - lanes * 0.6) + (1.0 - lanes) * 0.25 * step(uGran, 24.0);
-      // Sunspots: small, and only in the low-latitude belts where real ones appear.
-      float sp = vnoise(vObj * 7.0 + uSeed + vec3(uTime * 0.01));
-      float spot = smoothstep(0.82, 0.88, sp) * smoothstep(0.55, 0.1, abs(vObj.y)) * uSpots;
+      // Sunspots: groups of small dark umbrae with lighter penumbrae, only in the activity belts between
+      // ~5° and ~35° latitude, and only where an active region is (patchy, slowly changing).
+      float latS = abs(vObj.y);
+      float actReg = smoothstep(0.5, 0.64, fbm(vObj * 3.0 + uSeed + vec3(uTime * 0.002), 3)) * smoothstep(0.06, 0.12, latS) * smoothstep(0.6, 0.45, latS);
+      float sd = crater(vObj * 34.0 + uSeed * 1.3);
+      float umbra = (1.0 - smoothstep(0.06, 0.1, sd)) * actReg;
+      float penum = (1.0 - smoothstep(0.1, 0.2, sd)) * actReg;
+      float spot = (umbra * 0.85 + penum * 0.45) * uSpots;
+      // Faculae: bright magnetic patches around actReg regions, visible near the limb.
+      float facula = actReg * smoothstep(0.35, 0.6, fbm(vObj * 40.0 + uSeed, 3)) * (1.0 - mu) * uSpots;
       // Limb darkening: the edge shows cooler, higher layers, so it is dimmer and redder.
       vec3 limb = blackbody(uTemp * (0.7 + 0.3 * sqrt(mu)));
       // Giant cells stand out strongly on supergiants (bright plumes, dark cool lanes).
       float big = smoothstep(26.0, 6.0, uGran);
       float I = (0.5 + 0.5 * sqrt(mu)) * (0.9 + 0.2 * gran) * (1.0 - 0.75 * spot) * (1.0 - big * (0.4 * lanes - 0.12)) * (1.0 + big * 0.25 * (warpN - 0.5));
-      vec3 col = limb * I * 1.05 + c * glow * 1.5;
+      vec3 col = limb * I * (1.05 + 0.25 * facula) + c * glow * 1.5;
       outColor = vec4(col, 1.0);
     }
     ` + WRITE_DEPTH + `
@@ -276,12 +309,76 @@ void main() {
     float turb = fbm(vec3(vObj.x * 2.0, vObj.y * 7.0, vObj.z * 2.0) + uSeed, 5);
     float b = vObj.y * uBands + turb * 0.9;
     float band = 0.5 + 0.5 * sin(b * 6.2831853);
-    col = mix(uColA, uColB, band * uBandK);
-    col *= 0.94 + 0.12 * vnoise(vec3(vObj.x * 3.0, vObj.y * 46.0, vObj.z * 3.0) + uSeed);
-    // Eddies and filaments where neighbouring jets shear past each other (band edges).
     float edgeW = 1.0 - abs(sin(b * 6.2831853));
-    float eddy = fbm(vec3(vObj.x * 6.0, vObj.y * 24.0, vObj.z * 6.0) + turb * 2.5 + uSeed + vec3(uTime * 0.01, 0.0, 0.0), 5);
-    col = mix(col, mix(uColA * 1.06, uColB * 0.78, step(0.52, eddy)), edgeW * 0.45 * smoothstep(0.38, 0.68, eddy) * uBandK);
+    if (uProfile > 0.5) {
+      // Real giants: latitude profile, displaced by turbulence that is stretched east-west by the jets.
+      float latD = degrees(asin(clamp(vObj.y, -1.0, 1.0)));
+      float lon = atan(vObj.z, vObj.x);
+      vec3 sp = vec3(cos(lon), sin(lon), 0.0);  // longitude on a circle (no seam)
+      float tq = uProfile < 2.5 ? 1.0 : 0.45;   // Saturn, Uranus, Neptune are calmer
+      float warp = (fbm(vec3(sp.xy * 1.6, latD * 0.16) + uSeed + vec3(uTime * 0.004, 0.0, 0.0), 5) - 0.5) * 3.2 * tq
+                 + (fbm(vec3(sp.xy * 6.0, latD * 0.7) + uSeed + 3.0, 4) - 0.5) * 1.3 * tq;
+      // Waviness at the band edges at smaller scales too (chevrons and scallops seen in close-ups).
+      float dOct = uPx > 300.0 ? 4.0 : uPx > 120.0 ? 3.0 : 2.0;
+      warp += (fbm(vec3(sp.xy * 18.0, latD * 1.6) + uSeed + 9.0, int(dOct)) - 0.5) * 0.9 * tq;
+      float lp = latD + warp;
+      if (uProfile < 2.5) col = bandTable(lp, uProfile);
+      else if (uProfile < 3.5) {
+        // Uranus: almost featureless cyan haze; faint bands and a brighter polar hood.
+        col = vec3(0.66, 0.86, 0.9) * (0.97 + 0.04 * sin(lp * 0.12)) + vec3(0.06, 0.05, 0.03) * smoothstep(55.0, 75.0, abs(lp));
+      } else {
+        // Neptune: deep blue, a darker band near 60°S, lighter towards the equator.
+        col = mix(vec3(0.21, 0.37, 0.84), vec3(0.29, 0.47, 0.9), exp(-lp * lp / 600.0));
+        col = mix(col, vec3(0.14, 0.25, 0.66), exp(-pow((lp + 60.0) / 7.0, 2.0)) * 0.8);
+        // Bright methane-ice cirrus streaks, long and thin, near 25°N and 40°S.
+        float st = smoothstep(0.62, 0.85, fbm(vec3(sp.xy * 3.0, latD * 0.9) + uSeed + 7.0, 4));
+        col = mix(col, vec3(0.92, 0.95, 1.0), st * (exp(-pow((latD + 42.0) / 3.5, 2.0)) + exp(-pow((latD - 26.0) / 3.0, 2.0))) * 0.85);
+      }
+      // Cloud texture: two-level domain-warped noise in (longitude, latitude), sheared east-west, so it
+      // forms streaks, swirls and filaments like the real cloud decks.
+      vec3 fp = vec3(sp.xy * 10.0, latD * 0.55);
+      int fo = int(dOct) + 1;
+      vec3 w1 = vec3(fbm(fp + uSeed, fo), fbm(fp + uSeed + 5.2, fo), 0.0);
+      vec3 w2 = vec3(fbm(fp + w1 * 3.0 + 1.7, fo), fbm(fp + w1 * 3.0 + 9.2, fo), 0.0);
+      float flow = fbm(fp + vec3(w2.x * 3.5, w2.y * 0.8, 0.0) + vec3(uTime * 0.006, 0.0, 0.0), fo + 1);
+      // Belts (dark) are torn by white turbulent rifts; zones (light) carry faint orange-brown filaments.
+      float lum = dot(col, vec3(0.3, 0.55, 0.15));
+      float belt = 1.0 - smoothstep(0.62, 0.84, lum);
+      float flow2 = fbm(fp * 2.1 + vec3(w1.y * 2.0, 0.0, 0.0) + 13.0, fo);
+      if (uProfile < 1.5) {
+        col = mix(col, vec3(0.93, 0.88, 0.8), belt * smoothstep(0.5, 0.72, flow) * 0.6);
+        col = mix(col, col * vec3(0.82, 0.7, 0.6), (1.0 - belt) * smoothstep(0.55, 0.75, flow2) * 0.45);
+      }
+      col *= 0.88 + 0.26 * flow * (uProfile < 2.5 ? 1.0 : 0.4);
+      col *= 0.97 + 0.06 * vnoise(vec3(sp.xy * 48.0, latD * 4.0) + uSeed);
+      float grad = length(bandTable(lp + 0.6, uProfile) - bandTable(lp - 0.6, uProfile));
+      float eddy = fbm(vec3(sp.xy * 9.0, latD * 0.9) + uSeed + vec3(uTime * 0.01, 0.0, 0.0), 4);
+      if (uProfile < 2.5) col = mix(col, col * (0.8 + 0.4 * eddy), clamp(grad * 4.0, 0.0, 1.0) * tq);
+      if (uProfile < 1.5) {
+        // Festoons: dark blue-grey plumes hooking from the NEB's southern edge into the Equatorial Zone.
+        float fe = smoothstep(0.62, 0.9, 0.5 + 0.5 * sin(lon * 11.0 + 2.4 * fbm(vec3(sp.xy * 2.0, latD * 0.25) + uSeed, 3) + (latD - 7.0) * 0.4));
+        col = mix(col, vec3(0.37, 0.39, 0.45), fe * exp(-pow((latD - 5.5) / 2.2, 2.0)) * 0.6);
+        // White ovals in the south temperate belt (and Oval BA, a little redder).
+        for (int k = 0; k < 3; k++) {
+          float ol = 0.6 + 2.1 * float(k), olat = -33.0 + float(k) * 0.8;
+          float dl = atan(sin(lon - ol), cos(lon - ol));
+          float od = length(vec2(dl / 0.045, (latD - olat) / 1.6));
+          vec3 oc = k == 1 ? vec3(0.86, 0.66, 0.58) : vec3(0.95, 0.94, 0.9);
+          float sw = fbm(vec3(dl * 30.0, latD * 0.8, float(k)) + uSeed, 3);
+          col = mix(col, oc, smoothstep(1.25, 0.35, od + 0.25 * (sw - 0.5)) * 0.75);
+          col *= 1.0 - 0.1 * exp(-pow((od - 1.2) / 0.25, 2.0));
+        }
+        // The polar regions: a mottled field of cyclones (Juno).
+        float pc = smoothstep(62.0, 75.0, abs(latD)) * smoothstep(0.25, 0.45, crater(vObj * 22.0 + uSeed));
+        col = mix(col, col * vec3(0.8, 0.82, 0.88), pc * 0.6);
+      }
+    } else {
+      col = mix(uColA, uColB, band * uBandK);
+      col *= 0.94 + 0.12 * vnoise(vec3(vObj.x * 3.0, vObj.y * 46.0, vObj.z * 3.0) + uSeed);
+      // Eddies and filaments where neighbouring jets shear past each other (band edges).
+      float eddy = fbm(vec3(vObj.x * 6.0, vObj.y * 24.0, vObj.z * 6.0) + turb * 2.5 + uSeed + vec3(uTime * 0.01, 0.0, 0.0), 5);
+      col = mix(col, mix(uColA * 1.06, uColB * 0.78, step(0.52, eddy)), edgeW * 0.45 * smoothstep(0.38, 0.68, eddy) * uBandK);
+    }
     if (uStorm.w > 0.0 && dot(vObj, normalize(uStorm.xyz)) > 0.0) {
       // A great storm (Jupiter's Great Red Spot, Neptune's Dark Spot): an anticyclone about twice as
       // wide as it is tall, its clouds spiralling inward, ringed by a pale collar, with a turbulent wake.
@@ -295,8 +392,15 @@ void main() {
       float swirlN = fbm(vec3(ruv * 5.0, uSeed), 4);
       float inside = smoothstep(1.05, 0.85, er);
       vec3 spot = mix(mix(uColC, col, 0.25) * 1.1, uColC * 0.8 + vec3(0.1, 0.05, 0.02), smoothstep(0.85, 0.2, er)) * (0.8 + 0.45 * swirlN);
-      col = mix(col, spot, inside);
-      col = mix(col, vec3(0.93, 0.9, 0.84), exp(-pow((er - 1.12) / 0.09, 2.0)) * 0.7);
+      if (uProfile > 3.5) {
+        // Neptune's Great Dark Spot: soft-edged, with bright companion clouds along its southern side.
+        col = mix(col, uColC, smoothstep(1.1, 0.5, er) * 0.85);
+        float comp = exp(-pow((uv.y + 1.25) / 0.25, 2.0)) * smoothstep(1.6, 0.4, abs(uv.x)) * smoothstep(0.4, 0.75, swirlN);
+        col = mix(col, vec3(0.95, 0.97, 1.0), comp);
+      } else {
+        col = mix(col, spot, inside);
+        col = mix(col, vec3(0.93, 0.9, 0.84), exp(-pow((er - 1.12) / 0.09, 2.0)) * 0.7);
+      }
       float wake = smoothstep(1.2, 2.6, -uv.x) * smoothstep(1.4, 0.3, abs(uv.y)) * smoothstep(5.0, 2.5, -uv.x);
       col = mix(col, col * (0.75 + 0.5 * fbm(vec3(uv * 3.0, uSeed + 4.0), 4)), wake);
     }
@@ -306,9 +410,9 @@ void main() {
       float rr = length(vObj.xz);
       float hr = 0.24 / cos(mod(a + 0.3, 1.0472) - 0.5236);
       float inside = smoothstep(hr + 0.02, hr - 0.02, rr);
-      col = mix(col, vec3(0.56, 0.66, 0.72) * (0.9 + 0.1 * vnoise(vObj * 30.0)), inside * 0.55);
-      col *= 1.0 - 0.22 * exp(-pow((rr - hr) / 0.012, 2.0));
-      col = mix(col, vec3(0.4, 0.48, 0.55), smoothstep(0.06, 0.0, rr) * 0.6);
+      col = mix(col, vec3(0.6, 0.66, 0.68) * (0.92 + 0.12 * fbm(vObj * 40.0, 3)), inside * 0.32);
+      col *= 1.0 - 0.12 * exp(-pow((rr - hr) / 0.01, 2.0));
+      col = mix(col, vec3(0.45, 0.5, 0.55), smoothstep(0.05, 0.0, rr) * 0.45);
     }
     col = mix(col, vec3(0.1, 0.07, 0.06), scar * 0.8);
   } else {
@@ -329,7 +433,10 @@ void main() {
       MP = texture(uMap, uvM);
       if (uMapMode < 1.5) {
         mapW = MP.a;
-        coast = MP.r + (h - 0.5) * 0.5; // coastline at 0.5, roughened by the noise
+        // Coastline at 0.5, made fractal by noise at several scales (bays, headlands, island chains).
+        float nearCoast = 1.0 - smoothstep(0.12, 0.42, abs(MP.r - 0.5));
+        coast = MP.r + (h - 0.5) * 0.5 + (fbm(q * 9.0 + 2.0, 4) - 0.5) * 0.4
+              + ((fbm(q * 40.0 + 5.0, 3) - 0.5) * 0.45 + (vnoise(q * 130.0) - 0.5) * 0.2) * nearCoast;
         // A (alpha) says where the map sets land and sea; mountains (G) and ice (B) apply anywhere,
         // so painting them onto a procedural world keeps its own coastlines.
         landMask = mix(landMask, smoothstep(0.48, 0.52, coast), mapW);
@@ -359,9 +466,52 @@ void main() {
     // Mountains: bare rock, darker and greyer with height.
     land = mix(land, vec3(0.36, 0.34, 0.32) * (0.8 + 0.4 * rg2), smoothstep(0.05, 0.16, e + 0.08 * mtn) * 0.75);
     if (uLife > 0.0) {
+      // Biomes, as seen from orbit: deserts tan, steppe and savanna olive-brown, temperate forest green,
+      // dark tropical rainforest near the equator, dark boreal forest at 50-65°, grey-brown tundra beyond.
       float warm = smoothstep(255.0, 280.0, T) * smoothstep(335.0, 305.0, T);
-      float veg = uLife * warm * smoothstep(0.38, 0.58, moist) * (1.0 - smoothstep(0.08, 0.2, e + 0.1 * mtn));
-      land = mix(land, uVeg * (0.75 + 0.5 * vnoise(q * 9.0)), veg * 0.92);
+      float wet = smoothstep(0.38, 0.6, moist);
+      float lowland = 1.0 - smoothstep(0.08, 0.2, e + 0.1 * mtn);
+      vec3 sand = vec3(0.78, 0.66, 0.47) * (0.9 + 0.2 * vnoise(q * 20.0));
+      vec3 steppe = vec3(0.52, 0.47, 0.31);
+      vec3 forest = uVeg * (0.65 + 0.4 * vnoise(q * 9.0));
+      vec3 rain = uVeg * vec3(0.5, 0.62, 0.45);
+      vec3 boreal = uVeg * vec3(0.55, 0.6, 0.55) + vec3(0.02, 0.02, 0.0);
+      vec3 tundra = vec3(0.45, 0.42, 0.36);
+      float latB = lat;
+      vec3 bio = mix(steppe, forest, smoothstep(0.4, 0.6, moist));
+      bio = mix(bio, rain, exp(-latB * latB / 0.025) * smoothstep(0.45, 0.6, moist));
+      bio = mix(bio, boreal, smoothstep(0.7, 0.8, latB) * (1.0 - smoothstep(0.88, 0.94, latB)));
+      bio = mix(bio, tundra, smoothstep(0.88, 0.95, latB));
+      // The great deserts sit under the subtropical highs, and spread where it is dry.
+      bio = mix(bio, sand, clamp(desert * 1.3 - wet * 0.9, 0.0, 1.0));
+      land = mix(land, bio, uLife * warm * lowland + uLife * 0.35 * (1.0 - lowland));
+    }
+    // Close up, land shows finer texture (fields of terrain and vegetation patches).
+    if (uPx > 250.0) land *= 0.86 + 0.28 * fbm(q * 70.0 + 3.0, 3);
+    if (uProfile > 4.5 && uProfile < 5.5) {
+      // Mars: albedo features at their real places (lat, east lon in degrees). Dark: Syrtis Major, Mare
+      // Acidalium, Solis Lacus, the dark southern highlands band; bright: Hellas and Argyre basins, Tharsis.
+      float mlat = degrees(asin(clamp(vObj.y, -1.0, 1.0)));
+      float mlon = degrees(atan(-vObj.z, vObj.x));
+      float dark = 0.0, bright = 0.0;
+      #define MF(LAT, LON, A, B) exp(-pow((mlat - (LAT)) / (A), 2.0) - pow(degrees(atan(sin(radians(mlon - (LON))), cos(radians(mlon - (LON))))) / (B), 2.0))
+      dark += MF(8.0, 70.0, 12.0, 9.0) + MF(20.0, 64.0, 10.0, 6.0);          // Syrtis Major
+      dark += MF(45.0, -30.0, 10.0, 22.0);                                   // Mare Acidalium
+      dark += MF(-25.0, -85.0, 5.0, 7.0) * 0.8;                              // Solis Lacus
+      dark += MF(-15.0, 20.0, 10.0, 40.0) * 0.7 + MF(-20.0, -10.0, 8.0, 25.0) * 0.6 + MF(-25.0, 110.0, 9.0, 30.0) * 0.6; // southern dark band
+      bright += MF(-42.0, 70.0, 12.0, 15.0) + MF(-50.0, -43.0, 7.0, 9.0) * 0.7;  // Hellas, Argyre
+      bright += MF(5.0, -110.0, 18.0, 30.0) * 0.5;                           // Tharsis (dusty, bright)
+      float fn = fbm(q * 4.0 + 5.0, 4);
+      land = mix(land, land * vec3(0.45, 0.4, 0.38), clamp(dark * (0.8 + 0.6 * fn), 0.0, 0.9));
+      land = mix(land, land * vec3(1.18, 1.12, 1.05), clamp(bright * (0.7 + 0.5 * fn), 0.0, 0.7));
+      // Valles Marineris: a 4,000 km canyon system along ~8°S from 30° to 90°W, darker and shadowed.
+      float vm = exp(-pow((mlat + 8.0 + 3.0 * sin(radians(mlon) * 9.0)) / 1.3, 2.0)) * smoothstep(-95.0, -85.0, mlon) * smoothstep(-25.0, -40.0, mlon);
+      land = mix(land, land * 0.55, vm * 0.8);
+      // Olympus Mons and the three Tharsis volcanoes: bright aureoles with a dark central caldera.
+      float om = MF(18.0, -134.0, 4.0, 4.5), tv = MF(-1.0, -112.0, 2.0, 2.2) + MF(-9.0, -121.0, 2.0, 2.2) + MF(12.0, -104.0, 2.0, 2.2);
+      land = mix(land, land * 1.2, (om + tv) * 0.6);
+      land = mix(land, land * 0.6, (MF(18.0, -134.0, 0.9, 1.0) + 0.0) * 0.8);
+      #undef MF
     }
     if (uLineae > 0.0) {
       float l = 1.0 - smoothstep(0.0, 0.025, abs(vnoise(q * 5.0) - 0.5));
@@ -386,8 +536,14 @@ void main() {
     col = mix(col, ice * (0.92 + 0.08 * rg2), (uMapMode < 1.5 ? 1.0 : 0.0) * smoothstep(0.35, 0.6, MP.b));
     // Albedo maps: dark basaltic maria and bright ray systems on the Moon.
     if (uMapMode > 1.5) {
-      col = mix(col, vec3(0.2, 0.2, 0.21) * (0.85 + 0.3 * vnoise(q * 12.0)), MP.r * 0.85);
+      // Maria: irregular, lobed edges and darker and lighter lava flows within; ray systems on top.
+      float mare = smoothstep(0.15, 0.8, MP.r + (fbm(q * 5.0 + 1.0, 4) - 0.5) * 0.35 + (vnoise(q * 30.0) - 0.5) * 0.1);
+      vec3 mc = mix(vec3(0.21, 0.21, 0.22), vec3(0.31, 0.3, 0.29), fbm(q * 9.0 + 4.0, 3));
+      col = mix(col, mc, mare * 0.8);
       col = mix(col, vec3(0.78, 0.77, 0.75), MP.b * 0.55);
+      // The highlands are saturated with craters of every size.
+      float hc = crater(vObj * 28.0 + uSeed);
+      col *= mix(1.0, 0.95 + 0.07 * smoothstep(0.15, 0.4, hc) + 0.1 * (fbm(q * 14.0, 3) - 0.5), 1.0 - mare);
     }
     // Snow on high peaks: air cools with height (about 6.5 K per km on Earth).
     // Only worlds with a water cycle (liquid oceans) get snow-capped peaks.
@@ -412,6 +568,8 @@ void main() {
   float rs = ringShadow(Pc, uL0);
   float ecl = uOccN > 0 ? eclipse(Pc + uView * uCenter, uL0) : 0.0;
   vec3 lit = vec3(0.015) + uLc0 * lightTerm(N, uL0) * (1.0 - 0.85 * rs) * (1.0 - ecl) + uLc1 * lightTerm(N, uL1);
+  // Giant planets darken toward the limb (sunlight there is scattered in the haze above the clouds).
+  if (uKind == 1) lit *= 0.55 + 0.45 * pow(mu, 0.45);
   float cloud = 0.0;
   if (uCloud > 0.0) {
     // Clouds: domain-warped noise gives swirls and cyclones; cover is heaviest along the equator
@@ -420,10 +578,36 @@ void main() {
     vec3 wv = vec3(fbm(vObj * 2.1 + uSeed + 1.3, 3), fbm(vObj * 2.1 + uSeed + 7.9, 3), fbm(vObj * 2.1 + uSeed + 4.4, 3)) - 0.5;
     float zone = 0.55 + 0.3 * exp(-lat * lat / 0.012) + 0.35 * exp(-pow(lat - 0.78, 2.0) / 0.02) - 0.35 * exp(-pow(lat - 0.45, 2.0) / 0.015);
     // Stretched east-west by zonal winds; fbm values cluster near 0.5, so the threshold maps cover.
-    vec3 cq = vec3(vObj.x * 3.2, vObj.y * 5.5, vObj.z * 3.2) + wv * 1.8 + drift + uSeed * 1.7;
-    float cl = fbm(cq, 6) + 0.08 * (vnoise(cq * 6.0) - 0.5);
+    // Mid-latitude storm systems: the cloud field is twisted into spirals around a few low-pressure
+    // centres (anticlockwise in the north, clockwise in the south, seen from above).
+    vec3 vS = vObj;
+    float spiral = 0.0;
+    for (int k = 0; k < 5; k++) {
+      float fk = float(k);
+      float clat = (0.6 + 0.35 * hash(vec3(fk, 1.0, uSeed))) * (mod(fk, 2.0) < 0.5 ? 1.0 : -1.0) * 0.9;
+      float clon = 6.2831853 * hash(vec3(fk, 2.0, uSeed)) + uTime * 0.004;
+      vec3 c = vec3(cos(clat) * cos(clon), sin(clat), cos(clat) * sin(clon));
+      float dd = length(vS - c);
+      float ang = 5.5 * exp(-dd * dd / 0.012) * sign(c.y);
+      // Rodrigues rotation of the sample point about the storm's axis.
+      vS = vS * cos(ang) + cross(c, vS) * sin(ang) + c * dot(c, vS) * (1.0 - cos(ang));
+      spiral += exp(-dd * dd / 0.02);
+    }
+    vec3 cq = vec3(vS.x * 3.2, vS.y * 5.5, vS.z * 3.2) + wv * 1.8 + drift + uSeed * 1.7;
+    float cl = fbm(cq, 6) + 0.08 * (vnoise(cq * 6.0) - 0.5) + 0.12 * spiral;
     float thr = 0.5 + (0.5 - clamp(uCloud * zone * 1.2, 0.0, 1.0)) * 0.34;
     cloud = smoothstep(thr - 0.04, thr + 0.12, cl);
+    // Fair-weather cumulus: fields of small puffy cells over the tropical oceans and warm land.
+    if (uPx > 80.0) {
+      float cellC = crater(vObj * 160.0 + uSeed);
+      float cum = (1.0 - smoothstep(0.05, 0.42, cellC)) * smoothstep(0.56, 0.7, fbm(vObj * 9.0 + uSeed + 2.0, 4));
+      cloud = max(cloud, cum * exp(-lat * lat / 0.1) * 0.55 * clamp(uCloud * 1.4, 0.0, 1.0) * smoothstep(80.0, 250.0, uPx));
+    }
+    // Close up: crisper, finer structure in the cloud edges.
+    if (uPx > 250.0) {
+      float fine = fbm(cq * 7.0 + 3.0, 4) - 0.5;
+      cloud = smoothstep(0.15, 0.85, clamp(cloud + fine * 0.6 * cloud * (1.0 - cloud) * 4.0, 0.0, 1.0));
+    }
     cloud = clamp(cloud + (uCloud > 0.95 ? 0.75 : 0.0), 0.0, 1.0) * (1.0 - boiled * 0.6);
     // Cloud shadows on the ground, offset toward the Sun.
     vec3 Lo = transpose(uRot) * (transpose(uView) * uL0);
@@ -439,13 +623,43 @@ void main() {
   // Sunglint on water widens and brightens toward the limb (Fresnel).
   spec += pow(max(dot(N, Hv), 0.0), 12.0) * 0.12 * water * (1.0 - cloud) * pow(1.0 - mu, 3.0);
   vec3 outc = col * lit + spec * uLc0 * (1.0 - rs) * (1.0 - ecl);
+  // Lightning: brief blue-white flashes inside thick clouds on the night side.
+  if (uCloud > 0.0 && cloud > 0.6) {
+    float nightL = 1.0 - smoothstep(-0.1, 0.05, dot(N, uL0));
+    vec3 g = vObj * 40.0, cell = floor(g);
+    float fl = step(0.9965, hash(cell + floor(uTime * 7.0))) * smoothstep(0.5, 0.05, length(fract(g) - 0.5));
+    outc += vec3(0.75, 0.8, 1.0) * fl * nightL * cloud * 1.6 * smoothstep(80.0, 200.0, uPx);
+  }
   // City lights on the night side: clustered along coasts and in lowlands, absent from ice and desert.
   if (uCity > 0.0 && uKind == 0) {
     float night = 1.0 - smoothstep(-0.12, 0.08, dot(N, uL0));
-    float cl0 = smoothstep(0.6, 0.85, vnoise(q * 60.0)) * smoothstep(0.42, 0.62, fbm(q * 7.0 + 3.0, 3));
+    // Metropolitan areas (clusters) made of many small points of light, with a faint glow between.
+    float metro = smoothstep(0.42, 0.62, fbm(q * 7.0 + 3.0, 3));
+    float dots = 1.0 - smoothstep(0.03, 0.11, crater(q * 240.0));
+    float cl0 = metro * (dots * smoothstep(0.25, 0.55, vnoise(q * 40.0)) + 0.35 * smoothstep(0.55, 0.85, vnoise(q * 60.0)));
     float coastal = 1.0 - smoothstep(0.0, 0.12, cityE);
     float lights = cl0 * (0.35 + 0.65 * coastal) * cityLand * (1.0 - smoothstep(0.3, 0.6, cityIce / 1.0)) * (1.0 - frozen) * smoothstep(0.0, 0.4, 1.0 - lat);
-    outc += vec3(1.0, 0.7, 0.36) * lights * night * 0.9 * (1.0 - cloud * 0.7);
+    outc += vec3(1.0, 0.7, 0.36) * lights * night * 1.7 * (1.0 - cloud * 0.7);
+  }
+
+  // Aurorae: an oval of light around each magnetic pole (about 23° from it on Earth, tilted ~11° from the
+  // spin axis), brightest on the night side. Oxygen gives Earth's green, with red higher up; giant planets'
+  // hydrogen glows faintly violet-pink. The curtains ripple along the oval.
+  if (uAurora > 0.0) {
+    vec3 mAx = normalize(vec3(0.19, 0.98, 0.0));
+    float night = 1.0 - smoothstep(-0.15, 0.1, dot(N, uL0));
+    for (int hemi = 0; hemi < 2; hemi++) {
+      vec3 ax = hemi == 0 ? mAx : -mAx;
+      float colat = degrees(acos(clamp(dot(vObj, ax), -1.0, 1.0)));
+      vec3 e1 = normalize(cross(ax, vec3(0.0, 0.0, 1.0))), e2 = cross(ax, e1);
+      float az = atan(dot(vObj, e2), dot(vObj, e1));
+      float ring = uAurora < 1.5 ? 22.0 : 14.0;
+      float wob = 2.0 * (fbm(vec3(cos(az) * 2.0, sin(az) * 2.0, uTime * 0.03 + float(hemi) * 5.0), 3) - 0.5);
+      float band = exp(-pow((colat - ring - wob) / 1.6, 2.0));
+      float curtain = 0.4 + 0.6 * smoothstep(0.35, 0.8, vnoise(vec3(az * 40.0, uTime * 0.25, float(hemi))));
+      vec3 ac = uAurora < 1.5 ? mix(vec3(0.2, 1.0, 0.45), vec3(0.9, 0.2, 0.25), smoothstep(0.0, 2.5, ring - colat + wob) * 0.6) : vec3(0.65, 0.45, 1.0);
+      outc += ac * band * curtain * night * (uAurora < 1.5 ? 0.9 : 0.35) * smoothstep(40.0, 120.0, uPx);
+    }
   }
 
   // Heat. Rocky worlds grow a dark basalt crust broken by pools of glowing lava; the pools spread
@@ -740,7 +954,11 @@ void main() {
       float veg = uLife * warm * smoothstep(0.36, 0.56, moist) * (1.0 - smoothstep(0.35, 0.6, slope));
       // Patchy: meadows, shrubs and darker woods.
       float clump = smoothstep(0.35, 0.65, vnoise(vec3(pp / 140.0, 8.0)) * 0.7 + n1 * 0.3);
-      vec3 vc = mix(uVeg * 1.15, uVeg * 0.55, clump) * (0.8 + 0.4 * n2);
+      // Real vegetation is darker and less saturated than it looks in memory: olive grasses, darker
+      // woods, dry patches.
+      vec3 vg = mix(uVeg, vec3(dot(uVeg, vec3(0.33))) * vec3(1.05, 1.0, 0.7), 0.35);
+      vec3 vc = mix(vg * 0.95, vg * 0.45, clump) * (0.75 + 0.45 * n2);
+      vc = mix(vc, vec3(0.5, 0.45, 0.3), smoothstep(0.6, 0.85, vnoise(vec3(pp / 60.0, 12.0))) * 0.35);
       col = mix(col, vc, veg);
     }
     col = mix(col, rock, smoothstep(0.35, 0.6, slope + 0.2 * rough * n1));
@@ -963,7 +1181,7 @@ void main() {
   float a = 0.0;
   if (uType == 0) {
     a = exp(-r * r * 9.0) * 0.9 + 0.08 / (1.0 + r * r * 60.0);
-    a += (max(0.0, 1.0 - abs(vC.y) * 70.0) + max(0.0, 1.0 - abs(vC.x) * 70.0)) * (1.0 - r) * 0.18;
+    a += (max(0.0, 1.0 - abs(vC.y) * 70.0) + max(0.0, 1.0 - abs(vC.x) * 70.0)) * (1.0 - r) * 0.18 * uInner;
   } else if (uType == 1) {
     a = exp(-r * r * 5.0) * 0.8;
   } else if (uType == 2) {
@@ -999,6 +1217,52 @@ void main() {
   vViewPos = uCenter + aCorner.x * uAxU + aCorner.y * uAxV;
   gl_Position = uProj * vec4(vViewPos, 1.0);
   vFragDepth = 1.0 + gl_Position.w * ` + DEPTH_K + `;
+}
+`;
+
+// Planetary rings as a smooth sheet. Radial structure: the opacity profile measured from the ring
+// particles (so the Cassini Division and other gaps are where the particles are), plus fine ringlets.
+// Lit side: Lommel-Seeliger reflection, I ∝ μ₀/(μ₀ + μ), as for an optically thick particle layer; seen
+// from the unlit side the rings glow faintly by light diffusing through them. The planet's shadow falls
+// across them.
+export const RING_FS = HEAD + NOISE + `
+in vec2 vC;
+in vec3 vViewPos;
+` + LOGDEPTH_F + `
+uniform vec3 uNv, uL0, uPlanetV, uLight;   // ring normal, sun direction, planet centre (view space), sunlight
+uniform float uRin, uPR;                    // inner radius / outer radius; planet radius (AU)
+uniform float uProf[16];
+uniform vec3 uTint;
+uniform float uSaturn;                      // 1: Saturn's C/B/A ring colours
+out vec4 outColor;
+void main() {
+  float r = length(vC);
+  if (r > 1.0 || r < uRin) discard;
+  float f = (r - uRin) / (1.0 - uRin);
+  float fi = f * 16.0 - 0.5;
+  int i0 = int(clamp(floor(fi), 0.0, 15.0)), i1 = min(i0 + 1, 15);
+  float op = mix(uProf[i0], uProf[i1], clamp(fi - floor(fi), 0.0, 1.0));
+  // Ringlets: many narrow bands of slightly different density.
+  op *= 0.75 + 0.25 * vnoise(vec3(f * 260.0, 0.5, 0.0)) + 0.1 * (vnoise(vec3(f * 900.0, 1.5, 0.0)) - 0.5);
+  op *= smoothstep(0.0, 0.01, f) * smoothstep(1.0, 0.99, f);
+  vec3 col = uTint;
+  if (uSaturn > 0.5) {
+    // C ring dusky grey, B ring bright and slightly warm, A ring a little darker.
+    col = mix(vec3(0.5, 0.47, 0.44), vec3(0.88, 0.8, 0.66), smoothstep(0.18, 0.28, f));
+    col = mix(col, vec3(0.78, 0.72, 0.62), smoothstep(0.62, 0.7, f));
+    op = clamp(op * mix(0.45, 1.25, smoothstep(0.18, 0.3, f)), 0.0, 0.97);
+  }
+  vec3 V = normalize(-vViewPos);
+  float mu0 = abs(dot(uNv, uL0)), mu = abs(dot(uNv, V));
+  bool litSide = dot(uNv, uL0) * dot(uNv, V) > 0.0;
+  float I = litSide ? 2.0 * mu0 / (mu0 + mu + 1e-3) : 0.5 * (1.0 - op) * (0.4 + 1.6 * pow(max(dot(-V, uL0), 0.0), 6.0));
+  // The planet's shadow.
+  vec3 pc = vViewPos - uPlanetV;
+  float b = dot(pc, uL0), c = dot(pc, pc) - uPR * uPR;
+  float sh = (b < 0.0 && b * b - c > 0.0) ? 1.0 : 0.0;
+  vec3 lit = col * uLight * I * (1.0 - sh) * 0.95 + col * 0.006;
+  outColor = vec4(lit * op, op);
+  ` + WRITE_DEPTH + `
 }
 `;
 
