@@ -142,7 +142,8 @@ Switch in **Settings → View**.
   notice appears, an affirmation for loading scenarios or landing, a glitch when something isn't possible.
   Ambience and interface sounds are from Mixkit (free licence, mixkit.co/license). The
   rumbles are almost all below 150 Hz, which phone speakers can't play, so a harmonic bass enhancer adds
-  overtones the ear hears as the low pitch (+14 dB in the 200 Hz–1 kHz band). Headphones still sound best.
+  overtones the ear hears as the low pitch (+14 dB in the 200 Hz–1 kHz band). It is off by default (for
+  headphones); Settings → "Bass boost for the phone speaker" turns it on.
   Sound starts on the first tap (a browser rule). It plays even with the iPhone on silent, unless
   Settings → "Quiet when the iPhone is on silent" is on (that mode also lets your music keep playing).
 - **Surface view terrain**: standing on a world you see real ground around you, a mesh from your feet to

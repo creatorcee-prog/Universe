@@ -94,7 +94,7 @@ export class Sound {
     shaper.oversample = '2x';
     const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 180; hp.Q.value = 0.7;
     const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900;
-    const wet = ctx.createGain(); wet.gain.value = 0.22;
+    const wet = (this.wet = ctx.createGain()); wet.gain.value = this.settings.bassBoost ? 0.22 : 0;
     this.fx.connect(band); band.connect(drive); drive.connect(shaper); shaper.connect(hp); hp.connect(lp); lp.connect(wet); wet.connect(comp);
     comp.connect(this.master);
     for (const [name, [file]] of Object.entries(UI)) this.load(name, file);
@@ -212,6 +212,11 @@ export class Sound {
       const b = await new Promise((ok, fail) => this.ctx.decodeAudioData(data, ok, fail));
       this.buf[name] = b;
     } catch { /* missing or undecodable: stay silent */ }
+  }
+
+  // The harmonic bass enhancer is only for phone speakers; with headphones the dry low end is heard as is.
+  setBassBoost(on) {
+    if (this.wet) this.wet.gain.setTargetAtTime(on ? 0.22 : 0, this.ctx.currentTime, 0.1);
   }
 
   setEnabled(on) {
