@@ -166,6 +166,7 @@ class App {
   }
 
   loadPreset(id) {
+    this.impactSped = false;
     this.zones.clear();
     if (this.surface) this.exitSurface();
     const p = PRESETS.find((x) => x.id === id) || PRESETS[0];
@@ -486,6 +487,15 @@ class App {
       this.select(r);
     }
     while (w.events.length) this.ui.event(w.events.shift());
+    // Moon-forming impact: once Theia has hit, speed up so the disk can be watched clumping into the Moon
+    // (about two weeks), at a rate where the debris orbits are still followed accurately.
+    if (this.state.preset && this.state.preset.id === 'impact' && !this.impactSped && !w.findByName('Theia')) {
+      this.impactSped = true;
+      if (this.state.speed < 0.5 / 365.25) {
+        this.ui.setSpeed(0.5 / 365.25);
+        this.ui.toast('Impact! Speeding up to 12 hours per second to watch the debris disk clump into a moon.', true);
+      }
+    }
     // After a supernova, pull the camera back to keep the expanding shell in view.
     if (this.snZoom && this.cam.follow === this.snZoom.body) {
       const age = w.t - this.snZoom.t0;

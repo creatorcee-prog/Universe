@@ -4,6 +4,7 @@ import { thermalStep, mergeThermal, finishMerge, accreteHeat, accreteMaterial } 
 import { evolveStar, stellarDeath, transientLum } from './stellar.js';
 import { IAS15, IAS15_NODES } from './ias15.js';
 import { Octree, particleGravity } from './tree.js';
+import { coagulate } from './coagulate.js';
 
 // Particle kinds (purely visual categories; particles carry mass but do not attract each other).
 export const PK = { DEBRIS: 0, HOT: 1, STAR_BLUE: 2, STAR_GOLD: 3, ICE: 4, DUST: 5, GAS: 6, ROCK: 7, SN_H: 8, SN_O: 9, SN_SI: 10, SN_FE: 11 };
@@ -256,7 +257,9 @@ export class World {
       const b = bs[i];
       b._reach = captureRadius(b) + Math.sqrt(b.vx * b.vx + b.vy * b.vy + b.vz * b.vz) * dt;
       const eligible = !b.noRoche && (b.kind === 'rocky' || b.kind === 'gas' || b.kind === 'star') && mMax > 30 * b.m;
-      b._roche = eligible ? b.r * Math.cbrt((2 * mMax) / b.m) : 0;
+      // Rubble piles assembled from debris break up further out than solid moons: between the rigid (1.26) and
+      // fluid (2.456) Roche coefficients, since their own gravity and friction hold them partly together.
+      b._roche = eligible ? b.r * Math.cbrt((2 * mMax) / b.m) * (b.formed ? 1.5 : 1) : 0;
     }
     for (let i = 0; i < n; i++) {
       const a = bs[i];
@@ -272,7 +275,7 @@ export class World {
         let big = a, small = b;
         if (b.m > a.m) { big = b; small = a; }
         if (!small.noRoche && big.m > 30 * small.m && (small.kind === 'rocky' || small.kind === 'gas' || small.kind === 'star')) {
-          const rRoche = small.r * Math.cbrt((2 * big.m) / small.m);
+          const rRoche = small.r * Math.cbrt((2 * big.m) / small.m) * (small.formed ? 1.5 : 1);
           const contact = captureRadius(big) + small.r;
           if (d2 < rRoche * rRoche && d2 > contact * contact) {
             this.disrupt(small, big);
@@ -335,13 +338,48 @@ export class World {
     let debrisMass = 0;
     if (s.kind !== 'bh' && s.kind !== 'core' && ratio > 1e-9 && violence > 0) {
       count = Math.round(Math.min(700, 2200 * Math.sqrt(ratio) * Math.min(1.5, violence)));
-      debrisMass = Math.min(0.3, 0.1 * violence) * o.m;
+      // Up to ~13% of the impactor per unit of violence: a 45° Theia-like hit ejects ~2 lunar masses,
+      // in line with SPH results (Canup 2004: disks of 1.5-2.4 lunar masses).
+      debrisMass = Math.min(0.3, 0.13 * violence) * o.m;
     }
     // Tangential part of the impact velocity throws debris sideways, which lets some of it reach orbit.
     const dvn = dvx * nx + dvy * ny + dvz * nz;
     const tvx = dvx - dvn * nx, tvy = dvy - dvn * ny, tvz = dvz - dvn * nz;
     const vesc = Math.sqrt(vesc2);
     const kind = s.kind === 'star' || o.kind === 'star' || s.kind === 'ns' || s.kind === 'wd' ? PK.HOT : PK.DEBRIS;
+    // Giant oblique impacts between rocky bodies put part of the debris straight into orbit as a disk.
+    // In fluid (SPH) simulations this comes from gravitational torques by the distorted, spinning
+    // post-impact body and from vapour pressure, which a point-mass planet cannot exert; ballistic ejecta
+    // alone always fall back. Disk share grows with obliquity (Canup & Asphaug 2001, Nature 412, 708;
+    // Canup 2004, Icarus 168, 433: a 45° impact leaves ~1.5-2 lunar masses within ~6 Earth radii).
+    let nDisk = 0, diskMass = 0;
+    const lx = ny * dvz - nz * dvy, ly = nz * dvx - nx * dvz, lz = nx * dvy - ny * dvx;
+    const ll = Math.hypot(lx, ly, lz);
+    if (count > 0 && s.kind === 'rocky' && o.kind === 'rocky' && ratio > 0.01 && ll > 0) {
+      const sinTheta = ll / Math.sqrt(vrel2);
+      const fDisk = Math.min(0.85, 1.2 * sinTheta);
+      nDisk = Math.round(count * fDisk);
+      diskMass = debrisMass * fDisk;
+      const Lx = lx / ll, Ly = ly / ll, Lz = lz / ll;
+      // e1 = impact direction projected into the disk plane, e2 = L × e1
+      let ex1 = nx - (nx * Lx + ny * Ly + nz * Lz) * Lx, ey1 = ny - (nx * Lx + ny * Ly + nz * Lz) * Ly, ez1 = nz - (nx * Lx + ny * Ly + nz * Lz) * Lz;
+      const el1 = Math.hypot(ex1, ey1, ez1) || 1; ex1 /= el1; ey1 /= el1; ez1 /= el1;
+      const ex2 = Ly * ez1 - Lz * ey1, ey2 = Lz * ex1 - Lx * ez1, ez2 = Lx * ey1 - Ly * ex1;
+      const rNew = Math.cbrt(s.r ** 3 + o.r ** 3), Mk = M - debrisMass;
+      const g = () => Math.sqrt(-2 * Math.log(rand() || 1e-9)) * Math.cos(2 * Math.PI * rand());
+      for (let k = 0; k < nDisk; k++) {
+        // Surface density ∝ 1/r² from 1.15 to 7 planet radii (uniform in log r).
+        const r = rNew * Math.exp(Math.log(1.15) + rand() * Math.log(7 / 1.15));
+        const ph = rand() * Math.PI * 2, c = Math.cos(ph), sn = Math.sin(ph), h = 0.02 * r * g();
+        const rx = (c * ex1 + sn * ex2) * r + Lx * h, ry = (c * ey1 + sn * ey2) * r + Ly * h, rz = (c * ez1 + sn * ez2) * r + Lz * h;
+        const vc = Math.sqrt((G * Mk) / r) * (1 + 0.03 * g()), vr = 0.02 * vc * g();
+        const tx = -sn * ex1 + c * ex2, ty = -sn * ey1 + c * ey2, tz = -sn * ez1 + c * ez2;
+        this.spawnParticle(cmx + rx, cmy + ry, cmz + rz,
+          cvx + tx * vc + (c * ex1 + sn * ex2) * vr, cvy + ty * vc + (c * ey1 + sn * ey2) * vr, cvz + tz * vc + (c * ez1 + sn * ez2) * vr,
+          diskMass / nDisk, rand() < 0.25 ? PK.HOT : PK.DEBRIS);
+      }
+      count -= nDisk;
+    }
     for (let k = 0; k < count; k++) {
       const u = randUnit();
       // Spray out of the impact site, mostly away from the survivor's centre.
@@ -353,7 +391,7 @@ export class World {
       this.spawnParticle(
         ix + ex * (s.r * 0.05 + off), iy + ey * (s.r * 0.05 + off), iz + ez * (s.r * 0.05 + off),
         cvx + ex * sp + tvx * 0.5, cvy + ey * sp + tvy * 0.5, cvz + ez * sp + tvz * 0.5,
-        debrisMass / count, rand() < 0.3 ? PK.HOT : kind,
+        (debrisMass - diskMass) / count, rand() < 0.3 ? PK.HOT : kind,
       );
     }
     const keep = M - debrisMass;
@@ -390,8 +428,10 @@ export class World {
 
   disrupt(small, big) {
     const free = PCAP - this.np - this.pending.length;
-    const count = Math.min(free, small.kind === 'star' ? 1400 : small.m > 1e-7 ? 900 : 300);
-    const kind = small.kind === 'star' ? PK.HOT : small.kind === 'gas' ? PK.GAS : PK.ROCK;
+    // Rubble moonlets break back into a few clumps; planets and stars into a fine spray.
+    const count = Math.min(free, small.formed ? Math.max(6, Math.min(40, Math.round(small.m / 2.5e-10))) : small.kind === 'star' ? 1400 : small.m > 1e-7 ? 900 : 300);
+    // A shredded star is hydrogen plasma (glows, never clumps); planets break into gas or rock.
+    const kind = small.kind === 'star' ? PK.SN_H : small.kind === 'gas' ? PK.GAS : PK.ROCK;
     const vesc = Math.sqrt((2 * G * small.m) / small.r);
     for (let k = 0; k < count; k++) {
       const u = randUnit();
@@ -434,6 +474,32 @@ export class World {
   // Advance by simDt years, spending at most budgetMs of wall-clock time.
   // Returns the simulated time actually covered (less than simDt when the sim cannot keep up).
   advance(simDt, budgetMs) {
+    if (simDt <= 0) return 0;
+    // Massive particles in tight orbits (a debris disk) need frames shorter than their local dynamical
+    // time for collisions and clumping to be followed; long frames (slow devices, high speed) are split.
+    let chunk = Infinity;
+    const np = this.np, pm = this.pm, ptl = this.ptl;
+    for (let i = 0; i < np; i++) if (pm[i] > 0 && ptl[i] > 0 && ptl[i] < chunk) chunk = ptl[i];
+    // Not with many bodies: re-running the N-body step 24 times a frame would cost more than it buys.
+    if (simDt > chunk * 1.5 && this.bodies.length <= 30) {
+      const start = performance.now();
+      const n = Math.min(24, Math.ceil(simDt / chunk));
+      const h = simDt / n;
+      let done = 0;
+      for (let k = 0; k < n; k++) {
+        const left = budgetMs - (performance.now() - start);
+        if (left <= 0) break;
+        const d = this.advanceCore(h, left);
+        done += d;
+        if (d < h * 0.999) break;
+      }
+      this.limited = done < simDt * 0.999;
+      return done;
+    }
+    return this.advanceCore(simDt, budgetMs);
+  }
+
+  advanceCore(simDt, budgetMs) {
     if (simDt <= 0) return 0;
     const start = performance.now();
     const t0 = this.t;
@@ -502,6 +568,8 @@ export class World {
     this.stepParticles(att, steps, t0, done);
     // Particles with mass pull on each other and on the bodies (Barnes-Hut tree).
     particleGravity(this, done, this.tree);
+    // Touching clumps bounce or stick; big clumps become moonlets.
+    coagulate(this, done);
     this.flushPending();
     this.evolveStars(done);
     thermalStep(this, done);
@@ -683,12 +751,14 @@ export class World {
             if (segHit(sx, sy, sz, mx, my, mz, hx, hy, hz, cap2[a]) || segHit(mx, my, mz, x, y, z, hx, hy, hz, cap2[a])) { hitA = a; break; }
             // Falling in faster than the step can resolve: if the orbit's closest approach lies inside
             // the capture radius and the particle reaches it within this step, it is swallowed.
+            // Use the velocity relative to the attractor: planets move at tens of km/s.
             const rx = x - hx, ry = y - hy, rz = z - hz;
+            const at = att[a], wx = ux - at.vx, wy = uy - at.vy, wz = uz - at.vz;
             const r = Math.sqrt(rx * rx + ry * ry + rz * rz);
-            const rv = rx * ux + ry * uy + rz * uz;
+            const rv = rx * wx + ry * wy + rz * wz;
             if (rv < 0 && r < 1e3 * Math.sqrt(cap2[a])) {
-              const mu = G * m, v2 = ux * ux + uy * uy + uz * uz;
-              const hxv = ry * uz - rz * uy, hyv = rz * ux - rx * uz, hzv = rx * uy - ry * ux;
+              const mu = G * m, v2 = wx * wx + wy * wy + wz * wz;
+              const hxv = ry * wz - rz * wy, hyv = rz * wx - rx * wz, hzv = rx * wy - ry * wx;
               const h2 = hxv * hxv + hyv * hyv + hzv * hzv;
               const en = v2 / 2 - mu / r;
               const ecc = Math.sqrt(Math.max(0, 1 + (2 * en * h2) / (mu * mu)));

@@ -9,7 +9,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const fragment = args.includes('--fragment');
 const out = args.find((a) => !a.startsWith('--')) || join(root, 'dist', 'pocket-universe.html');
-const ORDER = ['units', 'bodies', 'stellar', 'thermal', 'ias15', 'tree', 'physics', 'presets', 'camera', 'render', 'shaders', 'render3d', 'input', 'facts', 'book', 'thumbs', 'ui', 'main'];
+const ORDER = ['units', 'bodies', 'stellar', 'thermal', 'ias15', 'tree', 'coagulate', 'physics', 'presets', 'camera', 'render', 'shaders', 'render3d', 'input', 'facts', 'book', 'thumbs', 'ui', 'main'];
 
 // Each ES module becomes a function scope; imports read from a shared registry.
 let js = 'window.__SINGLE_FILE__ = true;\nconst __m = {};\n';

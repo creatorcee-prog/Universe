@@ -205,7 +205,22 @@ source list on every entry.
   vectors, which this build environment could not download.
 - **Collisions**: swept-sphere tests (fast bodies cannot tunnel), momentum-conserving mergers, impact
   heating, and debris whose amount scales with impact speed relative to escape speed.
-- **Tides**: bodies are torn apart inside the Roche limit, d = R·(2M/m)^⅓.
+- **Tides**: bodies are torn apart inside the Roche limit, d = R·(2M/m)^⅓. Rubble moonlets that formed from
+  debris break up 1.5× further out, partway to the fluid limit (2.456 vs 1.26).
+- **Clumping**: debris, dust and ejecta particles have physical sizes from their mass and material density.
+  - *Collisions*: touching clumps collide inelastically (restitution 0.3). They stick if the collision leaves
+    them gravitationally bound, but not inside the host's Roche limit, where tides pull them apart. This is the
+    accretion rule of moon-formation N-body studies (Ida, Canup & Stewart 1997, *Nature* 389, 353).
+  - *Moonlets*: clumps above about 3% of the Moon's mass become moonlets, which sweep up debris and merge.
+  - *Frame length*: long frames are split so tight disks are followed accurately on slow devices too.
+- **Giant impacts**: oblique hits between rocky bodies put part of the debris straight into an orbiting disk,
+  up to about 7 planet radii. This stands in for the torques and vapour pressure seen in fluid simulations
+  (Canup & Asphaug 2001; Canup 2004), which a point-mass planet can't produce; ballistic debris alone always
+  falls back.
+  - *Result*: in the Moon-Forming Impact scenario (45°, as in Canup's canonical case) the disk clumps into a
+    Moon in about two weeks.
+  - *Size*: usually 0.5–0.9 lunar masses at 3.5–4 Earth radii, often with a smaller outer moon. Outcomes vary
+    between runs, as they do in the published simulations.
 - **Evolution on merge**: rocky to gas giant (> 10 M⊕), gas to star (> 0.08 M☉, hydrogen fusion), white
   dwarf to neutron star (> 1.44 M☉, the Chandrasekhar limit), neutron star to black hole (> 2.3 M☉).
 - **Particles** (asteroids, rings, debris, galaxy stars, up to 16,000) feel the 24 heaviest bodies, with

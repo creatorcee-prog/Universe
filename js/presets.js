@@ -204,7 +204,7 @@ export const PRESETS = [
   },
   {
     id: 'impact', name: 'Moon-Forming Impact',
-    blurb: 'A Mars-sized protoplanet, Theia, strikes the young Earth at a glancing angle.',
+    blurb: 'A Mars-sized protoplanet, Theia, strikes the young Earth at 45°. Debris forms a disk, and over about a month it clumps into the Moon. Speed up with » after the impact.',
     speed: 0.5 / 8766,
     camera: { follow: 'Proto-Earth', dist: 0.0011, pitch: 0.7, yaw: 0.6 },
     build(w) {
@@ -212,7 +212,8 @@ export const PRESETS = [
       const e = orbit(w, s, makeBody({ name: 'Proto-Earth', kind: 'rocky', m: 0.9 * EARTH_MASS, r: km(6150), color: [150, 100, 80] }), 1, 0, 0, 0, 0, 0);
       const t = makeBody({ name: 'Theia', kind: 'rocky', m: 0.1 * EARTH_MASS, r: km(3390), color: [190, 160, 130] });
       const d = km(60000);
-      t.x = e.x + d; t.y = e.y + km(1500); t.z = e.z + km(9000);
+      // Offset so that, after gravitational focusing, Theia hits at about 45° (Canup 2004's canonical case).
+      t.x = e.x + d; t.y = e.y + km(1500); t.z = e.z + km(13300);
       t.vx = e.vx - kms(10.5); t.vy = e.vy; t.vz = e.vz - kms(0.8);
       t.noRoche = true;
       w.addBody(t);

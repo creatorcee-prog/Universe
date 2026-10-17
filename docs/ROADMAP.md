@@ -98,3 +98,17 @@ Still open:
 - **Tides and spin**: tidal locking, tidal migration (the Moon receding 3.8 cm per year) and spin-orbit
   coupling.
 - **Speed**: a web worker or WebAssembly force loop for scenes with hundreds of bodies.
+
+## Merging and moon formation: follow-ups
+
+- **Particles at extreme time speeds.** Particles in very tight orbits (inside ~2 planet radii) are lost when a
+  single frame spans many of their orbits (around a week per second or more). The fix is a Kepler drift: move
+  each particle on its exact orbit around its host and apply other bodies as kicks (Wisdom-Holman, as in
+  REBOUND's WHFast).
+- **Inner disk.** Material inside the Roche limit should spread viscously, partly falling to the planet and
+  partly feeding the moon (Salmon & Canup 2012). For now it stays as a ring.
+- **Tidal evolution.** Tides should push the new Moon outward, from about 4 to 60 Earth radii over billions
+  of years.
+- **Visual overlap vs contact.** Small bodies are drawn at a minimum dot size. Zoomed out, two dots can
+  overlap while the bodies are far apart. A "true size" toggle, or a distance readout when dots overlap,
+  would make this clear.
