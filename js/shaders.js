@@ -6,8 +6,11 @@ precision highp float;
 precision highp int;
 `;
 
-// Logarithmic depth: lets one depth buffer cover kilometres to kiloparsecs.
+// Logarithmic depth: lets one depth buffer cover centimetres to kiloparsecs. Depth is log2(1 + K·w)
+// with w in AU and K = 1e12 (one unit ≈ 15 cm): without K, 1 + w rounds to exactly 1 in 32-bit floats for
+// anything closer than ~15 km, so the ground around a standing observer would all share one depth.
 const LOGDEPTH_V = `out float vFragDepth;`;
+const DEPTH_K = '1e12';
 const LOGDEPTH_F = `in float vFragDepth; uniform float uLogDepthFC;`;
 const WRITE_DEPTH = `gl_FragDepth = log2(vFragDepth) * uLogDepthFC * 0.5;`;
 
@@ -93,7 +96,7 @@ void main() {
   vViewPos = uView * world;
   vN = uView * (uRot * aPos);
   gl_Position = uProj * vec4(vViewPos, 1.0);
-  vFragDepth = 1.0 + gl_Position.w;
+  vFragDepth = 1.0 + gl_Position.w * ` + DEPTH_K + `;
 }
 `;
 
@@ -508,6 +511,275 @@ void main() {
 }
 `;
 
+// ---------- Surface-view terrain ----------
+// A local mesh around the observer: rings from 0.3 m out past the horizon (~150 km), heights from the
+// same continental noise the globe uses (so coasts and mountain ranges line up with the view from orbit)
+// plus metre-to-kilometre hills, dunes and craters. Positions are built in a local east/north/up frame in
+// metres, so there is no float cancellation against the planet's radius.
+const TERRAIN_COMMON = `
+uniform float uSeed, uOcean, uMapMode, uRelief, uCraters, uRough;
+uniform sampler2D uMap;
+uniform vec2 uLocal;        // offset of this spot in the small-scale noise (varies with location)
+// Planet-scale elevation at object-space direction d, as on the globe: x = elevation (noise units, 0 at
+// sea level), y = mountain ridges 0..1.
+vec2 bigTerrain(vec3 d) {
+  vec3 q = d * 1.7 + uSeed;
+  float h = fbm(q, 6);
+  float sea = 0.3 + 0.36 * uOcean;
+  float e = uOcean > 0.0 ? h - sea : h - 0.56;
+  float rg = 1.0 - abs(2.0 * vnoise(q * 3.1 + 11.0) - 1.0);
+  float rg2 = 1.0 - abs(2.0 * vnoise(q * 7.3 + 3.0) - 1.0);
+  float mtn = rg * rg * (0.65 + 0.35 * rg2) * smoothstep(0.0, 0.1, e);
+  if (uMapMode > 0.5 && uMapMode < 1.5) {
+    vec2 uvM = vec2(atan(-d.z, d.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(d.y, -1.0, 1.0)) / 3.14159265);
+    vec4 MP = texture(uMap, uvM);
+    float coast = MP.r + (h - 0.5) * 0.5;
+    e = mix(e, (coast - 0.5) * 0.12, MP.a) + 0.22 * MP.g;
+    mtn = max(mtn, rg * rg * (0.35 + 0.65 * rg2) * MP.g * 1.7);
+  }
+  return vec2(e, mtn);
+}
+// Height above sea level (m). Real topography scales roughly as 1/g (uRelief: ~4 km on Earth).
+float bigHeight(vec2 em) {
+  float e = em.x, mtn = em.y;
+  if (uOcean > 0.0) return e > 0.0 ? uRelief * (5.0 * e + 0.9 * mtn) : uRelief * 6.0 * e;
+  return uRelief * (4.0 * e + 0.9 * mtn);
+}
+// Ridged noise: sharp crests, rounded valleys.
+float ridge(vec3 p) { return 1.0 - abs(2.0 * vnoise(p) - 1.0); }
+// Local relief at planar position p (m): rolling hills, ridges and, on airless worlds, craters. Octaves
+// finer than the sampling 'res' (m) fade out to avoid aliasing. rough: 0 plains .. 1 mountains.
+// A field of simple craters (one per cell, random size and place): a bowl ~a fifth as deep as it is wide,
+// a raised rim, and ejecta thinning outward. Neighbouring craters add, so the surface stays continuous.
+float crater2(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  float h = 0.0;
+  for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {
+    vec2 g = vec2(float(x), float(y));
+    vec3 hc = vec3(i + g, 3.7);
+    if (hash(hc + 2.9) < 0.35) continue;                 // not every cell has a crater
+    vec2 o = vec2(hash(hc), hash(hc + 11.3));
+    float r = 0.12 + 0.3 * hash(hc + 5.1);
+    float d = length(g + o - f) / r;
+    // rim height 0.25 at d = 1, bowl floor -0.6 at the centre, smooth through the rim
+    h += d < 1.0 ? -0.6 + 0.85 * d * d * (3.0 - 2.0 * d) : 0.25 * exp(-(d - 1.0) * 5.0) * smoothstep(2.4, 1.6, d);
+  }
+  return h;
+}
+// Relief finer than the mesh can carry (from about meshRes down to the pixel size res): added in the
+// fragment shader as shading. Same spectrum as smallHeight (amplitude proportional to wavelength).
+float fineDetail(vec2 p, float rough, float res, float meshRes) {
+  vec2 pp = p + uLocal;
+  float k = uRelief * (0.012 + 0.04 * rough) * uRough / 2400.0, h = 0.0, lam = meshRes * 2.0;
+  for (int i = 0; i < 5; i++) {
+    float f = smoothstep(res * 2.0, res * 5.0, lam);
+    if (f <= 0.0) break;
+    h += k * lam * 1.15 * (vnoise(vec3(pp / lam, float(i) * 1.7 + 40.0 + uSeed)) - 0.5) * f;
+    lam *= 0.45;
+  }
+  return h;
+}
+float smallHeight(vec2 p, float rough, float res) {
+  vec2 pp = p + uLocal;
+  float h = 0.0, amp = uRelief * (0.012 + 0.04 * rough) * uRough, lam = 2400.0;
+  for (int i = 0; i < 9; i++) {
+    float f = smoothstep(res * 2.5, res * 6.0, lam);
+    if (f <= 0.0) break;
+    vec3 nq = vec3(pp / lam, float(i) * 3.1 + uSeed);
+    // Rolling hills everywhere; sharp ridges only in mountain country (and rounded off at the crest).
+    float r0 = ridge(nq);
+    float n = mix(vnoise(nq), r0 * r0, i < 3 ? rough * 0.8 : 0.0) - 0.5;
+    h += amp * n * f;
+    lam *= 0.42; amp *= i < 3 ? 0.42 : 0.38;
+  }
+  if (uCraters > 0.0) {
+    // Simple craters are about a fifth as deep as they are wide (crater2's bowl reaches -0.6 at the centre
+    // of a crater up to ~0.9 cells across).
+    float c = 0.0, cl = 900.0;
+    for (int i = 0; i < 4; i++) {
+      float f = smoothstep(res * 4.0, res * 10.0, cl);
+      if (f <= 0.0) break;
+      c += crater2(pp / cl + float(i) * 17.0) * 0.25 * cl * f;
+      cl *= 0.3;
+    }
+    h += c * uCraters;
+  }
+  return h;
+}
+`;
+
+export const TERRAIN_VS = HEAD + NOISE + TERRAIN_COMMON + `
+layout(location = 0) in vec2 aPolar;   // distance from the observer (m), azimuth
+uniform mat4 uProj;
+uniform mat3 uView, uRot;              // world -> view, object -> world
+uniform vec3 uObs, uEast, uNorth;      // object frame: observer's direction and local axes
+uniform float uRm, uEyeH, uAU;         // planet radius (m), eye height (m), metres per AU
+uniform float uSeaOK;                  // 1 when there is liquid water at sea level
+out vec3 vViewPos;
+out vec3 vDir;
+out vec2 vPlanar;
+out vec3 vInfo;                        // x: height above sea (m), y: mountains, z: distance (m)
+out vec3 vNrm;                         // smooth ground normal (view space)
+` + LOGDEPTH_V + `
+float terrainH(vec3 d, vec2 p, float res, out vec2 em) {
+  em = bigTerrain(d);
+  return bigHeight(em) + smallHeight(p, clamp(em.y * 1.5 + 0.15, 0.0, 1.0), res);
+}
+void main() {
+  float r = aPolar.x;
+  vec2 p = vec2(cos(aPolar.y), sin(aPolar.y)) * r;
+  vec3 d = normalize(uObs + (uEast * p.x + uNorth * p.y) / uRm);
+  float res = 0.1 * r + 0.05;            // the mesh's spacing here (rings ~10% apart)
+  vec2 em, em0;
+  float H = terrainH(d, p, res, em);
+  float H0 = terrainH(uObs, vec2(0.0), 0.05, em0);
+  float sea = uSeaOK > 0.5 ? 0.0 : -1e9;
+  float Href = max(H0, sea);             // stand on the ground, or on the water if it's sea here
+  float Hs = max(H, sea);
+  float drop = dot(p, p) / (2.0 * uRm);  // the planet curving away
+  vec3 rel = uEast * p.x + uNorth * p.y + uObs * (Hs - Href - drop - uEyeH);
+  vec3 world = uRot * rel / uAU;
+  vViewPos = uView * world;
+  // Normal from the height field's slope (central differences at the mesh spacing), so lighting is smooth
+  // instead of faceted triangle by triangle.
+  float ep = max(res * 0.7, 0.05);
+  vec2 emx, emy;
+  vec3 dxp = normalize(uObs + (uEast * (p.x + ep) + uNorth * p.y) / uRm);
+  vec3 dyp = normalize(uObs + (uEast * p.x + uNorth * (p.y + ep)) / uRm);
+  float gx = (max(terrainH(dxp, p + vec2(ep, 0.0), res, emx), sea) - Hs) / ep;
+  float gy = (max(terrainH(dyp, p + vec2(0.0, ep), res, emy), sea) - Hs) / ep;
+  vNrm = uView * (uRot * normalize(uObs - uEast * gx - uNorth * gy));
+  vDir = d; vPlanar = p; vInfo = vec3(H, em.y, r);
+  gl_Position = uProj * vec4(vViewPos, 1.0);
+  vFragDepth = 1.0 + gl_Position.w * ` + DEPTH_K + `;
+}
+`;
+
+export const TERRAIN_FS = HEAD + NOISE + TERRAIN_COMMON + `
+in vec3 vViewPos;
+in vec3 vDir;
+in vec2 vPlanar;
+in vec3 vInfo;
+in vec3 vNrm;
+` + LOGDEPTH_F + `
+uniform vec3 uL0, uSunCol, uAmb;       // sun direction (view), sunlight reaching the ground, sky light
+uniform vec3 uEastV, uNorthV, uUpV;    // local axes in view space
+uniform vec3 uColA, uColB, uVeg;
+uniform float uLife, uTemp, uLatSpan, uIce, uBoil, uSeaOK, uLapse, uTime, uPxAng, uSnowLat;
+uniform vec3 uFogExt;                  // ground-level extinction per metre (per channel)
+uniform float uFogH;                   // scale height of that haze (m)
+uniform vec3 uFogSun, uFogAnti, uSkyZen; // sky colour at the horizon toward / away from the sun, zenith
+out vec4 outColor;
+void main() {
+  float H = vInfo.x, mtnBig = vInfo.y, dist = vInfo.z;
+  vec3 V = normalize(-vViewPos);
+  float res = max(0.002, dist * uPxAng);            // metres per pixel here
+  bool water = uSeaOK > 0.5 && H < 0.0;
+  float lat = abs(vDir.y);
+  // Temperature here: latitude, then air cooling with height (lapse rate).
+  float T = uTemp + uLatSpan * (0.33 - lat * lat) - uLapse * max(H, 0.0) * 0.001;
+  vec3 col; vec3 N;
+  if (water) {
+    // Waves: two scales of drifting noise, slope only (the surface stays flat).
+    vec2 q = vPlanar + uLocal;
+    float t = uTime;
+    float e1 = 0.0, e2 = 0.0, a = 0.35, lam = 9.0;
+    for (int i = 0; i < 5; i++) {
+      float f = smoothstep(res * 2.0, res * 8.0, lam);
+      vec2 w = q / lam + vec2(t * 0.35, t * 0.21) / sqrt(lam);
+      float n0 = vnoise(vec3(w, float(i) * 2.0));
+      e1 += a * f * (vnoise(vec3(w + vec2(0.05, 0.0), float(i) * 2.0)) - n0) / 0.05;
+      e2 += a * f * (vnoise(vec3(w + vec2(0.0, 0.05), float(i) * 2.0)) - n0) / 0.05;
+      lam *= 0.45; a *= 0.75;
+    }
+    N = normalize(uUpV - (uEastV * e1 + uNorthV * e2) * 0.12);
+    float frozen = smoothstep(272.0, 262.0, T);
+    vec3 R = reflect(-V, N);
+    float up = clamp(dot(R, uUpV), 0.0, 1.0);
+    // Horizontal directions of the reflected ray and of the sun (either can be vertical: guard the normalize).
+    vec3 Rh = R - uUpV * dot(R, uUpV), Sh = uL0 - uUpV * dot(uL0, uUpV);
+    float az = dot(Rh, Rh) > 1e-8 && dot(Sh, Sh) > 1e-8 ? dot(normalize(Rh), normalize(Sh)) : 0.0;
+    vec3 sky = mix(mix(uFogAnti, uFogSun, az * 0.5 + 0.5), uSkyZen, sqrt(up));
+    float fres = 0.02 + 0.98 * pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 5.0);
+    // Light scattered back up from inside the water: deep blue-green (open ocean reflects ~5-7%).
+    vec3 deep = vec3(0.012, 0.05, 0.075) * (uSunCol * max(dot(uUpV, uL0), 0.0) + uAmb);
+    col = mix(deep, sky, fres);
+    // Sun glitter: the sun's reflection broken up by the waves.
+    vec3 Hh = normalize(uL0 + V);
+    col += uSunCol * pow(max(dot(N, Hh), 0.0), 600.0) * 6.0 * step(0.0, dot(uUpV, uL0));
+    if (frozen > 0.0) {
+      vec3 iceCol = vec3(0.8, 0.86, 0.92) * (0.85 + 0.15 * vnoise(vec3(q / 7.0, 1.0)));
+      vec3 Ni = uUpV;
+      col = mix(col, iceCol * (uSunCol * max(dot(Ni, uL0), 0.0) + uAmb), frozen);
+    }
+  } else {
+    // Geometric normal of the mesh plus fine relief computed per pixel.
+    vec3 Ng = normalize(vNrm);
+    float rough = clamp(mtnBig * 1.5 + 0.15, 0.0, 1.0);
+    // Fine relief below the mesh spacing, as shading only.
+    float meshRes = 0.1 * dist + 0.05, pr = max(res * 1.5, 0.02);
+    float h0 = fineDetail(vPlanar, rough, res, meshRes);
+    float hx = fineDetail(vPlanar + vec2(pr, 0.0), rough, res, meshRes), hy = fineDetail(vPlanar + vec2(0.0, pr), rough, res, meshRes);
+    N = normalize(Ng - (uEastV * (hx - h0) + uNorthV * (hy - h0)) / pr);
+    float slope = 1.0 - clamp(dot(N, uUpV), 0.0, 1.0);
+    // Ground cover, by the same rules as the globe: deserts in the subtropics, vegetation where it is
+    // warm and wet, bare rock on steep slopes, snow where it is cold.
+    vec3 q3 = vDir * 1.7 + uSeed;
+    float desert = exp(-pow(lat - 0.45, 2.0) / 0.012);
+    float moist = fbm(q3 * 1.3 + 31.0, 4) + 0.18 * exp(-lat * lat / 0.02) - 0.3 * desert;
+    vec2 pp = vPlanar + uLocal;
+    float n1 = vnoise(vec3(pp / 37.0, 4.0)), n2 = vnoise(vec3(pp / 4.1, 5.0)), n3 = vnoise(vec3(pp / 0.45, 6.0));
+    float nf2 = smoothstep(res * 3.0, res * 8.0, 4.1), nf3 = smoothstep(res * 3.0, res * 8.0, 0.45);
+    float tex = 0.75 + 0.3 * n1 + 0.22 * (n2 - 0.5) * nf2 + 0.18 * (n3 - 0.5) * nf3;
+    vec3 soil = mix(uColA, uColB, smoothstep(0.3, 0.7, fbm(q3 * 2.4 + 7.0, 4) * 0.6 + n1 * 0.4));
+    soil = mix(soil, soil * vec3(1.15, 1.0, 0.8), desert * 0.5);
+    vec3 rock = mix(vec3(0.33, 0.31, 0.29), uColB * 0.85, uOcean > 0.0 ? 0.35 : 0.75) * (0.8 + 0.4 * n2);
+    col = soil;
+    if (uLife > 0.0) {
+      float warm = smoothstep(255.0, 280.0, T) * smoothstep(335.0, 305.0, T);
+      float veg = uLife * warm * smoothstep(0.36, 0.56, moist) * (1.0 - smoothstep(0.35, 0.6, slope));
+      // Patchy: meadows, shrubs and darker woods.
+      float clump = smoothstep(0.35, 0.65, vnoise(vec3(pp / 140.0, 8.0)) * 0.7 + n1 * 0.3);
+      vec3 vc = mix(uVeg * 1.15, uVeg * 0.55, clump) * (0.8 + 0.4 * n2);
+      col = mix(col, vc, veg);
+    }
+    col = mix(col, rock, smoothstep(0.35, 0.6, slope + 0.2 * rough * n1));
+    // Sand and dust collect in hollows on dry worlds.
+    if (uOcean <= 0.0) col = mix(col, uColA * 1.08, smoothstep(0.45, 0.28, vnoise(vec3(pp / 220.0, 9.0))) * (1.0 - slope) * 0.6);
+    // Beaches just above the waterline.
+    if (uSeaOK > 0.5) col = mix(col, vec3(0.72, 0.65, 0.5), smoothstep(6.0, 1.0, H) * (1.0 - slope));
+    // Snow: cold enough, and only on gentler slopes.
+    // Snow: polar caps where the globe has them; on worlds with liquid water also wherever it is cold
+    // enough (high peaks, winter latitudes).
+    float cap = smoothstep(uSnowLat, uSnowLat + 0.05, lat + 0.03 * (n1 - 0.5)) * uIce;
+    float cold = uSeaOK > 0.5 ? smoothstep(271.0, 262.0, T + 6.0 * (n1 - 0.5)) : 0.0;
+    float snow = max(cap, cold) * (1.0 - smoothstep(0.45, 0.7, slope));
+    col = mix(col, vec3(0.9, 0.93, 0.97), snow);
+    col *= tex;
+    // Lambert with a little wrap, sky light from above, and the planet's own heat when molten.
+    float ndl = max(dot(N, uL0), 0.0);
+    col = col * (uSunCol * ndl + uAmb * (0.55 + 0.45 * dot(N, uUpV)));
+    float hot = smoothstep(800.0, 1500.0, T);
+    if (hot > 0.0) {
+      float flow = fbm(vec3(pp / 60.0, uTime * 0.02), 4);
+      float lava = smoothstep(0.55 - 0.2 * hot, 0.6 - 0.2 * hot, flow);
+      vec3 glowC = mix(vec3(1.0, 0.25, 0.03), vec3(1.0, 0.75, 0.3), smoothstep(0.6, 0.8, flow));
+      col = mix(col, col * 0.3, hot) + glowC * lava * hot * 1.6;
+    }
+  }
+  // Aerial perspective: light scattered into the line of sight hides distant ground in the colour of the
+  // horizon sky; the haze thins with height.
+  float hAvg = max(0.0, H) * 0.5;
+  vec3 Tr = exp(-uFogExt * dist * exp(-hAvg / max(uFogH, 1.0)));
+  vec3 Vh = -V - uUpV * dot(-V, uUpV), Lh = uL0 - uUpV * dot(uL0, uUpV);
+  float az = dot(Vh, Vh) > 1e-8 && dot(Lh, Lh) > 1e-8 ? dot(normalize(Vh), normalize(Lh)) : 0.0;
+  vec3 fog = mix(uFogAnti, uFogSun, az * 0.5 + 0.5);
+  col = col * Tr + fog * (1.0 - Tr);
+  outColor = vec4(max(col, 0.0), 1.0);
+  ` + WRITE_DEPTH + `
+}
+`;
+
 // Atmospheric scattering shared by the surface sky and the atmosphere seen from space. Units are planet
 // radii; coefficients come from the gas mix (js/optics.js), so the colour of a sky follows from what is
 // in the air. Single scattering is ray-marched, with sunlight attenuated along its path using
@@ -675,7 +947,7 @@ void main() {
   vec2 r = vec2(c * aCorner.x - s * aCorner.y, s * aCorner.x + c * aCorner.y);
   vec3 p = uCenter + vec3(r * uSize, 0.0);
   gl_Position = uProj * vec4(p, 1.0);
-  vFragDepth = 1.0 + gl_Position.w;
+  vFragDepth = 1.0 + gl_Position.w * ` + DEPTH_K + `;
 }
 `;
 
@@ -726,7 +998,7 @@ void main() {
   vC = aCorner;
   vViewPos = uCenter + aCorner.x * uAxU + aCorner.y * uAxV;
   gl_Position = uProj * vec4(vViewPos, 1.0);
-  vFragDepth = 1.0 + gl_Position.w;
+  vFragDepth = 1.0 + gl_Position.w * ` + DEPTH_K + `;
 }
 `;
 
@@ -785,7 +1057,7 @@ void main() {
   gl_PointSize = clamp(px, uMinPx, uMaxPx);
   vCol = aCol;
   vShade = aShade;
-  vFragDepth = 1.0 + gl_Position.w;
+  vFragDepth = 1.0 + gl_Position.w * ` + DEPTH_K + `;
 }
 `;
 
@@ -822,7 +1094,7 @@ out vec3 vCol;
 void main() {
   vCol = aCol;
   gl_Position = uProj * vec4(uView * aPos, 1.0);
-  vFragDepth = 1.0 + gl_Position.w;
+  vFragDepth = 1.0 + gl_Position.w * ` + DEPTH_K + `;
 }
 `;
 

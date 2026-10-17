@@ -2,8 +2,8 @@ import { PK } from './physics.js';
 import { isLuminous, tempToRGB, schwarzschild } from './bodies.js';
 import { transientLum } from './stellar.js';
 import { EARTH_MASS } from './units.js';
-import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS, RIM_FS } from './shaders.js';
-import { atmosphereOptics, setOpticsUniforms, atmosphereTop } from './optics.js';
+import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS, RIM_FS, TERRAIN_VS, TERRAIN_FS } from './shaders.js';
+import { atmosphereOptics, setOpticsUniforms, atmosphereTop, groundLight } from './optics.js';
 import { heatOutput } from './thermal.js';
 import { earthMap, moonMap } from './geography.js';
 
@@ -213,6 +213,7 @@ export class Renderer3D {
     this.pComp = this.program(FULL_VS, COMPOSITE_FS);
     this.pPixel = this.program(FULL_VS, PIXEL_FS);
     this.pSurfSky = this.program(FULL_VS, SURFACE_SKY_FS);
+    this.pTerrain = this.program(TERRAIN_VS, TERRAIN_FS);
     this.pField = this.program(FULL_VS, TEMP_FIELD_FS);
     this.hdr = !!gl.getExtension('EXT_color_buffer_float');
     this.post = null;
@@ -528,6 +529,123 @@ export class Renderer3D {
     gl.bindBuffer(gl.ARRAY_BUFFER, set.bufs[3]); gl.bufferData(gl.ARRAY_BUFFER, set.shade.subarray(0, n), gl.DYNAMIC_DRAW);
   }
 
+  // Ring mesh for the Surface view: 190 rings from 0.3 m to 150 km (spaced geometrically, so detail
+  // is where you look closely), 240 segments around.
+  terrainMesh() {
+    if (this.tMesh) return this.tMesh;
+    const gl = this.gl, NR = 190, NS = 320, r0 = 0.3, r1 = 1.5e5;
+    const k = Math.pow(r1 / r0, 1 / (NR - 1));
+    const v = new Float32Array((NR * NS + 1) * 2);
+    v[0] = 0; v[1] = 0;
+    for (let i = 0; i < NR; i++) for (let j = 0; j < NS; j++) { const o = (1 + i * NS + j) * 2; v[o] = r0 * Math.pow(k, i); v[o + 1] = (j / NS) * Math.PI * 2; }
+    const idx = [];
+    for (let j = 0; j < NS; j++) idx.push(0, 1 + j, 1 + ((j + 1) % NS));
+    for (let i = 0; i < NR - 1; i++) for (let j = 0; j < NS; j++) {
+      const a = 1 + i * NS + j, b2 = 1 + i * NS + ((j + 1) % NS), c = a + NS, d = b2 + NS;
+      idx.push(a, c, b2, b2, c, d);
+    }
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    const vb = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vb);
+    gl.bufferData(gl.ARRAY_BUFFER, v, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    const ib = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(idx), gl.STATIC_DRAW);
+    gl.bindVertexArray(null);
+    this.tMesh = { vao, n: idx.length };
+    return this.tMesh;
+  }
+
+  // The ground around the observer in the Surface view. Lit by the sunlight that reaches the ground and
+  // the sky's own light, and hazed with distance, all from the same atmosphere model as the sky.
+  drawTerrain(b, l, rot, lights, temp) {
+    const gl = this.gl, sv = this.surface, p = this.pTerrain, u = p.u, th = b.th;
+    const AU = 1.495978707e11, Rm = b.r * AU;
+    // Build the terrain around where the eye really is (the planet may have turned a little since the
+    // camera was placed this frame): the eye's direction from the centre, in the body's own frame.
+    const wx = this.ex - b.x, wy = this.ey - b.y, wz = this.ez - b.z, wr = Math.hypot(wx, wy, wz);
+    const n = [(rot[0] * wx + rot[1] * wy + rot[2] * wz) / wr, (rot[3] * wx + rot[4] * wy + rot[5] * wz) / wr, (rot[6] * wx + rot[7] * wy + rot[8] * wz) / wr];
+    const eyeH = Math.max(0.5, wr * AU - Rm);
+    let north = [-n[1] * n[0], 1 - n[1] * n[1], -n[1] * n[2]];
+    let nl = Math.hypot(...north);
+    if (nl < 1e-6) { north = [1, 0, 0]; nl = 1; }
+    north = north.map((v) => v / nl);
+    const east = [north[1] * n[2] - north[2] * n[1], north[2] * n[0] - north[0] * n[2], north[0] * n[1] - north[1] * n[0]];
+    const toV = (o) => { const w = [rot[0] * o[0] + rot[3] * o[1] + rot[6] * o[2], rot[1] * o[0] + rot[4] * o[1] + rot[7] * o[2], rot[2] * o[0] + rot[5] * o[1] + rot[8] * o[2]]; return this.viewOf(w[0], w[1], w[2]); };
+    const ld = lights ? lights.dirs : [[0, 1, 0], [0, 0, 0], [0, 1, 0], [0, 0, 0]];
+    const upV = toV(n);
+    const sunUp = ld[0][0] * upV[0] + ld[0][1] * upV[1] + ld[0][2] * upV[2];
+    // Light and haze from the sky model, refreshed a few times a second.
+    const optics = atmosphereOptics(b);
+    const now = performance.now();
+    if (!this.gLight || now - this.gLight.t > 300 || this.gLight.b !== b) {
+      const el = sv.elev || 0, day = optics ? optics.day : 1;
+      const dusk = 1 + (1 / Math.sqrt(0.08 + 0.92 * Math.max(0, Math.sin(el))) - 1) * Math.max(0, Math.min(1, (el + 0.2) / 0.15));
+      const expo = (22 * dusk) / Math.pow(Math.max(0.01, Math.min(1, day)), 0.6);
+      // Without air the eye adapts to the sunlit ground itself (as in the Apollo photographs).
+      const adapt = optics ? expo / 22 : 1.4;
+      const g = optics ? groundLight(optics, sunUp, expo) : null;
+      this.gLight = { t: now, b, g, adapt, optics };
+    }
+    const { g, adapt } = this.gLight;
+    const sunT = g ? g.sunT : [1, 1, 1];
+    const sunCol = [0, 1, 2].map((i) => ld[1][i] * sunT[i] * adapt * (sunUp > -0.02 ? 1 : 0));
+    // Sky light: from the model, or (airless) only faint light from the stars and the ground around.
+    const amb = g ? g.amb.map((v, i) => v * adapt * (ld[1][i] > 0 ? 1 : 0) + 0.004) : sunCol.map((v) => v * 0.04 * Math.max(0, sunUp) + 0.002);
+    const ext = optics ? [0, 1, 2].map((i) => (optics.betaR[i] + optics.betaA[i] + optics.betaM[i] + optics.betaMa[i]) / Rm) : [0, 0, 0];
+    const fogH = optics ? ((optics.betaR[1] * optics.hR + optics.betaM[1] * optics.hM) / Math.max(1e-9, optics.betaR[1] + optics.betaM[1])) * Rm : 1;
+    const gr = (6.674e-11 * b.m * 1.98847e30) / (Rm * Rm);
+    const reliefK = Math.max(0.25, Math.min(1.6, (0.8 * 9.81) / Math.max(gr, 0.1)));
+    const liquid = th && th.liquid > 0.005;
+    gl.useProgram(p.p);
+    gl.uniformMatrix4fv(u.uProj, false, this.P);
+    gl.uniformMatrix3fv(u.uView, false, this.V);
+    gl.uniformMatrix3fv(u.uRot, false, rot);
+    gl.uniform3fv(u.uObs, n); gl.uniform3fv(u.uEast, east); gl.uniform3fv(u.uNorth, north);
+    gl.uniform1f(u.uRm, Rm); gl.uniform1f(u.uEyeH, eyeH); gl.uniform1f(u.uAU, AU);
+    gl.uniform1f(u.uSeaOK, liquid ? 1 : 0);
+    gl.uniform1f(u.uLogDepthFC, this.logFC);
+    gl.uniform1f(u.uSeed, seeded(b.id) * 40);
+    gl.uniform1f(u.uOcean, th ? th.ocean : 0);
+    gl.uniform1f(u.uMapMode, b.surfaceMap && this.mapTex.get(b) ? b.surfaceMap.mode : 0);
+    if (b.surfaceMap && this.mapTex.get(b)) { gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, this.mapTex.get(b).tex); gl.uniform1i(u.uMap, 5); gl.activeTexture(gl.TEXTURE0); }
+    gl.uniform1f(u.uRelief, 4000 * reliefK);
+    gl.uniform1f(u.uCraters, l.craters ? Math.min(1, l.craters * 2.5) : 0);
+    gl.uniform1f(u.uRough, 1);
+    const fr = (x) => x - Math.floor(x);
+    gl.uniform2f(u.uLocal, fr(sv.lat * 977.3) * 800, fr(sv.lon * 613.7) * 800);
+    gl.uniform3fv(u.uL0, ld[0]);
+    gl.uniform3fv(u.uSunCol, sunCol);
+    gl.uniform3fv(u.uAmb, amb);
+    gl.uniform3fv(u.uUpV, upV); gl.uniform3fv(u.uEastV, toV(east)); gl.uniform3fv(u.uNorthV, toV(north));
+    gl.uniform3fv(u.uColA, l.colA || [0.6, 0.6, 0.6]);
+    gl.uniform3fv(u.uColB, l.colB || [0.4, 0.4, 0.4]);
+    gl.uniform3fv(u.uVeg, vegetationColor(b, lights));
+    gl.uniform1f(u.uLife, b.life ? 1 : 0);
+    gl.uniform1f(u.uTemp, temp);
+    gl.uniform1f(u.uLatSpan, th ? th.latSpan : 50);
+    gl.uniform1f(u.uIce, th && th.ice > 0.003 ? 1 : 0);
+    gl.uniform1f(u.uSnowLat, th ? (th.ice > 0.97 ? -0.3 : 1 - th.ice) : 1.3);
+    gl.uniform1f(u.uBoil, th ? th.boil : 373);
+    gl.uniform1f(u.uLapse, optics && optics.P > 0.1 ? 6.5 : 0);
+    gl.uniform1f(u.uTime, now / 1000);
+    gl.uniform1f(u.uPxAng, (2 * Math.tan(this.cam.fov / 2)) / Math.max(1, this.Hcur || 800));
+    gl.uniform3fv(u.uFogExt, ext);
+    gl.uniform1f(u.uFogH, fogH);
+    gl.uniform3fv(u.uFogSun, g ? g.horSun : [0, 0, 0]);
+    gl.uniform3fv(u.uFogAnti, g ? g.horAnti : [0, 0, 0]);
+    gl.uniform3fv(u.uSkyZen, g ? g.zen : [0, 0, 0]);
+    if (window.__tdbg) window.__tdbg = { n, eyeH, wr, br: b.r, upWorld: [rot[0] * n[0] + rot[3] * n[1] + rot[6] * n[2], rot[1] * n[0] + rot[4] * n[1] + rot[7] * n[2], rot[2] * n[0] + rot[5] * n[1] + rot[8] * n[2]], svUp: sv.up, upV, ex: [this.ex, this.ey, this.ez], b: [b.x, b.y, b.z] };
+    const m = this.terrainMesh();
+    gl.disable(gl.CULL_FACE);
+    gl.bindVertexArray(m.vao);
+    gl.drawElements(gl.TRIANGLES, m.n, gl.UNSIGNED_INT, 0);
+    gl.enable(gl.CULL_FACE);
+  }
+
   makeSky() {
     const set = this.dynamicSet();
     const n = 2200;
@@ -617,11 +735,12 @@ export class Renderer3D {
     gl.depthMask(true);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-    const near = Math.max(1e-12, cam.dist * 1e-6), far = 1e15;
+    // Standing on a surface the ground starts at your feet: clip at 5 cm.
+    const near = ui.surface ? 3.3e-13 : Math.max(1e-12, cam.dist * 1e-6), far = 1e15;
     this.P = perspective(cam.fov, W / H, near, far);
     this.V = new Float32Array([cam.rx, cam.ux, -cam.fx, cam.ry, cam.uy, -cam.fy, cam.rz, cam.uz, -cam.fz]);
     this.F = H / 2 / Math.tan(cam.fov / 2);
-    this.logFC = 2 / Math.log2(far + 1);
+    this.logFC = 2 / Math.log2(far * 1e12 + 1); // matches DEPTH_K in shaders.js
     this.ex = cam.tx + cam.ox; this.ey = cam.ty + cam.oy; this.ez = cam.tz + cam.oz;
 
     this.surface = ui.surface || null;
@@ -821,6 +940,9 @@ export class Renderer3D {
     const temp = th ? th.Ts : b.temp;
     const snowLat = th ? (th.ice > 0.97 ? -0.3 : 1 - th.ice) : 1.3; // caps cover the area above this sine of latitude
     const crack = l.kind === 0 ? Math.max(0, Math.min(1, (tide.tau - 0.3) / 0.5)) : 0;
+
+    // Standing on this body: draw the local terrain instead of the globe.
+    if (this.surface && this.surface.body === b && l.kind === 0) { this.drawTerrain(b, l, rot, lights, temp); return; }
 
     const p = this.pBody, u = p.u;
     gl.useProgram(p.p);

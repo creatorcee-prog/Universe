@@ -126,7 +126,8 @@ export class Sound {
     const now = performance.now();
     if (now - this.lastUI < (fallback ? 400 : 40)) return;
     this.lastUI = now;
-    if (!this.on || !this.ctx || !this.buf[name]) return;
+    // Interface sounds are off for now (Settings → Interface sounds turns them back on).
+    if (!this.on || !this.settings.uiSound || !this.ctx || !this.buf[name]) return;
     const s = this.ctx.createBufferSource();
     s.buffer = this.buf[name];
     const g = this.ctx.createGain();

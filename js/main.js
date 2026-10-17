@@ -14,7 +14,7 @@ import { UI } from './ui.js';
 const SETTINGS_KEY = 'universe-pocket-settings';
 
 function loadSettings() {
-  const defaults = { trails: true, labels: true, grid: true, stars: true, trailsRelative: true, collisions: true, sound: true, soundSilent: false, perf: false, view: 'realistic', bloom: true, trailColor: 'body', orbits: false, trueSize: false };
+  const defaults = { trails: true, labels: true, grid: true, stars: true, trailsRelative: true, collisions: true, sound: true, uiSound: false, soundSilent: false, perf: false, view: 'realistic', bloom: true, trailColor: 'body', orbits: false, trueSize: false };
   try {
     return { ...defaults, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') };
   } catch {
@@ -131,6 +131,7 @@ class App {
         // Face the Sun's side of the sky on the day side, away from it at night.
         sv.yaw = 0;
       }
+      this.nearestLand(b, sv);
     }
     const no = [Math.cos(sv.lat) * Math.cos(sv.lon), Math.sin(sv.lat), Math.cos(sv.lat) * Math.sin(sv.lon)];
     const n = toW(no);
@@ -146,7 +147,7 @@ class App {
     let r = [f[1] * n[2] - f[2] * n[1], f[2] * n[0] - f[0] * n[2], f[0] * n[1] - f[1] * n[0]];
     const rl = Math.hypot(...r) || 1; r = r.map((v) => v / rl);
     const u = [r[1] * f[2] - r[2] * f[1], r[2] * f[0] - r[0] * f[2], r[0] * f[1] - r[1] * f[0]];
-    const h = b.r * 1.0012; // eye a little above the ground
+    const h = b.r + 1.7 / 1.495978707e11; // eye 1.7 m above the ground (the terrain is built around it)
     this.cam.override = { eye: [b.x + n[0] * h, b.y + n[1] * h, b.z + n[2] * h], f, r, u };
     this.cam.dist = this.cam.distGoal = b.r * 0.01;
     sv.up = n; sv.sun = sun; sv.sunPower = star ? 1 : 0; sv.north = north; sv.sunAng = sunAng; sv.sunTemp = sunTemp;
@@ -572,6 +573,30 @@ class App {
   }
 
   // ---------- main loop ----------
+
+  // On a world with a land map (Earth), move to the nearest land within ~35° so you stand on the ground,
+  // not in open ocean. Uses the same map and longitude convention as the shaders.
+  nearestLand(b, sv) {
+    const sm = b.surfaceMap;
+    if (!sm || sm.mode !== 1) return;
+    const land = (lat, lon) => {
+      const u = (((-lon / (2 * Math.PI) + 0.5) % 1) + 1) % 1, v = 0.5 - lat / Math.PI;
+      const x = Math.min(sm.W - 1, Math.floor(u * sm.W)), y = Math.max(0, Math.min(sm.H - 1, Math.floor(v * sm.H)));
+      const o = (y * sm.W + x) * 4;
+      return sm.data[o + 3] > 127 && sm.data[o] > 140 && sm.data[o + 2] < 128; // land, a little inland, not ice sheet
+    };
+    if (land(sv.lat, sv.lon)) return;
+    const D = Math.PI / 180;
+    for (let r = 1; r <= 35; r++) {
+      let best = null;
+      for (let k = 0; k < 8 * r; k++) {
+        const a = (k / (8 * r)) * 2 * Math.PI;
+        const lat = sv.lat + r * D * Math.sin(a), lon = sv.lon + (r * D * Math.cos(a)) / Math.max(0.2, Math.cos(sv.lat));
+        if (Math.abs(lat) < 1.4 && land(lat, lon)) { best = [lat, lon]; break; }
+      }
+      if (best) { sv.lat = best[0]; sv.lon = best[1]; return; }
+    }
+  }
 
   // The black-hole drone swells as a hole fills more of the view, more so while it is feeding; heavier
   // holes sound deeper.

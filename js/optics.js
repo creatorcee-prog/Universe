@@ -94,3 +94,71 @@ export function setOpticsUniforms(gl, u, o, steps = 16) {
 export function atmosphereTop(o) {
   return 1 + Math.max(0.004, Math.min(0.25, 8 * Math.max(o.hR, o.hM)));
 }
+
+// ---------- the same scattering on the CPU (a few rays), for lighting the Surface-view ground ----------
+// Mirrors SCATTER in shaders.js. Units: planet radii; sunlight irradiance 1.
+const chapUp = (x, mu) => { const c = Math.sqrt(1.5708 * x); return c / ((c - 1) * mu + 1); };
+const chap = (X, x, mu) => {
+  const h = x - X;
+  if (mu >= 0) return chapUp(x, mu) * Math.exp(-h);
+  const x0 = Math.sqrt(Math.max(0, 1 - mu * mu)) * x;
+  return 2 * Math.sqrt(1.5708 * x0) * Math.exp(X - x0) - chapUp(x, -mu) * Math.exp(-h);
+};
+export function tauToSun(o, r, mu) {
+  if (mu < 0 && r * Math.sqrt(Math.max(0, 1 - mu * mu)) < 1) return [1e4, 1e4, 1e4];
+  const cR = o.hR * chap(1 / o.hR, r / o.hR, mu), cM = o.hM * chap(1 / o.hM, r / o.hM, mu);
+  return [0, 1, 2].map((i) => (o.betaR[i] + o.betaA[i]) * cR + (o.betaM[i] + o.betaMa[i]) * cM);
+}
+function scatterRay(o, oo, d, tMax, sun, bias) {
+  const N = 24, c = d[0] * sun[0] + d[1] * sun[1] + d[2] * sun[2];
+  const pR = 0.0596831 * (1 + c * c);
+  const pM = o.mieG.map((g) => (0.1193662 * (1 - g * g) * (1 + c * c)) / ((2 + g * g) * Math.pow(Math.max(1e-4, 1 + g * g - 2 * g * c), 1.5)));
+  const L = [0, 0, 0], tau = [0, 0, 0];
+  let tPrev = 0;
+  for (let i = 0; i < N; i++) {
+    const s = (i + 1) / N, t1 = tMax * Math.pow(s, bias), dt = t1 - tPrev, tm = tPrev + 0.5 * dt;
+    tPrev = t1;
+    const p = [0, 1, 2].map((k) => oo[k] + d[k] * tm), r = Math.hypot(p[0], p[1], p[2]), h = Math.max(r - 1, 0);
+    const rR = Math.exp(-h / o.hR), rM = Math.exp(-h / o.hM);
+    const mu0 = (p[0] * sun[0] + p[1] * sun[1] + p[2] * sun[2]) / r;
+    const Ts = tauToSun(o, r, mu0).map((v) => Math.exp(-v));
+    const twi = Math.max(mu0 + 0.08, 0) / 1.08;
+    for (let k = 0; k < 3; k++) {
+      const sR = o.betaR[k] * rR, sM = o.betaM[k] * rM, ext = sR + sM + o.betaA[k] * rR + o.betaMa[k] * rM;
+      const tS = o.betaR[k] * o.hR * rR + o.betaM[k] * o.hM * rM, tE = tS + o.betaA[k] * o.hR * rR + o.betaMa[k] * o.hM * rM;
+      const w = Math.min(1, tS / Math.max(tE, 1e-9)), gE = Math.min(0.99, (o.betaM[k] * o.hM * rM * o.mieG[k]) / Math.max(tS, 1e-9));
+      const kk = Math.sqrt(Math.max(3 * (1 - w) * (1 - w * gE), 0)), Td = Math.exp(-kk * tE) / (1 + 0.75 * (1 - gE) * tS);
+      const sa = Math.sqrt(Math.max(1 - w, 0) / Math.max(1 - w * gE, 1e-4));
+      const ms = (sR + sM) * (1 - Math.exp(-o.tauS[k])) * Td * ((1 - sa) / (1 + sa)) * twi * (0.5 / Math.PI);
+      const S = sR * pR * Ts[k] + sM * pM[k] * Ts[k] + ms;
+      L[k] += (Math.exp(-tau[k]) * S * (1 - Math.exp(-ext * dt))) / Math.max(ext, 1e-9);
+      tau[k] += ext * dt;
+    }
+  }
+  return L;
+}
+const tone = (x) => { const m = Math.max(x[0], x[1], x[2], 1e-9), k = (1 - Math.exp(-m)) / m; return x.map((v) => v * k); };
+
+// Colours the ground needs, in the same exposure as the sky shader: the sky at the horizon toward and away
+// from the sun, at the zenith, sunlight reaching the ground (transmittance), and the diffuse sky light.
+// sunUp: sine of the sun's elevation. expo: the sky's exposure.
+export function groundLight(o, sunUp, expo) {
+  const top = atmosphereTop(o), oo = [0, 1.00002, 0];
+  const se = Math.max(-1, Math.min(1, sunUp)), sun = [Math.sqrt(1 - se * se), se, 0];
+  const ray = (el, azDeg) => {
+    const e = (el * Math.PI) / 180, a = (azDeg * Math.PI) / 180;
+    const d = [Math.cos(e) * Math.cos(a), Math.sin(e), Math.cos(e) * Math.sin(a)];
+    const b = oo[0] * d[0] + oo[1] * d[1] + oo[2] * d[2], c = 1.00002 ** 2 - top * top;
+    return scatterRay(o, oo, d, -b + Math.sqrt(b * b - c), sun, 2.2);
+  };
+  const ex = (L) => tone(L.map((v) => v * expo));
+  const horSun = ex(ray(2, 0)), horAnti = ex(ray(2, 180)), zen = ex(ray(90, 0));
+  // Diffuse light on a horizontal surface: average of the sky over the hemisphere (a few directions),
+  // in units where full sunlight is 1.
+  let amb = [0, 0, 0];
+  const dirs = [[90, 0], [45, 0], [45, 90], [45, 180], [45, 270], [15, 0], [15, 120], [15, 240]];
+  for (const [el, az] of dirs) { const L = ray(el, az), w = Math.sin((el * Math.PI) / 180); for (let k = 0; k < 3; k++) amb[k] += L[k] * w; }
+  amb = amb.map((v) => (v / dirs.length) * Math.PI * 2);
+  const T = tauToSun(o, 1.00002, se).map((v) => Math.exp(-v));
+  return { horSun, horAnti, zen, sunT: T, amb };
+}
