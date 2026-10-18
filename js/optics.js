@@ -75,8 +75,15 @@ export function atmosphereOptics(b) {
     const k = Math.sqrt(3 * (1 - w) * (1 - w * gE));
     day += (Math.exp(-tauE[i]) + (1 - Math.exp(-tauS[i])) * Math.exp(-k * tauE[i]) / (1 + 0.75 * (1 - gE) * tauS[i])) / 3;
   }
+  // Titan's detached haze layer: ~500 km up, ~40 km thick, faintly blue (Porco et al. 2005, Nature 434, 159;
+  // West et al. 2011). Its tangent optical depth is set to ~0.3, so it shows at the limb as in Cassini images.
+  let det = [0, 0, 0, 0];
+  if (kind === 'tholin') {
+    const hD = 500e3 / R, wD = 40e3 / R, path = 1.81 * Math.sqrt(2 * (1 + hD) * wD);   // grazing path through it
+    det = [hD, wD, 0.3 / Math.max(path, 1e-9), 1];
+  }
   return {
-    kind, P, T, H, HM, g, mu, tauM, tauS, tauE, day,
+    kind, P, T, H, HM, g, mu, tauM, tauS, tauE, day, det,
     // per planet radius (shader units)
     betaR: betaR.map((v) => v * R), betaM: betaM.map((v) => v * R), betaA: betaA.map((v) => v * R),
     betaMa: betaMa.map((v) => v * R), hR: H / R, hM: HM / R, mieG: gM,
@@ -91,11 +98,21 @@ export function setOpticsUniforms(gl, u, o, steps = 16) {
   gl.uniform3fv(u.uG, o.mieG); gl.uniform3fv(u.uTauS, o.tauS);
   gl.uniform1f(u.uTop, atmosphereTop(o));
   gl.uniform1i(u.uSteps, steps);
+  gl.uniform4fv(u.uDet, o.det || [0, 0, 0, 0]);
+}
+
+// The same atmosphere stretched k times taller with its haze spread thinner (same column optical depth, so
+// the same colours), so one too thin to see from far away still shows as a rim a couple of pixels wide.
+export function stretchOptics(o, k) {
+  if (!(k > 1)) return o;
+  const d = (v) => v.map((x) => x / k);
+  return { ...o, hR: o.hR * k, hM: o.hM * k, betaR: d(o.betaR), betaM: d(o.betaM), betaA: d(o.betaA), betaMa: d(o.betaMa),
+    det: o.det && o.det[3] ? [o.det[0] * k, o.det[1] * k, o.det[2] / k, 1] : o.det };
 }
 
 // Outer edge of the drawn atmosphere, in planet radii: eight scale heights of whichever layer is taller.
 export function atmosphereTop(o) {
-  return 1 + Math.max(0.004, Math.min(0.25, 8 * Math.max(o.hR, o.hM)));
+  return 1 + Math.max(0.004, Math.min(0.25, Math.max(8 * Math.max(o.hR, o.hM), o.det && o.det[3] ? o.det[0] + 3 * o.det[1] : 0)));
 }
 
 // ---------- the same scattering on the CPU (a few rays), for lighting the Surface-view ground ----------

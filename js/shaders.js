@@ -1284,6 +1284,7 @@ uniform vec3 uG;                   // Mie asymmetry per channel
 uniform vec3 uTauS;                // vertical scattering optical depth of the whole column
 uniform float uTop;                // atmosphere top radius
 uniform int uSteps;                // ray-march samples (fewer from space, where the shell is small)
+uniform vec4 uDet;                 // a detached haze layer: height, half-width (radii), scattering (per radius, green), 0 = none
 const float PI = 3.14159265;
 // Optical depth (in scale heights, relative to surface density) from radius r (in units of H: x),
 // in direction with cosine mu to the local vertical, out to infinity.
@@ -1330,6 +1331,9 @@ vec3 scatter(vec3 o, vec3 d, float tMax, vec3 sun, float bias, out vec3 T) {
     float h = max(r - 1.0, 0.0);
     float rhoR = exp(-h / uHR), rhoM = exp(-h / uHM);
     vec3 sR = uBR * rhoR, sM = uBM * rhoM;
+    // Titan's detached haze (Cassini): a thin shell of fine particles far above the main haze, scattering
+    // blue more than red; added to the molecular scattering (same phase function).
+    if (uDet.w > 0.0) { float z = (h - uDet.x) / uDet.y; sR += uDet.z * vec3(0.42, 0.64, 1.0) * exp(-z * z); }
     vec3 ext = sR + sM + uBA * rhoR + uBMa * rhoM;
     float mu0 = dot(p, sun) / r;
     vec3 Ts = exp(-tauToSun(r, mu0));

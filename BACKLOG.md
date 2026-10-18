@@ -20,8 +20,9 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 - **Spectrum views**: infrared (thermal glow), ultraviolet, X-ray and gamma. Most of these can come from
   per-body emission models: blackbody heat, hot coronae, accretion disks and pulsars.
 - **Clearer info pages** that point the user to the extra detail more obviously.
-- **Atmospheres as seen in photos**: limb haze and scattering colour, visible thickness, and a
-  measured height (scale height and where the air is thinner than a set limit).
+- **Atmospheres, further**: airglow on the night side, Mars's layered limb hazes, a low-orbit (ISS)
+  camera to see Earth's thin blue horizon band. (Thickness readouts, rims visible from afar and Titan's
+  detached haze are done.)
 - **More lighting**: light reflected by Saturn's rings onto its night side, moonlight on Earth's night
   side, and shadows of big moons on rings. (Planetshine, red eclipses and cast terrain shadows are done.)
 - **Black hole heat**. Hawking radiation is only 6 × 10⁻⁸ K × (M☉ / M) (Hawking 1974), far colder

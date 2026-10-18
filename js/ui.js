@@ -5,6 +5,7 @@ import { PRESETS } from './presets.js';
 import { Book } from './book.js';
 import { tempZones, localTemp, localHab, listReasons } from './thermal.js';
 import { lifetime } from './stellar.js';
+import { atmosphereOptics } from './optics.js';
 import { renderThumb, category } from './thumbs.js';
 
 // Time-speed slider spans 1 second per second to 300 million years per second (log scale).
@@ -544,7 +545,8 @@ export class UI {
   refreshSurface(b, now, force) {
     const th = b.th, atm = b.atm;
     const p = (atm ? atm.p : 0) + th.steam;
-    $('i-press').textContent = b.kind === 'gas' ? 'No surface' : p < 1e-4 ? 'None' : p < 0.01 ? p.toExponential(1) + ' bar' : p.toPrecision(3) + ' bar';
+    const opt = b.kind === 'rocky' ? atmosphereOptics(b) : null;
+    $('i-press').textContent = b.kind === 'gas' ? 'No surface' : p < 1e-4 ? 'None' : (p < 0.01 ? p.toExponential(1) + ' bar' : p.toPrecision(3) + ' bar') + (opt ? ` · 99% within ${Math.round((4.605 * opt.H) / 1000)} km` : '');
     $('i-albedo').textContent = Math.round(th.albedo * 100) + '%';
     $('i-ocean').textContent = th.liquid > 0.001 ? pct(th.liquid) : th.steam > 1 ? 'Boiled off' : '—';
     $('i-icecov').textContent = th.ice > 0.001 ? pct(th.ice) : '—';
@@ -578,7 +580,7 @@ export class UI {
     if (th.steam > 0) gases.h2o = th.steam;
     const P = Object.values(gases).reduce((s, v) => s + v, 0); // bar
     if (!(P > 1e-6) || !rocky) {
-      for (const id of ['a-mass', 'a-press', 'a-rho', 'a-sound', 'a-H', 'a-lapse', 'a-mu']) set(id, rocky ? 'None' : '—');
+      for (const id of ['a-mass', 'a-press', 'a-rho', 'a-sound', 'a-H', 'a-thick', 'a-lapse', 'a-mu']) set(id, rocky ? 'None' : '—');
       return;
     }
     const MU = { n2: 28.01, o2: 32.0, co2: 44.01, ch4: 16.04, h2: 2.016, h2o: 18.02 };
@@ -595,6 +597,10 @@ export class UI {
     set('a-rho', `${rho.toPrecision(3)} kg/m³`);
     set('a-sound', `${(c / 1000).toPrecision(3)} km/s`);
     set('a-H', `${(H / 1000).toPrecision(3)} km`);
+    // Thickness: pressure falls by e every scale height, so 99% of the air lies below 4.6 H, and it thins to a
+    // millionth of the surface pressure (near-vacuum; ~116 km on Earth, near the 100 km edge of space) by 13.8 H.
+    const km = (x) => (x >= 100 ? Math.round(x).toLocaleString('en-US') : x.toPrecision(2)) + ' km';
+    set('a-thick', `99% below ${km((4.605 * H) / 1000)} · a millionth left at ${km((13.82 * H) / 1000)}`);
     set('a-lapse', `${((g / cpm) * 1000).toPrecision(3)} K/km`);
     set('a-mu', `${mu.toPrecision(3)} g/mol`);
   }

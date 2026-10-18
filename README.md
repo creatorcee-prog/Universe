@@ -243,6 +243,17 @@ Switch in the **View** panel.
   Sun's disc seen from there. Io's shadow crosses Jupiter, and the Moon can eclipse the Sun on Earth.
   - *Red eclipses*: a world with air bends the red light of its sunsets into its shadow, so the Moon in
     Earth's umbra turns copper instead of vanishing (strength √(pressure in bar), up to Earth's).
+- **Atmospheres you can see and measure**:
+  - *Thickness*: the Surface tab gives the scale height and how deep the air is: 99% of it lies below 4.6
+    scale heights (39 km on Earth, 51 km on Mars, 150 km on Venus and 190 km on Titan, from the model's
+    own temperatures), and it thins to a millionth of the surface pressure by 13.8 scale heights (~116 km
+    on Earth, close to the 100 km "edge of space"). The overview shows the pressure with the 99% depth.
+  - *Visible from afar*: a real atmosphere is thinner than a pixel once its planet is small on screen (Earth's
+    is ~1% of its radius), so it is drawn stretched up to 30× taller with its haze spread thinner. The column
+    optical depth is unchanged, so its colours stay right, and it shows as a rim at least 2.5 pixels wide.
+    Close up it is drawn to scale.
+  - *Titan's detached haze*: a thin, faintly blue layer ~500 km up, above the orange main haze, as in Cassini's
+    images (Porco et al. 2005, *Nature* 434, 159).
 - **Light traced along a few rays** (cheap stand-ins for ray tracing):
   - *Planetshine*: sunlight reflected by a moon's planet lights its night side: earthshine on the Moon,
     Saturnshine on Mimas, in the planet's colour. True strength is albedo × the planet's lit fraction seen

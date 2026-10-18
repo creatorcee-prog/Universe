@@ -3,7 +3,7 @@ import { isLuminous, tempToRGB, schwarzschild } from './bodies.js';
 import { transientLum } from './stellar.js';
 import { EARTH_MASS } from './units.js';
 import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS, RIM_FS, TERRAIN_VS, TERRAIN_FS, RING_FS, CLOUD_FS } from './shaders.js';
-import { atmosphereOptics, setOpticsUniforms, atmosphereTop, groundLight } from './optics.js';
+import { atmosphereOptics, setOpticsUniforms, stretchOptics, atmosphereTop, groundLight } from './optics.js';
 import { heatOutput } from './thermal.js';
 import { earthMap, moonMap } from './geography.js';
 
@@ -1554,7 +1554,11 @@ export class Renderer3D {
     }
     // Glows and other additive layers, drawn after all solid bodies.
     if ((atmo || optics) && shownPx > 3 && !(this.surface && this.surface.body === b)) {
-      const top = optics ? atmosphereTop(optics) : l.kind === 1 ? 1.015 : 1.035;
+      // Seen from afar a real atmosphere is thinner than a pixel (Earth's is 1% of its radius): stretch it to
+      // stay about 2.5 pixels wide, keeping its colours (see stretchOptics). Close up it is drawn to scale.
+      const thick = optics ? (atmosphereTop(optics) - 1) * shownPx : 0;
+      const opt = optics && thick > 0 && thick < 2.5 * dpr ? stretchOptics(optics, Math.min(30, (2.5 * dpr) / thick)) : optics;
+      const top = optics ? atmosphereTop(opt) : l.kind === 1 ? 1.015 : 1.035;
       // Inside the shell (low orbit): draw its far side without depth testing; the shader stops rays at
       // the ground itself. Outside: the near side, depth tested so moons in front hide it.
       const inside = Math.hypot(x, y, z) < R * top;
@@ -1577,7 +1581,7 @@ export class Renderer3D {
         gl.uniform1f(au.uLogDepthFC, this.logFC);
         gl.uniform3fv(au.uL0, ld[0]);
         if (optics) {
-          setOpticsUniforms(gl, au, optics, 14);
+          setOpticsUniforms(gl, au, opt, 14);
           gl.uniform3fv(au.uCenterV, this.viewOf(x, y, z));
           gl.uniform1f(au.uPR, R);
           gl.uniform1f(au.uExpo, 5.5 * (ld[1][0] + ld[1][1] + ld[1][2] > 0 ? 1 : 0));
