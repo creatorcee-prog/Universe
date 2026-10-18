@@ -95,8 +95,37 @@ function donorFor(b, l) {
   const Ry = (co, si) => [co, 0, -si, 0, 1, 0, si, 0, co], Rx = (co, si) => [1, 0, 0, 0, co, si, 0, -si, co];
   const mul = (A, B) => { const o = new Array(9); for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) o[j * 3 + i] = A[i] * B[j * 3] + A[3 + i] * B[j * 3 + 1] + A[6 + i] * B[j * 3 + 2]; return o; };
   const rot = new Float32Array(mul(mul(Ry(ca, sa), Rx(cb, sb)), Ry(cc, sc)));
-  return { img, rot, mean: donorMean.get(img), k: type === 'giant' ? 0.85 : type === 'small' ? 0.9 : 0.8 };
+  return { img, file, rot, mean: donorMean.get(img), k: type === 'giant' ? 0.85 : type === 'small' ? 0.9 : 0.8 };
 }
+
+// Real elevation (assets/maps/<file>-height.png, tools/make_heights.py), decoded to metres. Worlds with a
+// donor borrow the heights of a real world of their type, scaled for gravity (relief goes roughly as
+// 1/g: the same rock supports mountains twice as tall at half the gravity).
+const HEIGHTS = { Moon: 'moon', Mars: 'mars', Venus: 'venus', Mercury: 'mercury' };
+const HEIGHT_G = { moon: 1.62, mars: 3.71, venus: 8.87, mercury: 3.70 };   // surface gravity, m/s²
+// donor pattern -> [height map, relief relative to it] (flat icy Europa, softer icy relief on Callisto)
+const DONOR_HEIGHT = { moon: ['moon', 1], callisto: ['moon', 0.6], ganymede: ['moon', 0.6], europa: ['moon', 0.2], charon: ['moon', 0.7], pluto: ['moon', 0.7], mars: ['mars', 1], io: ['venus', 0.5], phobos: ['moon', 1], deimos: ['moon', 1] };
+const heightImg = {};
+function heightMap(file) {
+  let e = heightImg[file];
+  if (!e) {
+    e = heightImg[file] = { data: null };
+    const im = new Image();
+    im.onload = () => {
+      try {
+        const c = document.createElement('canvas'); c.width = im.width; c.height = im.height;
+        const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(im, 0, 0);
+        const d = g.getImageData(0, 0, im.width, im.height).data, f = new Float32Array(im.width * im.height);
+        for (let i = 0; i < f.length; i++) f[i] = d[i * 4] * 256 + d[i * 4 + 1] - 32768;
+        e.data = f; e.W = im.width; e.H = im.height;
+      } catch { /* unreadable: no heights */ }
+    };
+    const inline = typeof window !== 'undefined' && window.__MAPS__ && window.__MAPS__[file + '-height'];
+    im.src = inline || `assets/maps/${file}-height.png`;
+  }
+  return e.data ? e : null;
+}
+const IDENT3 = new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
 
 // Earth: land, sea depth, mountains and ice decoded from a NASA hypsometric relief map (the hand-traced
 // geography fills the 40° of longitude the source lacked), in the same channels as earthMap(). Read back
@@ -729,6 +758,7 @@ export class Renderer3D {
     if (b.surfaceMap && this.mapTex.get(b)) { gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, this.mapTex.get(b).tex); gl.uniform1i(u.uMap, 5); gl.activeTexture(gl.TEXTURE0); }
     this.bindDonor(u, b, l);
     this.bindEarthDay(u, b, th);
+    this.bindHeight(u, b, false);
     gl.uniform1f(u.uRelief, 4000 * reliefK);
     gl.uniform1f(u.uCraters, l.craters ? Math.min(1, l.craters * 2.5) : 0);
     gl.uniform1f(u.uRough, 1);
@@ -849,6 +879,41 @@ export class Renderer3D {
     gl.uniform1i(u.uCloudTex, 9);
     gl.activeTexture(gl.TEXTURE0);
     gl.uniform2f(u.uCloudStats, 0.2784, 0.2456); // earth-clouds.jpg mean and standard deviation (tools/make_maps.py)
+  }
+
+  // A world's real (or borrowed) elevation: texture, orientation and metres-per-unit. globeK: shading
+  // exaggeration on the globe, in units of the radius (0 for the surface view).
+  bindHeight(u, b, globe) {
+    const gl = this.gl;
+    let file = null, k = 1, rot = IDENT3;
+    const name = b.name.replace(/ \d+$/, '');
+    if (b.kind === 'rocky' && HEIGHTS[name]) file = HEIGHTS[name];
+    else if (b.donor && DONOR_HEIGHT[b.donor.file]) { [file, k] = DONOR_HEIGHT[b.donor.file]; rot = b.donor.rot; }
+    const hm = file && heightMap(file);
+    gl.uniform1f(u.uHMapK, hm ? 1 : 0);
+    if (!hm) return;
+    if (!hm.tex) {
+      hm.tex = gl.createTexture();
+      gl.activeTexture(gl.TEXTURE10);
+      gl.bindTexture(gl.TEXTURE_2D, hm.tex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, hm.W, hm.H, 0, gl.RED, gl.FLOAT, hm.data);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    }
+    gl.activeTexture(gl.TEXTURE10);
+    gl.bindTexture(gl.TEXTURE_2D, hm.tex);
+    gl.uniform1i(u.uHMap, 10);
+    gl.activeTexture(gl.TEXTURE0);
+    if (HEIGHTS[name] !== file) {
+      const gB = (6.674e-11 * b.m * 1.98847e30) / (b.r * 1.495978707e11) ** 2;
+      k *= Math.max(0.25, Math.min(4, HEIGHT_G[file] / Math.max(gB, 0.05)));
+    }
+    gl.uniformMatrix3fv(u.uHRot, false, rot);
+    gl.uniform1f(u.uHScale, k);
+    // Globe shading: slopes exaggerated 2x so relief reads at planet scale, as in most planetary renders.
+    gl.uniform1f(u.uHGlobe, globe ? (2 * k) / (b.r * 1.495978707e11) : 0);
   }
 
   // Bind a world's donor map (or switch it off) for the current program.
@@ -1247,6 +1312,7 @@ export class Renderer3D {
     gl.uniform1f(u.uMapMode, sm ? sm.mode : 0);
     this.bindDonor(u, b, l);
     this.bindEarthDay(u, b, th);
+    this.bindHeight(u, b, true);
     // A donor already brings real craters; keep only a trace of the generated ring-shaped ones.
     if (b.donor && !imgMap) gl.uniform1f(u.uCraters, (l.craters || 0) * 0.3);
     const city = /^Earth( \d+)?$/.test(b.name) && b.life && (b.lifeAge || 0) > 3.7e9;

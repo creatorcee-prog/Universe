@@ -84,6 +84,10 @@ uniform sampler2D uDonor;
 uniform mat3 uDonorRot;
 uniform float uDonorK, uDonorMean;
 float donorT(vec3 d) { return dot(mapTex(uDonor, uDonorRot * d).rgb, vec3(0.3, 0.55, 0.15)) / uDonorMean; }
+// Real elevation: metres (times uHScale) in a half-float texture, looked up in a turned frame.
+uniform sampler2D uHMap;
+uniform mat3 uHRot;
+uniform float uHMapK, uHScale, uHGlobe;
 // Earth's day colours (Blue Marble), weighted by uDayK.
 uniform sampler2D uDay;
 uniform float uDayK;
@@ -92,6 +96,9 @@ const MAPTEX_VS = `
 vec4 mapTex(sampler2D s, vec3 d) {
   return textureLod(s, vec2(atan(-d.z, d.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(d.y, -1.0, 1.0)) / 3.14159265), 0.0);
 }
+uniform sampler2D uHMap;
+uniform mat3 uHRot;
+uniform float uHMapK, uHScale;
 `;
 
 export const BODY_VS = HEAD + NOISE + `
@@ -629,7 +636,7 @@ void main() {
         landMask = max(landMask, smoothstep(0.15, 0.35, MP.g));
       }
       // Radar map (Venus): bright = rough highlands, dark = smooth plains; R is brightness / (2 × mean).
-      else if (uMapMode > 2.5 && uMapMode < 3.5) mapH = 0.3 * (MP.r - 0.5);
+      else if (uMapMode > 2.5 && uMapMode < 3.5) mapH = 0.3 * (MP.r - 0.5) * (1.0 - uHMapK);
     }
     float Hgt = (uOcean > 0.0 ? max(e, 0.0) : h - 0.5) + 0.14 * mtn + 0.006 * vnoise(q * 38.0) + mapH;
     // Relief shading: tilt the normal by the slope of the height field (screen-space bump mapping),
@@ -642,8 +649,14 @@ void main() {
       vec3 r1 = cross(dpy, N), r2 = cross(N, dpx);
       float det = dot(dpx, r1);
       vec3 grad = sign(det) * (dhx * r1 + dhy * r2);
-      vec3 Nb = normalize(abs(det) * N - grad * 0.05 * uRelief);
-      N = normalize(mix(N, Nb, landMask * clamp(uRelief, 0.0, 1.0)));
+      // Real elevation, where there is a height map: its slopes, in units of the radius.
+      vec3 gradR = vec3(0.0);
+      if (uHMapK > 0.5) {
+        float hR = mapTex(uHMap, uHRot * vObj).r * uHGlobe;
+        gradR = sign(det) * (dFdx(hR) * r1 + dFdy(hR) * r2);
+      }
+      vec3 Nb = normalize(abs(det) * N - grad * 0.05 * uRelief * (1.0 - 0.8 * uHMapK) - gradR);
+      N = normalize(mix(N, Nb, max(landMask * clamp(uRelief, 0.0, 1.0), uHMapK)));
       day = max(dot(N, uL0), 0.0);
     }
     // Climate zones: wet tropics, dry subtropical belts near 25-30° (Hadley cells), wetter mid-latitudes.
@@ -1004,18 +1017,23 @@ out vec2 vPlanar;
 out vec3 vInfo;                        // x: height above sea (m), y: mountains, z: distance (m)
 out vec3 vNrm;                         // smooth ground normal (view space)
 ` + LOGDEPTH_V + `
+// Generated relief: continents and ranges, or with a real height map only the hills below its resolution.
 float terrainH(vec3 d, vec2 p, float res, out vec2 em) {
   em = bigTerrain(d);
+  if (uHMapK > 0.5) return smallHeight(p, 0.45, res);
   return bigHeight(em) + smallHeight(p, clamp(em.y * 1.5 + 0.15, 0.0, 1.0), res);
 }
+float mapHeight(vec3 d) { return uHMapK > 0.5 ? mapTex(uHMap, uHRot * d).r * uHScale : 0.0; }
 void main() {
   float r = aPolar.x;
   vec2 p = vec2(cos(aPolar.y), sin(aPolar.y)) * r;
   vec3 d = normalize(uObs + (uEast * p.x + uNorth * p.y) / uRm);
   float res = 0.1 * r + 0.05;            // the mesh's spacing here (rings ~10% apart)
   vec2 em, em0;
-  float H = terrainH(d, p, res, em);
-  float H0 = terrainH(uObs, vec2(0.0), 0.05, em0);
+  float Hm = mapHeight(d), H0m = mapHeight(uObs);
+  float Hg = terrainH(d, p, res, em);
+  float H = Hg + Hm;
+  float H0 = terrainH(uObs, vec2(0.0), 0.05, em0) + H0m;
   float sea = uSeaOK > 0.5 ? 0.0 : -1e9;
   float Href = max(H0, sea);             // stand on the ground, or on the water if it's sea here
   float Hs = max(H, sea);
@@ -1029,8 +1047,14 @@ void main() {
   vec2 emx, emy;
   vec3 dxp = normalize(uObs + (uEast * (p.x + ep) + uNorth * p.y) / uRm);
   vec3 dyp = normalize(uObs + (uEast * p.x + uNorth * (p.y + ep)) / uRm);
-  float gx = (max(terrainH(dxp, p + vec2(ep, 0.0), res, emx), sea) - Hs) / ep;
-  float gy = (max(terrainH(dyp, p + vec2(0.0, ep), res, emy), sea) - Hs) / ep;
+  float gx = (max(terrainH(dxp, p + vec2(ep, 0.0), res, emx) + Hm, sea) - Hs) / ep;
+  float gy = (max(terrainH(dyp, p + vec2(0.0, ep), res, emy) + Hm, sea) - Hs) / ep;
+  if (uHMapK > 0.5) {
+    // The height map's own slope, over at least 300 m: finer steps would only measure float rounding.
+    float ep2 = max(ep, 300.0);
+    gx += (mapHeight(normalize(uObs + (uEast * (p.x + ep2) + uNorth * p.y) / uRm)) - Hm) / ep2;
+    gy += (mapHeight(normalize(uObs + (uEast * p.x + uNorth * (p.y + ep2)) / uRm)) - Hm) / ep2;
+  }
   vNrm = uView * (uRot * normalize(uObs - uEast * gx - uNorth * gy));
   vDir = d; vPlanar = p; vInfo = vec3(H, em.y, r);
   gl_Position = uProj * vec4(vViewPos, 1.0);

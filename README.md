@@ -167,6 +167,12 @@ Switch in the **View** panel.
     still move, form and dissipate — on every world with clouds.
   - *Sun*: a light pattern of active regions; colour, limb darkening, granulation and spots stay physical.
   - *Milky Way*: the ESO panorama as the sky background, in galactic coordinates.
+  - *Real elevation* (`tools/make_heights.py`, 1440×720, 16-bit metres): Moon (LRO LOLA, NASA SVS CGI
+    Moon Kit), Mars (MGS MOLA MEGDR, PDS), Venus (Magellan global topography, USGS), Mercury (MESSENGER
+    DEM, USGS). On the globe its slopes shade the surface (2× exaggerated, as in most planetary
+    renders), so craters, basins and volcanoes show along the terminator; in the surface view the ground
+    follows it, with generated hills below its resolution. Created worlds borrow the heights of a real
+    world of their type, scaled for gravity (relief ~ 1/g).
   - *Donor maps for new worlds*: a world without a map of its own borrows the brightness pattern of a
     real world of its type — cratered, icy, dusty, volcanic, small or giant — at a random orientation,
     tinted with its own colours and climate, so each new world has realistic detail and no two look
