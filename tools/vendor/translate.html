@@ -1,0 +1,28 @@
+<!doctype html>
+<!-- Build-time shader translation (tools/make_wgsl.mjs drives this page in headless Chromium):
+     Vulkan-flavoured GLSL -> SPIR-V (glslang) -> WGSL (Tint, as twgsl), the same route Babylon.js uses.
+     The two translators sit beside this page (from cdn.babylonjs.com). Both declare a global `Module`, so each
+     is started before the next one is loaded. -->
+<script>
+// glslang prints its errors to the console: keep them for the caller.
+window.lastLog = '';
+const clog = console.log, cerr = console.error;
+console.log = (...a) => { window.lastLog += a.join(' ') + '\n'; clog(...a); };
+console.error = (...a) => { window.lastLog += a.join(' ') + '\n'; cerr(...a); };
+const script = (src) => new Promise((ok, fail) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = fail; document.head.appendChild(s); });
+(async () => {
+  await script('glslang.js');
+  const glslangP = self.glslang(new URL('glslang.wasm', location.href).href);
+  const gl = await glslangP;
+  await script('twgsl.js');
+  const tw = await self.twgsl(new URL('twgsl.wasm', location.href).href);
+  window.toWGSL = (src, stage) => {
+    try {
+      window.lastLog = '';
+      const spv = gl.compileGLSL(src, stage, false);
+      return { wgsl: tw.convertSpirV2WGSL(spv) };
+    } catch (e) { return { error: String((e && e.message) || e) + ' ' + (window.lastLog || '') }; }
+  };
+  window.ready = true;
+})();
+</script>

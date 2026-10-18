@@ -195,7 +195,7 @@ export class UI {
       r.addEventListener('change', () => { if (r.checked) { app.setView(r.value); this.toast({ realistic: 'Realistic view', classic: 'Classic view', pixel: 'Pixel view' }[r.value]); } });
     }
     this.onView(app.settings.view);
-    for (const key of ['bloom', 'trails', 'labels', 'grid', 'stars', 'trailsRelative', 'collisions', 'orbits', 'trueSize', 'sound', 'music', 'uiSound', 'soundSilent', 'bassBoost', 'sharp', 'perf', 'gpuRings']) {
+    for (const key of ['bloom', 'trails', 'labels', 'grid', 'stars', 'trailsRelative', 'collisions', 'orbits', 'trueSize', 'sound', 'music', 'uiSound', 'soundSilent', 'bassBoost', 'sharp', 'perf', 'gpuRings', 'webgpu']) {
       const el = $('set-' + key);
       el.checked = !!app.settings[key];
       el.addEventListener('change', () => this.toggleSetting(key, el.checked));
@@ -375,6 +375,7 @@ export class UI {
     const el = $('set-' + key);
     if (el) el.checked = s[key];
     if (key === 'collisions') this.app.world.collisions = s.collisions;
+    if (key === 'webgpu') this.app.useWebGPU(s.webgpu);
     this.app.saveSettings();
   }
 
@@ -391,7 +392,9 @@ export class UI {
     } catch (e) { gpu = 'present, but it failed: ' + e.message; }
     const g = this.app.gpu;
     const state = g ? (g.lost ? 'switched off after an error' : this.app.settings.gpuRings ? 'drawing Saturn’s rings' : 'ready (turn on the rings above)') : '';
-    el.textContent = `Graphics: WebGL 2 in use · WebGPU ${gpu}${state ? ' · ' + state : ''}.` + (g && g.diag && g.diag.length ? ' Problems: ' + g.diag.join(' | ') : '');
+    const r = this.app.r3d, rg = r && r.webgpu ? r.gl : null;
+    const diag = [...(g && g.diag || []), ...(rg ? rg.diag : []), ...(this.app.gpuError ? [this.app.gpuError] : [])];
+    el.textContent = `Graphics: ${rg ? 'WebGPU renderer in use' : 'WebGL 2 in use'} · WebGPU ${gpu}${state ? ' · ' + state : ''}.` + (diag.length ? ' Problems: ' + diag.join(' | ') : '');
   }
 
   // Find: every object in the scene, filtered by name or kind, biggest first; tap to fly to it.

@@ -8,6 +8,7 @@ import { Camera } from './camera.js';
 import { Renderer } from './render.js';
 import { Renderer3D } from './render3d.js';
 import { GPULayer } from './gpu.js';
+import { GLonGPU } from './glgpu.js';
 import { Input } from './input.js';
 import { Sound } from './audio.js';
 import { UI } from './ui.js';
@@ -15,7 +16,7 @@ import { UI } from './ui.js';
 const SETTINGS_KEY = 'universe-pocket-settings';
 
 function loadSettings() {
-  const defaults = { trails: true, labels: true, grid: true, stars: true, trailsRelative: true, collisions: true, sound: true, music: true, uiSound: true, soundSilent: false, bassBoost: false, sharp: false, perf: false, gpuRings: false, v: 2, view: 'realistic', bloom: true, trailColor: 'body', orbits: false, trueSize: false };
+  const defaults = { trails: true, labels: true, grid: true, stars: true, trailsRelative: true, collisions: true, sound: true, music: true, uiSound: true, soundSilent: false, bassBoost: false, sharp: false, perf: false, gpuRings: false, webgpu: false, v: 2, view: 'realistic', bloom: true, trailColor: 'body', orbits: false, trueSize: false };
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
     // v2: interface sounds were off in v1 while the sound set was being replaced; the new set is on.
@@ -54,6 +55,8 @@ class App {
     this.glCanvas.addEventListener('webglcontextlost', () => {
       if (this.gpu) { this.gpu.dispose(); this.gpu = null; this.ui.toast('WebGPU was switched off: it clashed with WebGL in this browser.', true); }
     });
+    // The WebGPU renderer (beta): the same renderer, drawing through js/glgpu.js.
+    if (this.settings.webgpu || window.__TEST_WEBGPU) this.useWebGPU(true);
     this.loadPreset('solar');
     this.last = performance.now();
     this.frame = this.frame.bind(this);
@@ -78,9 +81,62 @@ class App {
     this.settings.view = view;
     this.renderer.overlay = real;
     this.glCanvas.hidden = !real;
+    if (this.gpuCanvas) this.gpuCanvas.hidden = !real || !(this.r3d && this.r3d.webgpu);
     if (real) this.r3d.resize();
     this.saveSettings();
     this.ui?.onView?.(view);
+  }
+
+  // Switch the Realistic view between WebGL (the default) and the WebGPU renderer. Both run the same code
+  // (render3d.js); WebGPU goes through GLonGPU with the shaders translated ahead of time. Any failure falls
+  // back to WebGL and says why.
+  async useWebGPU(on) {
+    if (!on) {
+      if (this.r3d && this.r3d.webgpu) {
+        this.r3d = this.webglR3d || null;
+        if (this.gpuCanvas) this.gpuCanvas.hidden = true;
+        this.glCanvas = document.getElementById('gl');
+        if (!this.r3d) this.setView(this.settings.view, true);
+        else { this.glCanvas.hidden = !this.renderer.overlay; this.r3d.resize(); }
+      }
+      return;
+    }
+    if (this.r3d && this.r3d.webgpu) return;
+    try {
+      if (!navigator.gpu) throw new Error('this browser has no WebGPU');
+      const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+      if (!adapter) throw new Error('no WebGPU adapter');
+      const device = await adapter.requestDevice();
+      let cv = this.gpuCanvas;
+      if (!cv) {
+        cv = document.createElement('canvas');
+        cv.id = 'glgpu';
+        cv.setAttribute('aria-hidden', 'true');
+        document.getElementById('gl').insertAdjacentElement('afterend', cv);
+        this.gpuCanvas = cv;
+      }
+      cv.hidden = false;
+      const gl = new GLonGPU(device, cv, { offscreen: !!window.__TEST_OFFSCREEN });
+      const r = new Renderer3D(cv, this.world, this.cam, this.settings, gl);
+      this.webglR3d = this.r3d && !this.r3d.webgpu ? this.r3d : this.webglR3d;
+      document.getElementById('gl').hidden = true;
+      this.glCanvas = cv;
+      this.r3d = r;
+      cv.hidden = !this.renderer.overlay;   // (Classic view: the 2D canvas draws everything)
+      r.resize();
+      device.lost.then((info) => {
+        if (this.r3d !== r) return;
+        this.ui.toast('The WebGPU renderer stopped (' + (info.message || 'device lost') + '). Back to WebGL.', true);
+        this.settings.webgpu = false; this.saveSettings();
+        this.useWebGPU(false);
+      });
+    } catch (err) {
+      console.warn(err);
+      this.gpuError = String(err.message || err);
+      this.ui.toast('WebGPU renderer unavailable: ' + this.gpuError + '. Using WebGL.', true);
+      this.settings.webgpu = false; this.saveSettings();
+      if (this.gpuCanvas) this.gpuCanvas.hidden = true;
+    }
   }
 
   // ---------- surface view ----------
@@ -787,6 +843,7 @@ class App {
     const gpuHosts = gpuOn ? this.gpu.hosts(this.world) : null;
     if (this.r3d) this.r3d.gpuHosts = gpuHosts && gpuHosts.size ? gpuHosts : null;
     if (this.renderer.overlay) this.r3d.draw(now, ui, dtReal, done);
+    if (this.r3d && this.r3d.webgpu) this.r3d.gl.flushFrame();
     if (this.gpu && !this.gpu.lost) {
       this.gpu.canvas.hidden = !gpuOn;
       if (gpuOn) this.gpu.draw(this.r3d, this.world, done, gpuHosts);

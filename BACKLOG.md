@@ -13,6 +13,15 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 - **More real asteroid and comet shapes**, e.g. Ryugu, Arrokoth, Lutetia (NAIF / PDS SBN).
 - Above 60 fps needs Safari with "Prefer Page Rendering Updates near 60fps" off; the app cannot change it.
 
+## WebGPU rings (from the iPhone screenshots)
+
+- From afar the chunks look like gravel; at that range draw a smooth, detailed ring sheet and blend the
+  chunks and the rock swarm in only up close (real ring particles are cm to house-sized).
+- The rocks of the close-up swarm render black over the lit ring (likely the Sun direction in its shader).
+- Fish-scale ovals where the far chunks hand over to the swarm.
+- Labels of planets far behind Saturn show through it (pre-existing).
+- Testing note: iPhone Low Power Mode caps web pages at 30 fps (yellow battery icon).
+
 ## New list
 
 - **Challenges** inspired by Universe Sandbox's, then famous experiments and calculations

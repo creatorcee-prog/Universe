@@ -334,14 +334,16 @@ export class Renderer3D {
     } catch { return false; }
   }
 
-  constructor(canvas, world, cam, settings) {
+  // gl: a WebGL 2 context, or the WebGPU emulation of one (js/glgpu.js); by default a WebGL 2 context on canvas.
+  constructor(canvas, world, cam, settings, glIn = null) {
     this.canvas = canvas;
     this.world = world;
     this.cam = cam;
     this.settings = settings;
     // Antialiasing is done in our own multisampled HDR buffer, so the default framebuffer doesn't need it.
-    const gl = canvas.getContext('webgl2', { antialias: false, alpha: false, depth: false, powerPreference: 'high-performance' });
+    const gl = glIn || canvas.getContext('webgl2', { antialias: false, alpha: false, depth: false, powerPreference: 'high-performance' });
     if (!gl) throw new Error('WebGL2 unavailable');
+    this.webgpu = !!glIn;
     this.gl = gl;
     this.looks = new Map();
     this.spin = new Map();
