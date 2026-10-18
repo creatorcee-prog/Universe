@@ -269,7 +269,7 @@ export class Book {
     const hier = w.hierarchy();
     const parent = hier.get(b)?.parent;
     const the = (o) => (o.name === 'Sun' || o.name === 'Moon' ? 'the ' + o.name : o.name);
-    let lede = `${b.name} is a ${typeName(b).toLowerCase()} in the ${this.app.state.preset.name} scenario.`;
+    let lede = `${b.name} is a ${typeName(b).replace(/^./, (c) => c.toLowerCase())} in the ${this.app.state.preset.name} scenario.`;
     if (parent) {
       const o = orbitOf(b, parent);
       rows.push(['Orbiting', parent.name]);

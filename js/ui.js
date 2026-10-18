@@ -383,7 +383,7 @@ export class UI {
     const list = $('search-list');
     list.textContent = '';
     const bodies = this.app.world.bodies.slice().sort((a, b) => b.m - a.m)
-      .filter((b) => !q || b.name.toLowerCase().includes(q) || typeName(b).toLowerCase().includes(q)).slice(0, 60);
+      .filter((b) => !q || b.name.toLowerCase().includes(q) || typeName(b).toLowerCase().includes(q)).slice(0, q ? 120 : 60);
     for (const b of bodies) {
       const el = document.createElement('button');
       el.type = 'button';
@@ -446,7 +446,7 @@ export class UI {
     b.density = b.m / ((4 / 3) * Math.PI * b.r ** 3);
     this.app.world.dirty = true;
     if (ev) this.event({ text: `${b.name}: ${ev}`, big: true });
-    else if (oldKind !== b.kind) this.toast(`${b.name} is now a ${typeName(b).toLowerCase()}`);
+    else if (oldKind !== b.kind) this.toast(`${b.name} is now a ${typeName(b).replace(/^./, (c) => c.toLowerCase())}`);
     this.refreshInfo(true);
   }
 

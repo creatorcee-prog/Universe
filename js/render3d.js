@@ -130,7 +130,7 @@ const IDENT3 = new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
 // Real shapes of small bodies (assets/maps/shape-<name>.png, tools/make_shapes.py). Named bodies use
 // their own; other small bodies (created asteroids and comets, planetesimals, Halley) borrow one of their
 // kind at a random orientation. Above ~400 km bodies are pulled round by their own gravity.
-const SHAPES = { Phobos: 'phobos', Deimos: 'deimos', Vesta: 'vesta' };
+const SHAPES = { Phobos: 'phobos', Deimos: 'deimos', Vesta: 'vesta', Haumea: 'haumea' };
 const ASTEROID_SHAPES = ['eros', 'itokawa', 'bennu', 'kleopatra', 'geographos', 'toutatis', 'mithra', 'golevka', 'hw1', 'phobos', 'deimos'];
 const shapeImg = {};
 function shapeMap(file) {
@@ -157,7 +157,7 @@ function shapeFor(b) {
   const own = SHAPES[b.name.replace(/ \d+$/, '')];
   if (own) return { file: own, rot: IDENT3 };
   const rkm = b.r * 1.495978707e8;
-  if (rkm > 400 || /^(Earth|Moon|Mars|Venus|Mercury)( \d+)?$/.test(b.name)) return null;
+  if (b.round || rkm > 400 || /^(Earth|Moon|Mars|Venus|Mercury)( \d+)?$/.test(b.name)) return null;
   const small = b.comet || b.m / EARTH_MASS < 1e-4 || b.name.startsWith('Planetesimal');
   if (!small) return null;
   const r = seeded(b.id * 3 + 1), r2 = seeded(b.id * 5 + 2), r3 = seeded(b.id * 11 + 7);
@@ -242,7 +242,9 @@ function lookFor(b) {
   if (b.kind === 'star') return { kind: 2, spots: b.temp < 6500 ? 1 : 0, tilt: 0, day: 600, ...(named || {}) };
   if (b.kind === 'wd' || b.kind === 'ns') return { kind: 3, tilt: 0, day: b.kind === 'ns' ? 0.001 : 2 };
   if (b.kind === 'bh') return { kind: 4, tilt: 0, day: 1 };
-  if (named) return { kind: 0, colA: base, colB: band, colC: [0.96, 0.97, 1], ...named };
+  // Real moons and dwarf planets carry their own spin and tilt (locked moons turn once per orbit).
+  const own = (l) => { if (b.dayH && !(named && named.day)) l.day = b.dayH; if (b.tiltDeg !== undefined && !(named && named.tilt !== undefined)) l.tilt = b.tiltDeg; return l; };
+  if (named) return own({ kind: 0, colA: base, colB: band, colC: [0.96, 0.97, 1], ...named });
   const me = b.m / EARTH_MASS;
   if (b.kind === 'gas') {
     const ice = me < 50;
@@ -250,12 +252,14 @@ function lookFor(b) {
   }
   // Rocky worlds.
   const look = { kind: 0, colA: base, colB: base.map((v) => v * 0.7), colC: [0.96, 0.97, 1], tilt: r * 30, day: 8 + r * 40 };
-  if (b.comet || me < 1e-4 || b.name.startsWith('Planetesimal')) Object.assign(look, { lumpy: b.comet ? 0.45 : 0.3, craters: 0.8, colA: base.map((v) => v * 0.8), day: 6 + r * 20 });
+  // (Moons big enough to have pulled themselves round, like Mimas, are cratered spheres, not lumpy rocks.)
+  if (b.round && me < 1e-4) Object.assign(look, { craters: 1, colB: base.map((v) => v * 0.78) });
+  else if (b.comet || me < 1e-4 || b.name.startsWith('Planetesimal')) Object.assign(look, { lumpy: b.comet ? 0.45 : 0.3, craters: 0.8, colA: base.map((v) => v * 0.8), day: 6 + r * 20 });
   else if (me < 0.05) look.craters = 1;
   else if (b.atmo) Object.assign(look, { ocean: 0.55 + r * 0.2, cloud: 0.5, atmo: b.atmo.map((v) => v / 255), atmoK: 0.8, colA: [0.45, 0.38, 0.28], colB: [0.6, 0.52, 0.4] });
   else if (me > 0.3) Object.assign(look, { ocean: r > 0.5 ? r * 0.6 : 0, craters: 0.25, atmoK: 0.3, atmo: [0.7, 0.75, 0.85] });
   else look.craters = 0.6;
-  return look;
+  return own(look);
 }
 
 // ---------- tiny matrix helpers (column-major, as WebGL expects) ----------
@@ -1131,6 +1135,7 @@ export class Renderer3D {
       }
     }
     const glows = [];
+    this.lumList = world.bodies.filter(isLuminous).sort((a, c) => c.lum - a.lum);
     for (const b of world.bodies) this.drawBody(b, now, glows);
     // Supernova light: a blinding point that fades over weeks.
     for (const t of world.transients) {
@@ -1170,11 +1175,32 @@ export class Renderer3D {
     return [V[0] * x + V[3] * y + V[6] * z, V[1] * x + V[4] * y + V[7] * z, V[2] * x + V[5] * y + V[8] * z];
   }
 
+  // A sub-pixel world as a dot, brighter the more of its lit side faces us. Moons sitting on their planet's
+  // dot are drawn smaller, so a planet seen from far away is not lost in a cluster of its moons.
+  queueDot(b, vp, depth, l, minPx, glows) {
+    const S = this.lumList && this.lumList[0];
+    let k = 0.6;
+    if (S && S !== b) {
+      const L = this.viewOf(S.x - b.x, S.y - b.y, S.z - b.z), Ll = Math.hypot(L[0], L[1], L[2]) || 1, vl = Math.hypot(vp[0], vp[1], vp[2]) || 1;
+      k = 0.5 * (1 - (L[0] * vp[0] + L[1] * vp[1] + L[2] * vp[2]) / (Ll * vl));
+    }
+    const c = l.colA || [0.6, 0.6, 0.6];
+    const I = 0.25 + 0.9 * k;
+    let px = minPx * 0.9;
+    if (b.minor && b.host) {
+      const h = b.host, hv = this.viewOf(h.x - b.x, h.y - b.y, h.z - b.z);
+      const sep = (Math.hypot(hv[0], hv[1]) * this.F) / depth;  // pixels from its planet on screen
+      px *= Math.max(0.45, Math.min(1, sep / (12 * this.dpr)));
+    }
+    const rgb = [c[0] * I, c[1] * I, c[2] * I];
+    glows.push(() => this.sprite(vp, (px * depth) / this.F, rgb, 5, 0, 0));
+  }
+
   // The two brightest light sources seen from body b: view-space directions and colour * intensity.
   lightsFor(b) {
     const L = [];
     let flux = 0;
-    for (const s of this.world.bodies) {
+    for (const s of this.lumList || this.world.bodies) {
       if (s === b || !isLuminous(s)) continue;
       const dx = s.x - b.x, dy = s.y - b.y, dz = s.z - b.z;
       const d2 = dx * dx + dy * dy + dz * dz;
@@ -1233,6 +1259,8 @@ export class Renderer3D {
     const Rpx = R * pxPerAU;
     if (Rpx < minPx) R = minPx / pxPerAU;
     const shownPx = Math.max(Rpx, minPx);
+    // Far smaller than a pixel: a lit dot shows all a full draw would (most of the moons, most of the time).
+    if (l.kind === 0 && Rpx < 0.6 * dpr && depth > 0 && !(this.surface && this.surface.body === b)) { this.queueDot(b, vp, depth, l, minPx, glows); return; }
     const lod = this.surface && this.surface.body === b ? 3 : shownPx > (b.impacts ? 60 : 140) ? 2 : shownPx > 22 ? 1 : 0;
 
     const spin = this.spin.get(b);

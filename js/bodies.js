@@ -226,6 +226,8 @@ export function typeName(b) {
   const me = b.m / EARTH_MASS;
   switch (b.kind) {
     case 'rocky':
+      if (b.dwarf) return 'Dwarf planet';
+      if (b.host && b.host.alive) return 'Moon of ' + b.host.name;
       if (b.comet && me < 1e-4) return 'Comet';
       if (me < 1e-4) return 'Asteroid';
       if (me < 0.03) return 'Moon-sized body';

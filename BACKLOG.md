@@ -28,10 +28,9 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
   than the 2.7 K microwave background, so a stellar black hole absorbs more than it emits. The heat
   and X-rays come from the gas falling in (accretion disks reach millions of K). Model that disk as a
   heat and light source.
-- **Every moon, comet and dwarf planet** in the Solar System. There are over 400 known moons, most
-  of them a few km wide (JPL Solar System Dynamics); Saturn alone has 274 (MPC, March 2025). Comets
-  number in the thousands, so "all" means every named moon and a curated set of comets. Small moons
-  could ride as cheap test particles.
+- **More comets**: a curated set (Hale–Bopp, Encke, 67P, Shoemaker–Levy 9's parent orbit…). The named moons
+  and dwarf planets are done.
+- **Janus and Epimetheus swapping orbits** needs the planets' flattening (J2) in the moon integrator.
 - **Speculative life beyond Earth-like worlds**: Sagan & Salpeter's (1976, ApJS 32, 737)
   "floaters, sinkers and hunters" in Jupiter's clouds, and other plausible ideas from speculative
   evolution, shown as a separate "exotic life" verdict next to the Earth-like checklist.

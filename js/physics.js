@@ -5,6 +5,7 @@ import { evolveStar, stellarDeath, transientLum } from './stellar.js';
 import { IAS15, IAS15_NODES } from './ias15.js';
 import { Octree, particleGravity } from './tree.js';
 import { coagulate } from './coagulate.js';
+import { prepareMinors, stepMinors } from './minors.js';
 
 // Particle kinds (purely visual categories; particles carry mass but do not attract each other).
 export const PK = { DEBRIS: 0, HOT: 1, STAR_BLUE: 2, STAR_GOLD: 3, ICE: 4, DUST: 5, GAS: 6, ROCK: 7, SN_H: 8, SN_O: 9, SN_SI: 10, SN_FE: 11 };
@@ -90,7 +91,18 @@ export class World {
   addBody(b) {
     this.bodies.push(b);
     this.dirty = true;
+    this.dynStale = true;
     return b;
+  }
+
+  // The bodies the main integrator moves: all but the small moons riding on their own (see minors.js).
+  majors() {
+    if (this.dynStale || this._dynSrc !== this.bodies) {
+      this._dyn = this.bodies.filter((b) => !b.minor);
+      this._dynSrc = this.bodies;
+      this.dynStale = false;
+    }
+    return this._dyn;
   }
 
   removeBody(b) {
@@ -197,7 +209,7 @@ export class World {
       if (!host.alive) continue;
       const lim = outer * 1.4;
       for (const b of this.bodies) {
-        if (b === host) continue;
+        if (b === host || b.minor) continue; // the planet's own small moons (Pan, Daphnis…) shepherd, not scatter
         const d = Math.hypot(b.x - host.x, b.y - host.y, b.z - host.z);
         if (d < lim + b.r) {
           this.releaseOrphanRings(host);
@@ -211,7 +223,7 @@ export class World {
   // ---------- gravity ----------
 
   computeAcc() {
-    const bs = this.bodies, n = bs.length;
+    const bs = this.majors(), n = bs.length;
     for (let i = 0; i < n; i++) { const b = bs[i]; b.ax = 0; b.ay = 0; b.az = 0; }
     let minT2 = Infinity;
     for (let i = 0; i < n; i++) {
@@ -241,7 +253,7 @@ export class World {
   }
 
   substep(dt) {
-    const bs = this.bodies, n = bs.length, h = dt * 0.5;
+    const bs = this.majors(), n = bs.length, h = dt * 0.5;
     for (let i = 0; i < n; i++) {
       const b = bs[i];
       b.vx += b.ax * h; b.vy += b.ay * h; b.vz += b.az * h;
@@ -281,7 +293,7 @@ export class World {
 
   // Collisions (swept, so fast bodies cannot tunnel through each other) and Roche-limit disruption.
   handleContacts(dt) {
-    const bs = this.bodies, n = bs.length;
+    const bs = this.majors(), n = bs.length;
     let changed = false;
     // Conservative per-body bounds let most pairs be rejected with one distance test:
     // contact needs d < reachA + reachB, tidal disruption needs d < the smaller body's widest Roche radius.
@@ -575,7 +587,7 @@ export class World {
     const np = this.np, pm = this.pm, ptl = this.ptl;
     for (let i = 0; i < np; i++) if (pm[i] > 0 && ptl[i] > 0 && ptl[i] < chunk) chunk = ptl[i];
     // Not with many bodies: re-running the N-body step 24 times a frame would cost more than it buys.
-    if (simDt > chunk * 1.5 && this.bodies.length <= 30) {
+    if (simDt > chunk * 1.5 && this.majors().length <= 30) {
       const start = performance.now();
       const n = Math.min(24, Math.ceil(simDt / chunk));
       const h = simDt / n;
@@ -599,8 +611,11 @@ export class World {
     const start = performance.now();
     const t0 = this.t;
 
+    // Small moons: their state relative to their planet, before the planets move.
+    const minorGroups = prepareMinors(this);
     // Particles feel only the heaviest bodies; record their path through this frame.
-    const att = this.bodies.slice().sort((a, b) => b.m - a.m).slice(0, MAX_ATTRACTORS).filter((b) => b.m > 0);
+    // Beyond the twelve heaviest, bodies under 1e-8 of the heaviest (dwarf planets beside the Sun) are left out.
+    const att = this.majors().slice().sort((a, b) => b.m - a.m).slice(0, MAX_ATTRACTORS).filter((b, i, all) => b.m > 0 && (i < 12 || b.m > 1e-8 * all[0].m));
     const na = att.length;
     const stride = na * 4;
     if (!this.cp || this.cp.length < (MAX_STEPS + 1) * MAX_ATTRACTORS * 4) {
@@ -624,18 +639,19 @@ export class World {
     const integ = this.integ;
     while (remaining > 0) {
       if (this.dirty) { this.computeAcc(); integ.invalidate(); }
-      if (this.bodies.length === 0) { this.t += remaining; remaining = 0; record(++steps); break; }
+      const dyn = this.majors();
+      if (dyn.length === 0) { this.t += remaining; remaining = 0; record(++steps); break; }
       // IAS15 picks its own step; it is also capped at a fraction of the shortest pairwise orbital
       // timescale so swept collision tests and particle checkpoints stay fine-grained.
       const cap = 0.3 * this.dtMax / this.eta;
       let dt = Math.min(remaining, integ.dt > 0 ? integ.dt : this.dtMax, cap);
       if (remaining - dt < dt * 1e-3) dt = remaining;
       const t0s = this.t;
-      const taken = integ.step(this.bodies, dt);
+      const taken = integ.step(dyn, dt);
       if (!(taken > 0)) break;
       this.dtMax = this.eta * Math.sqrt(integ.minT2);
       // Dense output: bodies' positions at the 7 Gauss-Radau nodes and the end of the step.
-      const idxs = att.map((x) => { const bb = this.resolve(x); return bb ? this.bodies.indexOf(bb) : -1; });
+      const idxs = att.map((x) => { const bb = this.resolve(x); return bb ? dyn.indexOf(bb) : -1; });
       for (let k = 0; k < 8 && steps < MAX_STEPS; k++) {
         const hk = k < 7 ? IAS15_NODES[k + 1] : 1;
         this.t = t0s + hk * taken;
@@ -644,14 +660,13 @@ export class World {
         const o = steps * stride, xs = integ.sub[k];
         for (let a = 0; a < na; a++) {
           const q = o + a * 4, idx = idxs[a];
-          if (idx >= 0) { cp[q] = xs[3 * idx]; cp[q + 1] = xs[3 * idx + 1]; cp[q + 2] = xs[3 * idx + 2]; cp[q + 3] = this.bodies[idx].m; } else cp[q + 3] = 0;
+          if (idx >= 0) { cp[q] = xs[3 * idx]; cp[q + 1] = xs[3 * idx + 1]; cp[q + 2] = xs[3 * idx + 2]; cp[q + 3] = dyn[idx].m; } else cp[q + 3] = 0;
         }
       }
       this.t = t0s + taken;
       remaining -= taken;
-      for (const bb of this.bodies) { bb.ax = 0; bb.ay = 0; bb.az = 0; }
       const at = integ.at;
-      for (let i = 0; i < this.bodies.length; i++) { const bb = this.bodies[i]; bb.ax = at[3 * i]; bb.ay = at[3 * i + 1]; bb.az = at[3 * i + 2]; }
+      for (let i = 0; i < dyn.length; i++) { const bb = dyn[i]; bb.ax = at[3 * i]; bb.ay = at[3 * i + 1]; bb.az = at[3 * i + 2]; }
       this.handleContacts(taken);
       if (steps >= MAX_STEPS - 8) break;
       if (performance.now() - start > budgetMs) break;
@@ -660,6 +675,7 @@ export class World {
     const done = simDt - remaining;
     this.limited = remaining > 0;
 
+    stepMinors(this, minorGroups, att, cp, cpT, steps, t0, done);
     this.stepParticles(att, steps, t0, done);
     this.diskAccretion(done);
     // Particles with mass pull on each other and on the bodies (Barnes-Hut tree).
@@ -708,7 +724,7 @@ export class World {
   // (against the bodies' end-of-frame positions, which is accurate because the gap is under one frame).
   flushPending() {
     if (this.pending.length === 0) return;
-    const att = this.bodies.slice().sort((a, b) => b.m - a.m).slice(0, MAX_ATTRACTORS);
+    const att = this.majors().slice().sort((a, b) => b.m - a.m).slice(0, MAX_ATTRACTORS);
     const acc = (s, out) => {
       let ax = 0, ay = 0, az = 0, tmin = Infinity, best = 0, host = null;
       for (const b of att) {
@@ -1043,7 +1059,7 @@ export class World {
   // k2/Q: Earth 0.025, which reproduces the Moon's measured recession of 3.8 cm/yr (lunar laser ranging);
   // dry rocky worlds 0.0009, calibrated so Phobos falls ~1.8 cm/yr as measured (Bills et al. 2005); Jupiter 1.1e-5 (Lainey et al. 2009); Saturn 1.6e-4 (Lainey et al. 2012).
   applyTides(dt) {
-    const bs = this.bodies;
+    const bs = this.majors();
     if (bs.length < 2 || bs.length > 60 || !(dt > 0)) return;
     const hier = this.hierarchy();
     for (const m of bs) {
@@ -1083,7 +1099,7 @@ export class World {
 
   // Each body's gravitational parent: the lightest heavier body whose Hill sphere contains it.
   hierarchy() {
-    const sorted = this.bodies.slice().sort((a, b) => b.m - a.m);
+    const sorted = this.majors().slice().sort((a, b) => b.m - a.m);
     const info = new Map();
     for (let i = 0; i < sorted.length; i++) {
       const b = sorted[i];
@@ -1100,6 +1116,13 @@ export class World {
         rH = Math.max(d * Math.cbrt(b.m / (3 * best.m)), b.soft * 2, b.r * 2);
       }
       info.set(b, { parent: best, rH });
+    }
+    // Small moons orbit their own planet.
+    for (const b of this.bodies) {
+      if (!b.minor) continue;
+      const p = this.resolve(b.host);
+      const d = p ? Math.hypot(b.x - p.x, b.y - p.y, b.z - p.z) : 0;
+      info.set(b, { parent: p && p.alive ? p : null, rH: p ? Math.max(d * Math.cbrt(b.m / (3 * p.m)), b.r * 2) : Infinity });
     }
     return info;
   }

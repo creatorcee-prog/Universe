@@ -356,7 +356,18 @@ export class Renderer {
     const hier = world.hierarchy();
     const p = this.tmp;
     let list = fastOnly ? world.bodies.filter((b) => b._fastOwn) : world.bodies;
-    if (list.length > 80) list = list.slice().sort((a, b) => b.m - a.m).slice(0, 80);
+    if (list.length > 80) {
+      // Too many to draw them all: the 80 heaviest of those whose orbits show on screen (over a few pixels
+      // across), so zooming in on Pluto shows its small moons' orbits even with hundreds of moons elsewhere.
+      const ex = cam.tx + cam.ox, ey = cam.ty + cam.oy, ez = cam.tz + cam.oz;
+      list = list.filter((b) => {
+        const par = hier.get(b)?.parent;
+        if (!par) return false;
+        const r = Math.hypot(b.x - par.x, b.y - par.y, b.z - par.z), D = Math.hypot(par.x - ex, par.y - ey, par.z - ez);
+        return (r * cam.F) / Math.max(D, 1e-12) > 3 * dpr;
+      });
+      if (list.length > 80) list = list.sort((a, b) => b.m - a.m).slice(0, 80);
+    }
     ctx.globalCompositeOperation = 'source-over';
     ctx.lineWidth = dpr;
     for (const b of list) {

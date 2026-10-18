@@ -83,7 +83,8 @@ On a desktop browser: mouse drag, wheel zoom, shift-drag or right-drag to pan, <
 
 ## Scenarios
 
-Solar System (with Saturn's rings, the asteroid and Kuiper belts, Ceres and Halley's Comet) · Earth & Moon · Jupiter's Moons ·
+Solar System (the planets, all 175 named moons, nine dwarf planets, Saturn's rings, the asteroid and Kuiper belts and
+Halley's Comet) · Earth & Moon · Jupiter's Moons ·
 Moon-Forming Impact · Planet Formation · Binary Star · Rogue Black Hole · Tidal Disruption · Supernova ·
 Galaxy Collision · Empty Star.
 
@@ -329,6 +330,34 @@ source list on every entry.
   - *Starting orbits*: planets start on JPL's J2000 orbital elements (Standish), with masses from DE440
     (Park et al. 2021, *AJ* 161, 105). Moons are placed so the planet–moon pair keeps its orbit about the
     Sun.
+- **Every named moon and the dwarf planets** (Solar System scenario):
+  - *Moons*: all 168 named moons of Mars, Jupiter, Saturn, Uranus, Neptune and Pluto, from JPL's satellite mean
+    elements and physical parameters, plus the Moon and the six named moons of the other dwarf planets
+    (Dysnomia, Hiʻiaka, Namaka, Weywot, Vanth, Xiangliu). Regular moons lie in their planet's equator or local
+    Laplace plane, in line with its rings, and are tidally locked; irregular moons keep their ecliptic
+    orbits, many of them retrograde. Small moons without a measured mass get one from their size at
+    1.5 g/cm³. `tools/make_moons.py` builds the table.
+  - *Dwarf planets*: Ceres, Pluto, Eris, Haumea, Makemake, Gonggong, Quaoar, Orcus and Sedna, on JPL
+    Small-Body Database orbits. Haumea is a 1161 × 852 × 513 km ellipsoid spinning every 3.9 hours (Ortiz
+    et al. 2017).
+  - *Their own integrator*: a 7-hour moon would force the shared IAS15 step down to minutes, so moons and dwarf
+    planets ride on their host with a Wisdom–Holman kick-drift-kick (Wisdom & Holman 1991, *AJ* 102, 1528):
+    the drift is the exact Kepler orbit, and the kicks add the Sun's and the planets' tides and the pull of
+    the big moons (Mimas, Proteus and up), at least 8 per orbit. Most small moons feel nothing above a
+    millionth of their planet's pull, and coast on their exact orbit. Positions of the Sun and planets
+    during a frame come from IAS15's dense output. Over 10 simulated years the regular moons' semi-major axes
+    stay within 0.1%.
+  - *Pluto and Charon* orbit their common centre of mass, 2,100 km above Pluto's surface: for the main step
+    the pair is one body at that centre, and their exact two-body orbit splits them again (Orcus and Vanth
+    likewise). Pluto's four small moons circle the pair.
+  - *Limits*: these moons do not pull on their planets or on particles. Their orbits ignore the planets'
+    flattening (J2), so the co-orbital moons Janus and Epimetheus do not swap places as they really do every
+    four years, and pass through each other instead. A moon is handed to the full integrator if anything
+    else pulls on it more than twice as hard as its planet, if it comes loose, or if its planet is
+    destroyed. Neptune's two most distant moons, Psamathe and Neso, reach that limit when the Sun pulls on
+    them hardest, at the far end of their orbits.
+  - *Cost*: about 2.7 ms of physics per frame on the test machine, against 1.4 ms before the moons, and
+    moons smaller than a pixel are drawn as lit dots.
 
   Measured over 100 simulated years (`node tools/gravitybench.mjs`):
 
@@ -449,7 +478,12 @@ mass points with test-particle disks, not self-gravitating dark-matter halos. Pl
 - Planet masses, radii and orbital elements: NASA Planetary Fact Sheet,
   https://nssdc.gsfc.nasa.gov/planetary/factsheet/ ; J2000 mean longitudes from JPL
   "Approximate Positions of the Planets", https://ssd.jpl.nasa.gov/planets/approx_pos.html
-- Galilean moons: NASA/JPL Solar System Dynamics, https://ssd.jpl.nasa.gov/sats/elem/
+- Moons: JPL Solar System Dynamics, satellite mean elements https://ssd.jpl.nasa.gov/sats/elem/ and physical
+  parameters https://ssd.jpl.nasa.gov/sats/phys_par/ ; radii of small moons from Wikipedia's "List of natural
+  satellites" (mostly Sheppard's discovery estimates)
+- Dwarf planets: JPL Small-Body Database API, https://ssd-api.jpl.nasa.gov/sbdb.api ; masses from Holler et al.
+  2021 (Eris), Ragozzine & Brown 2009 (Haumea and its moons), Kiss et al. 2019 (Gonggong), Morgado et al. 2023
+  (Quaoar, Weywot), Brown & Butler 2023 (Orcus, Vanth, Dysnomia)
 - Roche limit (rigid-body form): https://en.wikipedia.org/wiki/Roche_limit
 - Mass–luminosity relation: https://en.wikipedia.org/wiki/Mass%E2%80%93luminosity_relation
 - Hill sphere (for picking an object's parent): https://en.wikipedia.org/wiki/Hill_sphere

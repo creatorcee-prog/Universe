@@ -48,6 +48,12 @@ export const COMPOSITIONS = {
   icemoon: { iron: 0.05, rock: 0.5, water: 0.45 },
   asteroid: { iron: 0.1, rock: 0.9, rockAlbedo: 0.1 },
   comet: { rock: 0.5, water: 0.4, ice: 0.1, rockAlbedo: 0.04, lag: true },
+  // Irregular moons: captured, very dark (albedo ~0.04-0.06; Grav et al. 2015) rock and carbon.
+  darkmoon: { iron: 0.1, rock: 0.9, rockAlbedo: 0.05 },
+  // Kuiper-belt dwarf planets: rock and ice under frozen nitrogen and methane.
+  kbo: { rock: 0.65, water: 0.33, ice: 0.02 },
+  // Triton: a thin nitrogen atmosphere, 14 μbar (Voyager 2; Tyler et al. 1989).
+  Triton: { rock: 0.7, water: 0.28, ice: 0.02, atm: { gases: { n2: 1.4e-5, ch4: 2e-9 } } },
 };
 
 function defaultComposition(b) {
@@ -95,11 +101,20 @@ export function heatCapacity(b) {
 const thermalKinds = new Set(['rocky', 'gas']);
 
 // Advance every planet's thermal state by dtYears of simulated time.
+// Small moons riding on their planet (minors.js) change slowly: they are updated in turn, one frame in eight,
+// with the time gathered since their last update.
+let thermalFrame = 0;
 export function thermalStep(world, dtYears) {
+  thermalFrame++;
   for (const b of world.bodies) {
     if (!thermalKinds.has(b.kind)) continue;
-    if (!b.th) ensureThermal(b, world);
-    else thermalUpdate(b, world, dtYears * YEAR_S);
+    if (!b.th) { ensureThermal(b, world); continue; }
+    if (b.minor) {
+      b._thDt = (b._thDt || 0) + dtYears;
+      if ((thermalFrame + b.id) % 8 !== 0) continue;
+      thermalUpdate(b, world, b._thDt * YEAR_S);
+      b._thDt = 0;
+    } else thermalUpdate(b, world, dtYears * YEAR_S);
   }
 }
 

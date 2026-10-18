@@ -1390,7 +1390,7 @@ export const SPRITE_FS = HEAD + `
 in vec2 vC;
 ` + LOGDEPTH_F + `
 uniform vec3 uColor;
-uniform int uType;      // 0 star glow, 1 soft bulge, 2 photon ring, 3 pulsar beam
+uniform int uType;      // 0 star glow, 1 soft bulge, 2 photon ring, 3 pulsar beam, 4 lensed disk, 5 dot
 uniform float uInner;
 out vec4 outColor;
 void main() {
@@ -1412,6 +1412,8 @@ void main() {
     float arc = exp(-pow((r - 0.36) / (0.05 + 0.05 * cphi), 2.0)) * (0.35 + 0.9 * pow(cphi, 1.2) * uInner + 0.5 * (1.0 - uInner));
     float photon = exp(-pow((r - 0.265) / 0.012, 2.0)) * 0.9;
     a = arc * 0.85 + photon;
+  } else if (uType == 5) {
+    a = 1.0 - smoothstep(0.55, 1.0, r);   // a world too small to show its disc: a plain lit dot
   } else {
     a = exp(-vC.y * vC.y * 500.0) * (1.0 - abs(vC.x)) * 0.5;
   }

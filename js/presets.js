@@ -1,6 +1,7 @@
 import { G, EARTH_MASS, MOON_MASS, KPC_AU, DAY_YR, SUN_RADIUS, km, kms, massFromGM } from './units.js';
 import { makeBody } from './bodies.js';
 import { PK, circularSpeed } from './physics.js';
+import { MOONS } from './moons.js';
 
 const D2R = Math.PI / 180;
 const LUNAR_A = 381815; // km, starting osculating semi-major axis (see solarSystem)
@@ -98,7 +99,104 @@ function orbitLW(world, parent, body, a, e, I, L, w, O, pair = false) {
   return orbit(world, parent, body, a, e, I, O, w - O, L - w, pair);
 }
 
-function solarSystem(world, { belts = true, moon = true } = {}) {
+// Dwarf planets. Orbits: JPL SBDB. Masses: from their moons' orbits where they have one (Eris: Holler et al.
+// 2021; Haumea: Ragozzine & Brown 2009; Gonggong: Kiss et al. 2019; Quaoar: Morgado et al. 2023; Orcus: Brown &
+// Butler 2023), else from size at 2 g/cm³ (Makemake ~3.1e21 kg, Sedna). Sizes from stellar occultations and
+// thermal data (Sicardy et al. 2011, Ortiz et al. 2012 and 2017, Braga-Ribas et al. 2013, Pál et al. 2012).
+// Colours: Eris is one of the brightest surfaces known (albedo 0.96); Sedna, Gonggong and Quaoar are very red.
+const DWARFS = [
+  // name, a (AU), e, i, Ω, ω, M at J2000 (deg), GM (km³/s²), mean radius (km), colour, day (h), tilt (deg)
+  ['Ceres', 2.765553, 0.079692, 10.588, 80.2486, 73.2942, 5.203, 62.6284, 469.7, [150, 144, 136], 9.074, 4],
+  ['Eris', 67.933947, 0.438239, 43.9258, 36.0048, 150.7949, 194.778, 1099.0, 1163, [236, 236, 238], 378.9, 78],
+  ['Haumea', 43.06029, 0.194443, 28.2085, 121.7861, 240.6905, 189.531, 267.4, 798, [226, 226, 232], 3.9155, 126],
+  ['Makemake', 45.570933, 0.158889, 29.0279, 79.2948, 297.0923, 139.003, 206.9, 715, [214, 176, 146], 22.83, 30],
+  ['Gonggong', 66.866666, 0.504251, 30.8991, 336.8383, 206.6233, 94.26, 116.8, 615, [190, 116, 86], 22.4, 83],
+  ['Quaoar', 43.156176, 0.0352, 7.9916, 188.9191, 163.209, 259.282, 80.1, 555, [172, 112, 92], 17.68, 14],
+  ['Orcus', 39.376865, 0.220524, 20.5568, 268.4054, 73.5685, 150.583, 36.6, 455, [160, 160, 166], 13.19, 105],
+  ['Sedna', 543.719529, 0.859882, 11.9253, 144.5062, 311.0988, 357.845, 69.8, 498, [192, 92, 62], 10.27, 30],
+];
+
+// Moons of the dwarf planets, in their planet's equator (the planets' tilts above are set to the moons'
+// orbit planes): [planet, name, a (km), e, i, node, ω, M, 'Q', 0, GM (km³/s²), radius (km)].
+// Dysnomia: Holler et al. 2021, Brown & Butler 2023; Hiʻiaka and Namaka: Ragozzine & Brown 2009; Weywot:
+// Morgado et al. 2023; Vanth: Brown & Butler 2023; Xiangliu: Kiss et al. 2017. Phases are arbitrary.
+const DWARF_MOONS = [
+  ['Eris', 'Dysnomia', 37273, 0.0062, 0, 0, 0, 40, 'Q', 0, 5.47, 307],
+  ['Haumea', 'Hiʻiaka', 49880, 0.0513, 0, 0, 154, 120, 'Q', 0, 1.195, 160],
+  ['Haumea', 'Namaka', 25657, 0.249, 13, 0, 179, 300, 'Q', 0, 0.1195, 85],
+  ['Quaoar', 'Weywot', 13289, 0.02, 0, 0, 0, 200, 'Q', 0, 0.027, 40],
+  ['Orcus', 'Vanth', 9000, 0.007, 0, 0, 0, 90, 'Q', 0, 5.81, 221],
+  ['Gonggong', 'Xiangliu', 24021, 0.29, 0, 0, 0, 10, 'Q', 0, 0.052, 50],
+];
+
+// Axial tilts the 3D view gives the planets (render3d.js LOOKS); moons in a planet's equator or local
+// Laplace plane are placed in that same frame, so they line up with its rings and equator.
+const AXIS = { Mars: 25.2, Jupiter: 3.1, Saturn: 26.7, Uranus: 97.8, Neptune: 28.3, Pluto: 122.5 };
+
+// State of a moon relative to its planet. Ecliptic elements (irregular moons) are used as they are. Elements in
+// the planet's equator ('Q') or local Laplace plane ('L', tilted from the planet's pole toward its orbit's pole
+// by `lap`; JPL gives 180° for Uranus's moons, whose IAU north pole is the south one) are turned into the
+// frame of the planet's tilted pole.
+function moonState(host, row, mu) {
+  const [, , akm, e, i, node, w, M, f, lap] = row;
+  const o = kepler(mu, km(akm), e, i, node, w, M);
+  if (f === 'E') return o;
+  const T = host.tiltDeg !== undefined ? host.tiltDeg : AXIS[host.name] || 0;
+  const L = f === 'L' ? (lap > 90 ? 180 - lap : lap) : 0;
+  const th = (T - L) * D2R, c = Math.cos(th), sn = Math.sin(th);
+  // Orbit-plane coordinates (x, y, z = pole) from kepler's world mapping [X, Z, −Y], then onto the basis
+  // e1 = x, e2 = (0, sin θ, −cos θ), e3 = (0, cos θ, sin θ).
+  const map = (X, Y, Z) => [X, Y * sn + Z * c, -Y * c + Z * sn];
+  return [...map(o[0], -o[2], o[1]), ...map(o[3], -o[5], o[4])];
+}
+
+const IRREGULAR = [102, 94, 88], ICY = [214, 216, 222], GREY = [150, 144, 138];
+const MOON_COLORS = { Amalthea: [176, 92, 62], Iapetus: [160, 150, 132], Hyperion: [190, 176, 158], Phoebe: [70, 66, 62], Nereid: [150, 150, 150], Proteus: [96, 92, 90], Umbriel: [110, 108, 108], Rhea: [222, 222, 224], Dione: [226, 226, 228], Tethys: [232, 232, 234], Mimas: [204, 204, 206], Miranda: [196, 196, 198], Ariel: [210, 210, 212], Titania: [188, 180, 172], Oberon: [170, 160, 152] };
+const NOT_ROUND = new Set(['Proteus', 'Hyperion', 'Nereid']);
+
+// Every named moon. They ride on their planet (minors.js); Charon and Vanth are heavy enough to pull their
+// planet round a shared centre of mass, and Pluto's four small moons circle that centre.
+function addMoons(world, made) {
+  const pluto = made.Pluto;
+  const bary = pluto ? { x: pluto.x, y: pluto.y, z: pluto.z, vx: pluto.vx, vy: pluto.vy, vz: pluto.vz, m: pluto.m } : null;
+  for (const row of [...MOONS, ...DWARF_MOONS]) {
+    const [pn, name, akm, , , , , , f, , gm, rkm] = row;
+    const host = made[pn];
+    if (!host) continue;
+    const m = massFromGM(gm), rgm = row[0] === 'Pluto';
+    const icy = !['Mars', 'Jupiter'].includes(pn) || ['Europa', 'Ganymede', 'Callisto'].includes(name);
+    const b = makeBody({ name, kind: 'rocky', m, r: km(rkm), color: MOON_COLORS[name] || (f === 'E' ? IRREGULAR : icy ? ICY : GREY), compKey: COMP_KEYS[name] || (f === 'E' ? 'darkmoon' : icy ? 'icemoon' : 'asteroid') });
+    if (rkm > 190 && !NOT_ROUND.has(name)) b.round = true;
+    if (f !== 'E') {
+      // Regular moons are tidally locked, spinning once per orbit about their planet's pole.
+      b.dayH = (2 * Math.PI * Math.sqrt(km(akm) ** 3 / (G * (host.m + m)))) * 8766;
+      b.tiltDeg = host.tiltDeg !== undefined ? host.tiltDeg : AXIS[pn] || 0;
+    }
+    if (rgm) { b.minor = true; b.host = host; }
+    if (rgm && name === 'Charon') {
+      // The Pluto row above holds the pair's mass: give Pluto its own (GM 869.3, JPL PLU060) and split.
+      host.m = massFromGM(869.3);
+      const st = moonState(host, row, G * (host.m + m));
+      const fr = m / (host.m + m);
+      b.x = bary.x + st[0] * (1 - fr); b.y = bary.y + st[1] * (1 - fr); b.z = bary.z + st[2] * (1 - fr);
+      b.vx = bary.vx + st[3] * (1 - fr); b.vy = bary.vy + st[4] * (1 - fr); b.vz = bary.vz + st[5] * (1 - fr);
+      host.x = bary.x - st[0] * fr; host.y = bary.y - st[1] * fr; host.z = bary.z - st[2] * fr;
+      host.vx = bary.vx - st[3] * fr; host.vy = bary.vy - st[4] * fr; host.vz = bary.vz - st[5] * fr;
+      world.addBody(b);
+      continue;
+    }
+    const centre = rgm ? bary : host;
+    const st = moonState(host, row, G * (centre.m + m));
+    b.x = centre.x + st[0]; b.y = centre.y + st[1]; b.z = centre.z + st[2];
+    b.vx = centre.vx + st[3]; b.vy = centre.vy + st[4]; b.vz = centre.vz + st[5];
+    b.minor = true; b.host = host;
+    world.addBody(b);
+  }
+}
+
+const COMP_KEYS = { Io: 'Io', Europa: 'Europa', Ganymede: 'Ganymede', Callisto: 'Callisto', Titan: 'Titan', Triton: 'Triton', Phobos: 'asteroid', Deimos: 'asteroid' };
+
+function solarSystem(world, { belts = true, moon = true, moons = true } = {}) {
   const s = world.addBody(sun());
   const made = {};
   for (const [name, a, e, i, L, w, O, gm, rkm, kind, color, band, atmo] of PLANETS) {
@@ -109,10 +207,18 @@ function solarSystem(world, { belts = true, moon = true } = {}) {
   }
   // Pluto: Standish's earlier table (J2000); system GM 975.5 km³/s² (Pluto plus Charon).
   const pluto = makeBody({ name: 'Pluto', kind: 'rocky', m: massFromGM(975.5), r: km(1188), color: [214, 190, 160] });
-  orbitLW(world, s, pluto, 39.48211675, 0.24882730, 17.14001206, 238.92903833, 224.06891629, 110.30393684);
-  // Ceres: JPL Small-Body Database elements; GM 62.6284 km³/s² (DE440).
-  const ceres = makeBody({ name: 'Ceres', kind: 'rocky', m: massFromGM(62.6284), r: km(470), color: [150, 144, 136] });
-  orbit(world, s, ceres, 2.7675, 0.0785, 10.59, 80.27, 73.73, 95);
+  pluto.dwarf = true; pluto.round = true;
+  made.Pluto = orbitLW(world, s, pluto, 39.48211675, 0.24882730, 17.14001206, 238.92903833, 224.06891629, 110.30393684);
+  pluto.minor = true; pluto.host = s;
+  // Ceres and the other dwarf planets: JPL Small-Body Database orbits (2026 solutions, mean anomaly carried
+  // back to J2000 along the unperturbed orbit).
+  for (const [name, a, e, i, O, w, M, gm, rkm, color, dayH, tiltDeg] of DWARFS) {
+    const b = makeBody({ name, kind: 'rocky', m: massFromGM(gm), r: km(rkm), color, compKey: name === 'Ceres' ? 'Ceres' : 'kbo' });
+    b.dayH = dayH; b.tiltDeg = tiltDeg; b.round = true; b.dwarf = true;
+    made[name] = orbit(world, s, b, a, e, i, O, w, M);
+    b.minor = true; b.host = s;
+  }
+  if (moons) addMoons(world, made);
   // Halley's real orbit (retrograde, i = 162°), placed shortly before perihelion so its tail is on show.
   const halley = makeBody({ name: "Halley's Comet", kind: 'rocky', comet: true, m: 1.1e-16, r: km(5.5), color: [196, 204, 214] });
   orbit(world, s, halley, 17.83, 0.967, 162.3, 58.4, 111.3, 357);
@@ -125,6 +231,7 @@ function solarSystem(world, { belts = true, moon = true } = {}) {
     // perturbations, so the starting (osculating) semi-major axis is calibrated, 381,815 km, so the
     // simulated mean sidereal month matches the measured 27.32166 days (mean distance stays ~384,400 km).
     orbitLW(world, made.Earth, m, km(LUNAR_A), 0.0549, 5.145, 218.3165, 83.3532, 125.0445, true);
+    m.host = made.Earth;
   }
   ring(world, made.Saturn, km(74500), km(136800), 24000, 26.7, PK.ICE);
   if (belts) {
@@ -161,7 +268,7 @@ function galaxy(world, name, cx, cy, cz, vx, vy, vz, tiltX, tiltZ, n, spin, pale
 export const PRESETS = [
   {
     id: 'solar', name: 'Solar System',
-    blurb: 'The Sun, eight planets, Pluto, the Moon, Saturn\'s rings and both asteroid belts.',
+    blurb: 'The Sun, eight planets, nine dwarf planets, all 175 named moons, Saturn\'s rings and both asteroid belts.',
     speed: 1 / 12,
     camera: { follow: 'Sun', dist: 3.4, pitch: 0.55, yaw: 0.4 },
     build(w) { solarSystem(w); },
@@ -176,7 +283,7 @@ export const PRESETS = [
       const e = makeBody({ name: 'Earth', kind: 'rocky', m: EARTH_MASS + MOON_MASS, r: km(6371), color: [64, 118, 214], atmo: [120, 180, 255] });
       orbitLW(w, s, e, 1.00000261, 0.01671123, 0, 100.46457166, 102.93768193, 0);
       e.m = EARTH_MASS;
-      orbitLW(w, e, makeBody({ name: 'Moon', kind: 'rocky', m: MOON_MASS, r: km(1737.4), color: [184, 182, 176] }), km(LUNAR_A), 0.0549, 5.145, 218.3165, 83.3532, 125.0445, true);
+      orbitLW(w, e, makeBody({ name: 'Moon', kind: 'rocky', m: MOON_MASS, r: km(1737.4), color: [184, 182, 176] }), km(LUNAR_A), 0.0549, 5.145, 218.3165, 83.3532, 125.0445, true).host = e;
       toBarycenter(w.bodies);
     },
   },
@@ -200,7 +307,7 @@ export const PRESETS = [
       // Phases chosen to respect the Laplace relation λIo − 3λEuropa + 2λGanymede = 180°.
       const phase = [0, 180, 0, 90];
       moons.forEach(([name, akm, m, r, color], k) => {
-        orbit(w, j, makeBody({ name, kind: 'rocky', m, r: km(r), color }), km(akm), 0.002, 0.2, 0, 0, phase[k], true);
+        orbit(w, j, makeBody({ name, kind: 'rocky', m, r: km(r), color }), km(akm), 0.002, 0.2, 0, 0, phase[k], true).host = j;
       });
       toBarycenter(w.bodies);
     },
@@ -277,7 +384,7 @@ export const PRESETS = [
     speed: 1,
     camera: { follow: 'Sun', dist: 58, pitch: 0.8, yaw: 0.9 },
     build(w) {
-      solarSystem(w, { moon: false });
+      solarSystem(w, { moon: false, moons: false });
       const bh = makeBody({ kind: 'bh', m: 5, name: 'Rogue' });
       bh.x = -36; bh.y = 5; bh.z = 10;
       const tx = 3, ty = 0, tz = 1.5;
