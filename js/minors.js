@@ -13,6 +13,7 @@
 import { G } from './units.js';
 
 const MAX_SUB = 64;         // kicks per moon per frame
+const pertBuf = [], sibBuf = [];   // scratch lists (see pertFor)
 const SIB_GM = 7e-12;       // moons above ~1 km³/s² (Mimas, Proteus and up) pull on their neighbours (M☉ units)
 
 // Kepler drift of (r, v) about mass mu = GM for time dt, elliptic orbits (f and g functions in the change of
@@ -128,8 +129,10 @@ export function stepMinors(world, groups, att, cp, cpT, steps, t0, span) {
     };
     // Other large bodies whose tide at distance r (from the planet) is above 1e-8 of the planet's pull.
     const Ds = att.map((b) => (b === h || !(b.m > 0) ? 0 : Math.hypot(b.x - h.x, b.y - h.y, b.z - h.z)));
+    // (One list, reused: each moon's is used up before the next is asked for.)
     const pertFor = (r) => {
-      const out = [];
+      const out = pertBuf;
+      out.length = 0;
       for (let a = 0; a < na; a++) {
         const D = Ds[a];
         if (D > 0 && (D < 4 * r || 2 * (att[a].m / h.m) * (r / D) ** 3 > 1e-8)) out.push(a);
@@ -138,7 +141,8 @@ export function stepMinors(world, groups, att, cp, cpT, steps, t0, span) {
     };
     // Pull of the attractors in `pert` on a moon at s (relative to the planet), tidal form; adds into acc.
     const pullAtt = (pert, t, s, m, acc) => {
-      for (const a of pert) {
+      for (let i = 0; i < pert.length; i++) {
+        const a = pert[i];
         const mk = at(a, t, kp) * G;
         if (!(mk > 0)) continue;
         const sx = kp[0] - hp[0], sy = kp[1] - hp[1], sz = kp[2] - hp[2];
@@ -219,29 +223,30 @@ export function stepMinors(world, groups, att, cp, cpT, steps, t0, span) {
 
     // 2. The small moons, each on its own.
     const so = [0, 0, 0], acc = [0, 0, 0];
+    const smallKick = (m, pert, sibs, t, w) => {
+      hostAt(t);
+      acc[0] = acc[1] = acc[2] = 0;
+      pullAtt(pert, t, m._s, m, acc);
+      for (let i = 0; i < sibs.length; i++) pullSib(core[sibs[i]], sibAt(sibs[i], t, so), m._s, m, acc);
+      apply(m, acc, w);
+    };
     for (const m of ms) {
       if (m.m > SIB_GM) continue;
       const r = rOf(m), M = h.m + m.m;
       const pert = pertFor(r);
       // Big moons whose pull here is above 1e-6 of the planet's (by their nearest radial approach).
-      const sibs = [];
+      const sibs = sibBuf;
+      sibs.length = 0;
       for (let j = 0; j < core.length; j++) {
         const o = core[j], dr = Math.max(Math.abs(rOf(o) - r), 0.01 * r);
         if ((o.m / h.m) * (r / dr) ** 2 > 1e-6) sibs.push(j);
       }
       if (!pert.length && !sibs.length) { drift(m, span); continue; }
       const n = kicks(period(r, M)), dt = span / n;
-      const kick = (t, w) => {
-        hostAt(t);
-        acc[0] = acc[1] = acc[2] = 0;
-        pullAtt(pert, t, m._s, m, acc);
-        for (const j of sibs) pullSib(core[j], sibAt(j, t, so), m._s, m, acc);
-        apply(m, acc, w);
-      };
-      kick(t0, dt / 2);
+      smallKick(m, pert, sibs, t0, dt / 2);
       for (let k = 0; k < n; k++) {
         drift(m, dt);
-        kick(t0 + (k + 1) * dt, k === n - 1 ? dt / 2 : dt);
+        smallKick(m, pert, sibs, t0 + (k + 1) * dt, k === n - 1 ? dt / 2 : dt);
       }
     }
     // The partner: the pair's relative orbit is an exact two-body Kepler orbit; split it about the centre.

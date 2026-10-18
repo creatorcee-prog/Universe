@@ -1129,8 +1129,11 @@ export class Renderer3D {
 
     // Ring geometry per planet, measured from its ring particles: plane, extent and a 16-bin opacity
     // profile (so gaps such as the Cassini Division show in the shadow the rings cast on the planet).
-    this.ringInfo = new Map();
-    if (world.nr > 0) {
+    // The rings change slowly: measured every 30 frames, or at once when particles are added or lost.
+    this.ringFrame = (this.ringFrame || 0) + 1;
+    if (!this.ringInfo || this.ringNr !== world.nr || this.ringWorld !== world || this.ringFrame >= 30) {
+      this.ringFrame = 0; this.ringNr = world.nr; this.ringWorld = world;
+      this.ringInfo = new Map();
       const tmp = new Map();
       for (let i = 0; i < world.nr; i++) {
         const h = world.rHost[i];
@@ -1138,20 +1141,21 @@ export class Renderer3D {
         if (!r) {
           const o = i * 6, B = world.rBasis;
           const n = [B[o + 1] * B[o + 5] - B[o + 2] * B[o + 4], B[o + 2] * B[o + 3] - B[o] * B[o + 5], B[o] * B[o + 4] - B[o + 1] * B[o + 3]];
-          r = { n, rin: Infinity, rout: 0, list: [], ice: world.rk[i] === PK.ICE };
+          r = { n, rin: Infinity, rout: 0, ice: world.rk[i] === PK.ICE, counts: new Float32Array(16) };
           tmp.set(h, r);
         }
         const rad = world.rRad[i];
         if (rad < r.rin) r.rin = rad;
         if (rad > r.rout) r.rout = rad;
-        r.list.push(rad);
+      }
+      for (let i = 0; i < world.nr; i++) {
+        const r = tmp.get(world.rHost[i]);
+        r.counts[Math.min(15, Math.floor(((world.rRad[i] - r.rin) / (r.rout - r.rin + 1e-30)) * 16))]++;
       }
       for (const [h, r] of tmp) {
-        const counts = new Float32Array(16);
-        for (const rad of r.list) counts[Math.min(15, Math.floor(((rad - r.rin) / (r.rout - r.rin + 1e-30)) * 16))]++;
         let mx = 0;
-        for (const c of counts) mx = Math.max(mx, c);
-        r.prof = counts.map((c) => Math.min(0.92, (c / (mx || 1)) * 0.92));
+        for (const c of r.counts) mx = Math.max(mx, c);
+        r.prof = r.counts.map((c) => Math.min(0.92, (c / (mx || 1)) * 0.92));
         this.ringInfo.set(h, r);
       }
     }

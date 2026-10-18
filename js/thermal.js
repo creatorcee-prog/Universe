@@ -88,6 +88,7 @@ export function ensureThermal(b, world) {
   b.th = th;
   if (comp.dT0) th.Eint = comp.dT0 * b.m * MSUN_KG * heatCapacity(b);
   // Iterate to a self-consistent start (temperature, ice and albedo depend on one another).
+  findStars(world);   // (may be called outside thermalStep)
   for (let i = 0; i < 40; i++) thermalUpdate(b, world, Infinity);
   return th;
 }
@@ -104,8 +105,14 @@ const thermalKinds = new Set(['rocky', 'gas']);
 // Small moons riding on their planet (minors.js) change slowly: they are updated in turn, one frame in eight,
 // with the time gathered since their last update.
 let thermalFrame = 0;
+const starList = [];   // this frame's light sources, found once instead of per planet
+function findStars(world) {
+  starList.length = 0;
+  for (const s of world.bodies) if (isLuminous(s)) starList.push(s);
+}
 export function thermalStep(world, dtYears) {
   thermalFrame++;
+  findStars(world);
   for (const b of world.bodies) {
     if (!thermalKinds.has(b.kind)) continue;
     if (!b.th) { ensureThermal(b, world); continue; }
@@ -126,9 +133,10 @@ function thermalUpdate(b, world, dt) {
 
   // Incoming starlight (W/m^2), summed over every star.
   let S = 0;
-  for (const s of world.bodies) {
-    if (!isLuminous(s) || s === b) continue;
-    const d = Math.hypot(s.x - b.x, s.y - b.y, s.z - b.z) * AU_M;
+  for (let i = 0; i < starList.length; i++) {
+    const s = starList[i];
+    if (s === b) continue;
+    const dx = s.x - b.x, dy = s.y - b.y, dz = s.z - b.z, d = Math.sqrt(dx * dx + dy * dy + dz * dz) * AU_M;
     S += (s.lum * L_SUN) / (4 * Math.PI * d * d);
   }
   // Supernova light: billions of suns for a few weeks.
