@@ -96,8 +96,8 @@ export class UI {
     $('lock-chip').addEventListener('click', () => app.toggleLock());
     $('surf-lock').addEventListener('click', () => { app.surfaceLock = !app.surfaceLock; this.toast(app.surfaceLock ? 'Surface lock on: the camera turns with the planet' : 'Surface lock off'); });
     $('btn-menu2').addEventListener('click', () => this.openSheet('sheet-scenarios'));
-    $('btn-settings').addEventListener('click', () => this.openSheet('sheet-settings'));
-    $('btn-settings2').addEventListener('click', () => this.openSheet('sheet-settings'));
+    $('btn-settings').addEventListener('click', () => { this.openSheet('sheet-settings'); this.checkGPU(); });
+    $('btn-settings2').addEventListener('click', () => { this.openSheet('sheet-settings'); this.checkGPU(); });
     $('i-seed').addEventListener('click', () => {
       const b = app.state.selected;
       if (!b || b.kind !== 'rocky') return;
@@ -376,6 +376,20 @@ export class UI {
     if (el) el.checked = s[key];
     if (key === 'collisions') this.app.world.collisions = s.collisions;
     this.app.saveSettings();
+  }
+
+  // Which graphics interfaces this browser offers: WebGL 2 (used now) and WebGPU (compute shaders, which
+  // could move particles and gravity onto the GPU). Asks for a real adapter, not just the API's presence.
+  async checkGPU() {
+    const el = $('gpu-check');
+    let gpu = 'not offered by this browser';
+    try {
+      if (navigator.gpu) {
+        const a = await navigator.gpu.requestAdapter();
+        gpu = a ? 'available' + (a.info && a.info.vendor ? ` (${a.info.vendor})` : '') : 'present, but no adapter was given (blocked or switched off)';
+      }
+    } catch (e) { gpu = 'present, but it failed: ' + e.message; }
+    el.textContent = `Graphics: WebGL 2 in use · WebGPU ${gpu}.`;
   }
 
   // Find: every object in the scene, filtered by name or kind, biggest first; tap to fly to it.
