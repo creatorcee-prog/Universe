@@ -55,18 +55,18 @@ def recolour(a, target, contrast=1.0):
     return np.array(target) * (1 + contrast * (a / m - 1))
 
 # Grey worlds: brightness only, tinted in the shader with each world's own colours.
-gray_rel(load('mercury'), 'mercury')
-gray_rel(load('moon'), 'moon')
+save(finish(load('mercury')), 'mercury')
+save(finish(load('moon')), 'moon')
 gray_rel(load('venus'), 'venus')             # Magellan radar (false orange): roughness, not colour
 gray_rel(load('venus-clouds'), 'venus-clouds', size=(1024, 512))
 gray_rel(load('sun'), 'sun', size=(1024, 512))
 
-# Colour maps. Mars and the giants are brought to the app's calibrated true-colour means (the sources'
-# colours are stretched); Neptune also loses most of the Voyager contrast stretch (Irwin et al. 2024).
-save(finish(recolour(load('mars'), [0.593, 0.448, 0.297])), 'mars')
+# Colour maps, used as supplied. Neptune alone is recoloured: its source keeps the Voyager contrast
+# stretch, and the real planet is pale blue (Irwin et al. 2024).
+save(finish(load('mars')), 'mars')
 save(finish(load('jupiter')), 'jupiter')
 save(finish(load('saturn')), 'saturn')
-save(finish(recolour(load('uranus'), [0.66, 0.86, 0.89])), 'uranus', size=(1024, 512))
+save(finish(load('uranus')), 'uranus', size=(1024, 512))
 save(finish(recolour(load('neptune'), [0.42, 0.62, 0.90], 0.6)), 'neptune', size=(1024, 512))
 
 # Earth: the day map's colours, and a new land / sea / mountain / ice map from it (full 360°).

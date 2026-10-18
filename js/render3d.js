@@ -33,7 +33,7 @@ const PHOTO = [
   [/^Venus( \d+)?$/, 'venus', 3, 'rocky'], [/^Titan( \d+)?$/, 'titan', 4, 'rocky'],
   [/^Mars( \d+)?$/, 'mars', 5, 'rocky'], [/^Io( \d+)?$/, 'io', 5, 'rocky'], [/^Pluto( \d+)?$/, 'pluto', 5, 'rocky'],
   [/^Jupiter( \d+)?$/, 'jupiter', 6, 'gas'], [/^Saturn( \d+)?$/, 'saturn', 6, 'gas'],
-  [/^Charon( \d+)?$/, 'charon', 5, 'rocky'], [/^Moon( \d+)?$/, 'moon', 7, 'rocky'], [/^Mercury( \d+)?$/, 'mercury', 7, 'rocky'],
+  [/^Charon( \d+)?$/, 'charon', 5, 'rocky'], [/^Moon( \d+)?$/, 'moon', 5, 'rocky'], [/^Mercury( \d+)?$/, 'mercury', 5, 'rocky'],
   [/^Uranus( \d+)?$/, 'uranus', 6, 'gas'], [/^Neptune( \d+)?$/, 'neptune', 6, 'gas'], [/^Sun( \d+)?$/, 'sun', 9, 'star'],
   ...['Callisto', 'Europa', 'Ganymede', 'Phobos', 'Deimos'].map((n) => [new RegExp(`^${n}( \\d+)?$`), n.toLowerCase(), 7, 'rocky']),
 ];
