@@ -233,7 +233,7 @@ fn fs(i: VO) -> @location(0) vec4f {
   return vec4f(c * a, a);
 }`;
 
-const SWARM_READY = false;
+const SWARM_READY = true;
 
 export class GPULayer {
   // Resolves to a GPULayer, or null if this browser has no usable WebGPU.
@@ -277,6 +277,10 @@ export class GPULayer {
       primitive: { topology: 'triangle-strip' },
     });
     const sm = device.createShaderModule({ code: SWARM });
+    // Shader compiler messages and GPU errors, shown in Settings so a screenshot of it tells what went wrong.
+    this.diag = [];
+    for (const [name, m] of [['rings', rm], ['orbits', cm], ['swarm', sm]]) m.getCompilationInfo?.().then((ci) => { for (const x of ci.messages) if (x.type !== 'info') this.diag.push(`${name} ${x.type} ${x.lineNum}:${x.linePos} ${x.message}`); });
+    device.addEventListener?.('uncapturederror', (e) => { if (this.diag.length < 8) this.diag.push(e.error.message.slice(0, 200)); });
     this.sPipe = device.createRenderPipeline({
       layout: 'auto',
       vertex: { module: sm, entryPoint: 'vs' },
@@ -379,8 +383,8 @@ export class GPULayer {
     const Rkm = R * 1.495978707e8;
     SATURN.forEach(([r0, r1, tau, alb], i) => S.set([r0 / Rkm, r1 / Rkm, tau, alb], 60 + i * 4));
     cells.forEach((c, i) => S.set(c, 124 + i * 4));
-    return { nl, reach: G * cs * 2 ** (nl - 1) };
     this.device.queue.writeBuffer(this.sU, 0, S);
+    return { nl, reach: G * cs * 2 ** (nl - 1) };
   }
 
   // Which hosts this layer draws rings for (the WebGL view then skips its own ring particles for them).
@@ -453,8 +457,7 @@ export class GPULayer {
       const ez = d[42], rho = Math.hypot(d[40], d[41]);
       const h0 = Math.abs(ez);
       const G = 24, cs = Math.max(h0 * 0.07, 2e-7);                 // cell size (planet radii)
-      // (The close-up swarm is unfinished: it draws nothing yet, so it stays off.)
-      const swarm = SWARM_READY && h0 < 0.08 && rho > 0.9 * (66900 / (R * 1.495978707e8)) && rho < 1.1 * (140230 / (R * 1.495978707e8));
+      const swarm = (SWARM_READY || this.forceSwarm) && h0 < 0.08 && rho > 0.9 * (66900 / (R * 1.495978707e8)) && rho < 1.1 * (140230 / (R * 1.495978707e8));
       const sw = swarm ? this.swarmUniforms(r3d, h, ux, wx, n, d, cs, G, sunO, sunC, simDt, ring.sRad) : null;
       d.set([no, sw ? sw.reach : 0, 0, 0], 48);
       dev.queue.writeBuffer(this.rU, 0, d);

@@ -274,6 +274,13 @@ export const PRESETS = [
     build(w) { solarSystem(w); },
   },
   {
+    id: 'saturn', name: 'Saturn\'s Rings',
+    blurb: 'Saturn, its 63 named moons and its rings. With WebGPU on (Settings), the rings are 250,000 orbiting chunks, and up close a field of individual rocks. Zoom in to skim the ring plane.',
+    speed: DAY_YR / 24,
+    camera: { follow: 'Saturn', dist: 0.0015, pitch: 0.2, yaw: -1.4 },
+    build(w) { solarSystem(w); },
+  },
+  {
     id: 'earthmoon', name: 'Earth & Moon',
     blurb: 'Watch the Moon wax and wane as it circles Earth, lit by the Sun 1 AU away.',
     speed: DAY_YR,

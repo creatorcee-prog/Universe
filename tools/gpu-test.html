@@ -1,0 +1,51 @@
+<!doctype html>
+<!-- Headless test of the WebGPU layer (js/gpu.js): a stand-in camera, Sun and Saturn, rendered into an
+     off-screen texture and copied to a 2D canvas, since WebGPU cannot present to a canvas in headless Linux
+     Chrome. Query: d (distance, Saturn radii), p (pitch), y (yaw), swarm=1. Used by tools/gpu-shot.mjs. -->
+<html><body style="margin:0;background:#000">
+<script type="module">
+import { GPULayer } from '../js/gpu.js';
+const q = new URLSearchParams(location.search);
+const dist = +(q.get('d') || 6), pitch = +(q.get('p') || 0.35), yaw = +(q.get('y') || 0.6);
+const AU = 1.495978707e8, R = 58232 / AU;
+const sat = { name: 'Saturn', alive: true, r: R, m: 2.857e-4, x: 0, y: 0, z: 0, kind: 'gas' };
+const sun = { name: 'Sun', alive: true, r: 0.00465, m: 1, lum: 1, x: -9.5, y: 3, z: 2, kind: 'star' };
+const t = 26.7 * Math.PI / 180, n = [0, Math.cos(t), Math.sin(t)];
+const world = { ringOuter: new Map([[sat, 136775 / AU]]), bodies: [sun, sat] };
+const W = 768, H = 1664, fov = 1.0, F = H / 2 / Math.tan(fov / 2);
+const cp = Math.cos(pitch), sp = Math.sin(pitch), cy = Math.cos(yaw), sy = Math.sin(yaw);
+const D = dist * R, eye = [D * cp * sy, D * sp, D * cp * cy];
+const f = [-cp * sy, -sp, -cp * cy]; let r = [-f[2], 0, f[0]]; const rl = Math.hypot(...r); r = r.map((v) => v / rl);
+const u = [-r[2] * f[1], r[2] * f[0] - r[0] * f[2], r[0] * f[1]];
+const V = [r[0], u[0], -f[0], r[1], u[1], -f[1], r[2], u[2], -f[2]];
+const near = D * 1e-6, far = 1e15, ff = 1 / Math.tan(fov / 2), nf = 1 / (near - far);
+const P = new Float32Array([ff / (W / H), 0, 0, 0, 0, ff, 0, 0, 0, 0, (far + near) * nf, -1, 0, 0, 2 * far * near * nf, 0]);
+const glc = document.createElement('canvas'); glc.width = W; glc.height = H;
+const r3d = { canvas: glc, P, F, dpr: 2, ex: eye[0], ey: eye[1], ez: eye[2], lumList: [sun], settings: { sharp: false },
+  ringInfo: new Map([[sat, { n, rin: 66900 / AU, rout: 140230 / AU }]]),
+  viewOf: (x, y, z) => [V[0] * x + V[3] * y + V[6] * z, V[1] * x + V[4] * y + V[7] * z, V[2] * x + V[5] * y + V[8] * z] };
+window.log = [];
+const g = await GPULayer.create(glc, true);
+if (!g) { window.res = 'no gpu'; window.done = true; }
+else {
+  g.device.addEventListener('uncapturederror', (e) => window.log.push(e.error.message));
+  if (q.get('swarm')) g.forceSwarm = true;
+  const fmt = navigator.gpu.getPreferredCanvasFormat();
+  const tex = g.device.createTexture({ size: [W, H], format: fmt, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
+  g.ctx = { getCurrentTexture: () => tex };
+  const readBack = async () => {
+    const bpr = W * 4, buf = g.device.createBuffer({ size: bpr * H, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+    const e = g.device.createCommandEncoder(); e.copyTextureToBuffer({ texture: tex }, { buffer: buf, bytesPerRow: bpr }, [W, H]); g.device.queue.submit([e.finish()]);
+    await buf.mapAsync(GPUMapMode.READ);
+    const px = new Uint8ClampedArray(buf.getMappedRange().slice(0));
+    if (fmt === 'bgra8unorm') for (let i = 0; i < px.length; i += 4) { const b = px[i]; px[i] = px[i + 2]; px[i + 2] = b; }
+    let lit = 0; for (let i = 0; i < px.length; i += 4) { if (px[i] + px[i + 1] + px[i + 2] > 6) lit++; px[i + 3] = 255; }
+    const c = document.createElement('canvas'); c.width = W; c.height = H; c.style = 'width:390px;height:844px;position:absolute;left:0;top:0';
+    c.getContext('2d').putImageData(new ImageData(px, W, H), 0, 0); document.body.appendChild(c);
+    window.res = 'lit px ' + lit + ' | ' + g.diag.join(' / '); window.sData = Array.from(g.sData); window.swarm = g.rings.get(sat).swarm;
+  };
+  let k = 0;
+  const frame = () => { try { g.draw(r3d, world, k === 0 ? 0 : 1 / 3650, new Set([sat])); } catch (e) { window.log.push(e.message); } if (++k < 20) requestAnimationFrame(frame); else readBack().then(() => { window.done = true; }); };
+  requestAnimationFrame(frame);
+}
+</script></body></html>

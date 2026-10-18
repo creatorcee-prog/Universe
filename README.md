@@ -84,7 +84,7 @@ On a desktop browser: mouse drag, wheel zoom, shift-drag or right-drag to pan, <
 ## Scenarios
 
 Solar System (the planets, all 175 named moons, nine dwarf planets, Saturn's rings, the asteroid and Kuiper belts and
-Halley's Comet) · Earth & Moon · Jupiter's Moons ·
+Halley's Comet) · Saturn's Rings · Earth & Moon · Jupiter's Moons ·
 Moon-Forming Impact · Planet Formation · Binary Star · Rogue Black Hole · Tidal Disruption · Supernova ·
 Galaxy Collision · Empty Star.
 
@@ -255,6 +255,21 @@ Switch in the **View** panel.
     Close up it is drawn to scale.
   - *Titan's detached haze*: a thin, faintly blue layer ~500 km up, above the orange main haze, as in Cassini's
     images (Porco et al. 2005, *Nature* 434, 159).
+- **WebGPU (where the browser has it; Settings → "Saturn's rings as 250,000 orbiting chunks")**: a second
+  graphics layer over the WebGL view, for work only compute shaders can do. First use, Saturn's rings as
+  real debris:
+  - *The far field*: 250,000 chunks (500,000 at full resolution), each on its own circular orbit; a compute
+    shader advances every orbit each frame at its own Keplerian speed, so the inner rings overtake the outer.
+    The radial structure is Saturn's own: the faint C ring, the opaque B ring, the Cassini Division, the A
+    ring with the Encke and Keeler gaps, and the F ring (optical depths after Cassini profiles; Cuzzi et al.
+    2010). Chunks are flat discs sized so their random overlap gives each ring its opacity, 1 − e^−τ.
+  - *The near field*: within a few thousand km of the ring plane, a swarm of individual rocks is generated
+    around the camera from the local optical depth, in nested fields whose cells double in size outward,
+    moving with the ring material.
+  - *Light*: sunlit or unlit face, Saturn's shadow, hidden behind Saturn and its moons.
+  - *Fallback*: without WebGPU the WebGL rings are drawn as before; if WebGL ever loses its context while
+    WebGPU runs, the WebGPU layer turns itself off. Settings reports any WebGPU errors.
+  - *Plan*: everything else moves to WebGPU in stages (see PORT_PLAN.md).
 - **Light traced along a few rays** (cheap stand-ins for ray tracing):
   - *Planetshine*: sunlight reflected by a moon's planet lights its night side: earthshine on the Moon,
     Saturnshine on Mimas, in the planet's colour. True strength is albedo × the planet's lit fraction seen

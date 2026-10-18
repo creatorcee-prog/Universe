@@ -389,7 +389,9 @@ export class UI {
         gpu = a ? 'available' + (a.info && a.info.vendor ? ` (${a.info.vendor})` : '') : 'present, but no adapter was given (blocked or switched off)';
       }
     } catch (e) { gpu = 'present, but it failed: ' + e.message; }
-    el.textContent = `Graphics: WebGL 2 in use · WebGPU ${gpu}.`;
+    const g = this.app.gpu;
+    const state = g ? (g.lost ? 'switched off after an error' : this.app.settings.gpuRings ? 'drawing Saturn’s rings' : 'ready (turn on the rings above)') : '';
+    el.textContent = `Graphics: WebGL 2 in use · WebGPU ${gpu}${state ? ' · ' + state : ''}.` + (g && g.diag && g.diag.length ? ' Problems: ' + g.diag.join(' | ') : '');
   }
 
   // Find: every object in the scene, filtered by name or kind, biggest first; tap to fly to it.
