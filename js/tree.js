@@ -141,14 +141,18 @@ export function particleGravity(world, dt, tree) {
   st.acc += dt;
   st.frames++;
   const np = world.np;
-  if (np < 2 || !(st.acc > 0)) { st.acc = 0; return; }
+  if (np < 2 || !(st.acc > 0)) { st.acc = 0; st.job = null; return; }
   const pm = world.pm;
   let total = 0, nm = 0;
   for (let i = 0; i < np; i++) if (pm[i] > 0) { total += pm[i]; nm++; }
-  if (!(total > 1e-14) || nm < 2) { st.acc = 0; return; } // under ~2e16 kg in particles: negligible
+  if (!(total > 1e-14) || nm < 2) { st.acc = 0; st.job = null; return; } // under ~2e16 kg in particles: negligible
   const px = world.px, py = world.py, pz = world.pz;
   // Free-fall time of the swarm from its last known size (refreshed at each rebuild).
   const tff = st.size ? Math.sqrt((3 * Math.PI * (st.size / 2) ** 3 * 4) / (32 * G * total * 3)) : 0;
+  // On the worker unless the swarm is collapsing faster than its answers come back (the gap between its
+  // kicks over 1% of the free-fall time): then here, every frame, until it has settled.
+  if (gravityWorker() && !st.noWorker && !(tff > 0 && st.lag > 0.01 * tff)) { asyncGravity(world, st, nm); return; }
+  st.job = null;
   if (st.frames < st.every && !(tff > 0 && st.acc > 0.01 * tff)) return;
   const t0 = performance.now();
   if (!tree.build(px, py, pz, pm, np)) { st.acc = 0; return; }
@@ -173,4 +177,97 @@ export function particleGravity(world, dt, tree) {
   // Aim for about 3 ms per frame on average.
   st.cost = performance.now() - t0;
   st.every = Math.max(1, Math.min(30, Math.ceil(st.cost / 3)));
+}
+
+// ---------- On a second CPU core ----------
+// The tree is built and walked in a Web Worker, so a self-gravitating cloud no longer costs the main
+// thread (which runs the rest of the physics and the drawing) any time. The worker gets the positions and
+// masses of the particles with mass and of the bodies; its accelerations come back a frame or two later
+// and are applied as one kick covering all the time since the previous kick, which is how the pull was
+// already applied (every few frames) on one core. Particles are matched by id (removals reorder them);
+// one removed in the meantime has nothing to kick, one that grew by merging keeps its kick. Falls back to the main thread if workers
+// are unavailable.
+let worker = null, workerFailed = false;
+function gravityWorker() {
+  if (worker || workerFailed) return worker;
+  try {
+    if (typeof Worker === 'undefined' || typeof Blob === 'undefined') throw new Error('no workers');
+    const src = `const G = ${G}, THETA2 = ${THETA2}, MAX_DEPTH = ${MAX_DEPTH};\n${Octree.toString()}\n` + `
+const tree = new Octree();
+onmessage = (e) => {
+  const { id, x, y, z, m, bx, by, bz, beps2, eps2 } = e.data, n = m.length, nb = bx.length;
+  const acc = new Float64Array(3 * (n + nb)), out = [0, 0, 0];
+  if (tree.build(x, y, z, m, n)) {
+    const e2 = eps2 * (0.25 * tree.size) ** 2 / Math.cbrt(tree.n) ** 2;
+    for (let i = 0; i < n; i++) { tree.accel(x[i], y[i], z[i], i, e2, out); acc[3 * i] = out[0]; acc[3 * i + 1] = out[1]; acc[3 * i + 2] = out[2]; }
+    for (let j = 0; j < nb; j++) { tree.accel(bx[j], by[j], bz[j], -1, e2 + beps2[j], out); const k = 3 * (n + j); acc[k] = out[0]; acc[k + 1] = out[1]; acc[k + 2] = out[2]; }
+    postMessage({ id, acc, size: tree.size }, [acc.buffer]);
+  } else postMessage({ id, acc: null });
+};`;
+    const url = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
+    worker = new Worker(url);
+    worker.onerror = () => { workerFailed = true; worker = null; };
+    worker.onmessage = (e) => { if (worker && worker.target && e.data.id === worker.target.id) worker.target.result = e.data; };
+  } catch { workerFailed = true; worker = null; }
+  return worker;
+}
+
+let jobId = 0;
+function asyncGravity(world, st, nm) {
+  const job = st.job;
+  if (job && job.result) {
+    // Apply the finished job's pull over the time accumulated since the last kick.
+    const r = job.result, k = st.acc;
+    st.lag = k;
+    if (r.acc) {
+      const vx = world.pvx, vy = world.pvy, vz = world.pvz, n = job.idx.length;
+      // The pull was worked out for the positions at the snapshot, a frame or two ago; it is applied over
+      // the time since the last kick, centred later than that. Project it forward with its rate of
+      // change between this result and the previous one (per particle), so the delay does not let a
+      // collapsing cloud overshoot and puff up.
+      const tc = world.t - k / 2, prev = st.prev;
+      let f = 0, pmap = null;
+      if (prev && job.ts > prev.ts) { f = Math.max(0, Math.min(2, (tc - job.ts) / (job.ts - prev.ts))); pmap = prev.map; }
+      const map = new Map();
+      // Where each particle is now: removals move the last particle into the freed slot.
+      const now = new Map(), pid = world.pid;
+      for (let i = 0; i < world.np; i++) if (world.pm[i] > 0) now.set(pid[i], i);
+      for (let j = 0; j < n; j++) {
+        const id = job.id32[j], i = now.get(id);
+        let ax = r.acc[3 * j], ay = r.acc[3 * j + 1], az = r.acc[3 * j + 2];
+        map.set(id, j);
+        if (pmap && f > 0) {
+          const q = pmap.get(id);
+          if (q !== undefined) { ax += (ax - prev.acc[3 * q]) * f; ay += (ay - prev.acc[3 * q + 1]) * f; az += (az - prev.acc[3 * q + 2]) * f; }
+        }
+        if (i === undefined) continue; // merged into another clump or removed since the snapshot
+        vx[i] += ax * k; vy[i] += ay * k; vz[i] += az * k;
+      }
+      st.prev = { ts: job.ts, acc: r.acc, map };
+      job.bodies.forEach((b, j) => {
+        if (!world.bodies.includes(b)) return;
+        const q = 3 * (n + j);
+        b.vx += r.acc[q] * k; b.vy += r.acc[q + 1] * k; b.vz += r.acc[q + 2] * k;
+      });
+      st.size = r.size;
+    }
+    st.acc = 0;
+    st.job = null;
+  } else if (job) {
+    // Still computing. If it is taking far too long (a stalled worker), go back to the main thread.
+    if (performance.now() - job.t > 1000) { st.noWorker = true; st.job = null; }
+    return;
+  }
+  // Send the next snapshot.
+  const np = world.np, pm = world.pm, px = world.px, py = world.py, pz = world.pz;
+  const x = new Float64Array(nm), y = new Float64Array(nm), z = new Float64Array(nm), m = new Float64Array(nm), idx = new Int32Array(nm), id32 = new Uint32Array(nm);
+  let c = 0;
+  for (let i = 0; i < np; i++) if (pm[i] > 0) { x[c] = px[i]; y[c] = py[i]; z[c] = pz[i]; m[c] = pm[i]; idx[c] = i; id32[c] = world.pid[i]; c++; }
+  const bodies = world.bodies.slice(), nb = bodies.length;
+  const bx = new Float64Array(nb), by = new Float64Array(nb), bz = new Float64Array(nb), beps2 = new Float64Array(nb);
+  bodies.forEach((b, j) => { bx[j] = b.x; by[j] = b.y; bz[j] = b.z; beps2[j] = b.r * b.r; });
+  st.job = { id: ++jobId, idx, id32, bodies, t: performance.now(), ts: world.t, result: null };
+  worker.target = st.job;
+  // eps2 = 1 here: the worker scales it to (a quarter of the mean spacing)², as on the main thread.
+  worker.postMessage({ id: st.job.id, x, y, z, m, bx, by, bz, beps2, eps2: 1 }, [x.buffer, y.buffer, z.buffer, m.buffer, bx.buffer, by.buffer, bz.buffer, beps2.buffer]);
 }

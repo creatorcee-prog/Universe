@@ -408,6 +408,12 @@ source list on every entry.
   Zones scale with the source's brightness and update as it ages. A hot planet's zones only appear while its
   heat reaches beyond its own surface, and vanish as it cools.
 
+- **Particle self-gravity on a second core.** The Barnes–Hut tree for debris, dust and ejecta is built
+  and walked in a Web Worker; its pull comes back a frame or two later and is applied as one kick over
+  the time since the last (particles matched by id). While a swarm collapses faster than that (the gap
+  between kicks over 1% of its free-fall time) it is computed on the main thread every frame, so clumping
+  is unchanged; falls back to the main thread where workers are unavailable (e.g. opened as a local file).
+
 ### Simplifications
 
 Climate, composition and stellar evolution are simple parametric models, not radiative-transfer or

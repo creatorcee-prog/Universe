@@ -56,6 +56,8 @@ export class World {
     this.pvx = new Float64Array(PCAP); this.pvy = new Float64Array(PCAP); this.pvz = new Float64Array(PCAP);
     this.pm = new Float64Array(PCAP);
     this.ptl = new Float64Array(PCAP); // local dynamical timescale from the previous frame
+    this.pid = new Uint32Array(PCAP); // stable id (survives the swap on removal; used by the gravity worker)
+    this.nextPid = 1;
     this.pk = new Uint8Array(PCAP);
     this.rHost = new Array(RCAP);
     this.rRad = new Float64Array(RCAP); this.rPhase = new Float64Array(RCAP);
@@ -115,7 +117,7 @@ export class World {
     const i = this.np++;
     this.px[i] = x; this.py[i] = y; this.pz[i] = z;
     this.pvx[i] = vx; this.pvy[i] = vy; this.pvz[i] = vz;
-    this.pm[i] = m; this.pk[i] = kind; this.ptl[i] = 0;
+    this.pm[i] = m; this.pk[i] = kind; this.ptl[i] = 0; this.pid[i] = this.nextPid++;
     return i;
   }
 
@@ -130,7 +132,7 @@ export class World {
     if (i === j) return;
     this.px[i] = this.px[j]; this.py[i] = this.py[j]; this.pz[i] = this.pz[j];
     this.pvx[i] = this.pvx[j]; this.pvy[i] = this.pvy[j]; this.pvz[i] = this.pvz[j];
-    this.pm[i] = this.pm[j]; this.pk[i] = this.pk[j]; this.ptl[i] = this.ptl[j];
+    this.pm[i] = this.pm[j]; this.pk[i] = this.pk[j]; this.ptl[i] = this.ptl[j]; this.pid[i] = this.pid[j];
   }
 
   clearParticles() {
