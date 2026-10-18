@@ -395,7 +395,7 @@ export class UI {
     const state = g ? (g.lost ? 'switched off after an error' : this.app.settings.gpuRings ? 'drawing Saturn’s rings' : 'ready (turn on the rings above)') : '';
     const r = this.app.r3d, rg = r && r.webgpu ? r.gl : null;
     const diag = [...(g && g.diag || []), ...(rg ? rg.diag : []), ...(this.app.gpuError ? [this.app.gpuError] : [])];
-    el.textContent = `Graphics: ${rg ? 'WebGPU renderer in use' : 'WebGL 2 in use'} · WebGPU ${gpu}${state ? ' · ' + state : ''}.` + (diag.length ? ' Problems: ' + diag.join(' | ') : '');
+    el.textContent = `Build ${window.__BUILD__ || 'dev'} · Graphics: ${rg ? 'WebGPU renderer in use' : 'WebGL 2 in use'} · WebGPU ${gpu}${state ? ' · ' + state : ''}.` + (diag.length ? ' Problems: ' + diag.join(' | ') : '');
   }
 
   // Find: every object in the scene, filtered by name or kind, biggest first; tap to fly to it.

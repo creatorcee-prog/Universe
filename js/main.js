@@ -741,7 +741,7 @@ class App {
     }
     const q = this.r3d && this.renderer.overlay ? ` · res ${Math.round((this.r3d.quality ?? 1) * 100)}%${this.r3d.samples ? ' AA' : ''}` : '';
     const api = this.r3d && this.renderer.overlay ? (this.r3d.webgpu ? ' · WebGPU' : ' · WebGL') : '';
-    el.textContent = `${Math.round(1 / p.dt)} fps (tap to test) · physics ${p.ph.toFixed(1)} ms (bodies ${p.parts[0].toFixed(1)}, moons ${p.parts[1].toFixed(1)}, particles ${p.parts[2].toFixed(1)}, other ${p.parts[3].toFixed(1)}) · drawing ${p.dr.toFixed(1)} ms${q}${api} · ${this.world.bodies.length} bodies, ${this.world.np + this.world.nr} particles`;
+    el.textContent = `${Math.round(1 / p.dt)} fps (tap to test) · physics ${p.ph.toFixed(1)} ms (bodies ${p.parts[0].toFixed(1)}, moons ${p.parts[1].toFixed(1)}, particles ${p.parts[2].toFixed(1)}, other ${p.parts[3].toFixed(1)}) · drawing ${p.dr.toFixed(1)} ms${q}${api} · ${this.world.bodies.length} bodies, ${this.world.np + this.world.nr} particles · build ${window.__BUILD__ || 'dev'}`;
   }
 
   frame(now) {

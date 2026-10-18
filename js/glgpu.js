@@ -110,11 +110,15 @@ export class GLonGPU {
   // Submit everything recorded: uniforms first (queue writes run before the command buffer), then commands.
   flushFrame() {
     this.endPass();
-    if (this.uoff > 0) this.device.queue.writeBuffer(this.ubuf, 0, this.ustage, 0, this.uoff);
+    if (this.uoff > 0) this.device.queue.writeBuffer(this.ubuf, 0, new Uint8Array(this.ustage, 0, this.uoff));
     if (this.encoder) {
       this.device.queue.submit([this.encoder.finish()]);
       // Watchdog: one probe at a time on when the GPU finishes; see stalled.
-      if (!this.waiting) { const t = (this.waiting = performance.now()); this.device.queue.onSubmittedWorkDone().then(() => { if (this.waiting === t) this.waiting = 0; }); }
+      if (!this.waiting) {
+        const t = (this.waiting = performance.now());
+        this.waitFrames = 0;
+        this.device.queue.onSubmittedWorkDone().then(() => { if (this.waiting === t) this.waiting = 0; });
+      } else this.waitFrames++;
     }
     this.encoder = null;
     // Replaced textures and buffers: destroying them now lets the submitted work finish first.
@@ -124,9 +128,11 @@ export class GLonGPU {
     this.frame++;
   }
 
-  // The GPU has been working on one submission for over 10 s: hung, or far too slow to use. (The first
-  // frames compile every pipeline and may take seconds, so they are not counted.)
-  get stalled() { return this.frame > 120 && this.waiting > 0 && performance.now() - this.waiting > 10000; }
+  // The GPU has been working on one submission for over 10 s while 60 more frames were sent after it: hung,
+  // or far too slow to use. (Not in the off-screen test mode, where nothing makes the page wait for the GPU.
+  // Counting frames keeps a page that was itself busy, e.g. building a preset, from
+  // looking like a stalled GPU; the first frames compile every pipeline and are not counted either.)
+  get stalled() { return !this.offscreen && this.frame > 120 && this.waiting > 0 && this.waitFrames > 60 && performance.now() - this.waiting > 10000; }
 
   finish() { this.flushFrame(); }
   flush() {}

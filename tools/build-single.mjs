@@ -13,7 +13,9 @@ const out = args.find((a) => !a.startsWith('--')) || join(root, 'dist', 'pocket-
 const ORDER = ['units', 'bodies', 'stellar', 'thermal', 'gravzones', 'geography', 'ias15', 'tree', 'coagulate', 'minors', 'physics', 'moons', 'presets', 'camera', 'render', 'shaders', 'optics', 'render3d', 'wgsl', 'glgpu', 'gpu', 'input', 'facts', 'book', 'thumbs', 'audio', 'ui', 'main'];
 
 // Each ES module becomes a function scope; imports read from a shared registry.
-let js = 'window.__SINGLE_FILE__ = true;\nconst __m = {};\n';
+// Build stamp (month-day hour:minute, UTC), shown in the performance readout and Settings.
+const stamp = new Date().toISOString().replace(/^\d{4}-(\d\d)-(\d\d)T(\d\d):(\d\d).*/, '$1$2-$3$4');
+let js = `window.__SINGLE_FILE__ = true;\nwindow.__BUILD__ = '${stamp}';\nconst __m = {};\n`;
 // Sounds are inlined as data URIs (js/audio.js looks here first).
 const audioDir = join(root, 'assets', 'audio');
 const sounds = {};
