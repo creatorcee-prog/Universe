@@ -341,6 +341,8 @@ uniform vec2 uRingR;       // ring inner/outer radius in planet radii
 uniform float uRingProf[16]; // ring opacity profile from the actual ring particles
 uniform sampler2D uMap;    // surface map: 1 = land/mountains/ice (Earth, painted worlds), 2 = albedo (lunar maria)
 uniform float uMapMode;
+uniform sampler2D uGen;   // generated terrain map (GEN_FS), where uGenK is 1
+uniform float uGenK;
 uniform float uCity;       // night-side city lights (Earth)
 uniform float uDeckH;      // cloud deck height (body radii), for the shadows
 uniform sampler2D uNight;  // where they are (Black Marble), when uNightMap = 1
@@ -634,14 +636,16 @@ void main() {
     }
     col = mix(col, vec3(0.1, 0.07, 0.06), scar * 0.8);
   } else {
-    // Terrain: continents from low-frequency noise, ridged mountain ranges on land, fine detail.
-    float h = fbm(q, 6);
+    // Terrain: continents from low-frequency noise, ridged mountain ranges on land, fine detail; from the
+    // generated map where the world has one (far richer noise than can be run here every frame).
+    vec4 GEN = uGenK > 0.5 ? mapTex(uGen, vObj) : vec4(0.0);
+    float h = uGenK > 0.5 ? GEN.r : fbm(q, 6);
     float sea = 0.3 + 0.36 * uOcean; // fbm is roughly 0.3-0.7, so this tracks the ocean fraction
     // Elevation above sea level, in noise units; dry worlds measure it from their mean surface instead.
     float e = uOcean > 0.0 ? h - sea : h - 0.56;
     float rg = 1.0 - abs(2.0 * vnoise(q * 3.1 + 11.0) - 1.0);
-    float rg2 = 1.0 - abs(2.0 * vnoise(q * 7.3 + 3.0) - 1.0);
-    float mtn = rg * rg * (0.65 + 0.35 * rg2) * smoothstep(0.0, 0.1, e);
+    float rg2 = uGenK > 0.5 ? GEN.a : 1.0 - abs(2.0 * vnoise(q * 7.3 + 3.0) - 1.0);
+    float mtn = (uGenK > 0.5 ? GEN.g : rg * rg * (0.65 + 0.35 * rg2)) * smoothstep(0.0, 0.1, e);
     float landMask = uOcean > 0.0 ? smoothstep(sea, sea + 0.012, h) : 1.0;
     // Surface map (equirectangular, east-positive longitude): real or painted geography.
     vec4 MP = vec4(0.0);
@@ -708,8 +712,8 @@ void main() {
     }
     // Climate zones: wet tropics, dry subtropical belts near 25-30° (Hadley cells), wetter mid-latitudes.
     float desert = exp(-pow(lat - 0.45, 2.0) / 0.012);
-    float moist = fbm(q * 1.3 + 31.0, 4) + 0.18 * exp(-lat * lat / 0.02) - 0.3 * desert;
-    vec3 land = mix(uColA, uColB, smoothstep(0.32, 0.68, fbm(q * 2.4 + 7.0, 4)));
+    float moist = (uGenK > 0.5 ? GEN.b : fbm(q * 1.3 + 31.0, 4)) + 0.18 * exp(-lat * lat / 0.02) - 0.3 * desert;
+    vec3 land = mix(uColA, uColB, smoothstep(0.32, 0.68, uGenK > 0.5 ? GEN.a : fbm(q * 2.4 + 7.0, 4)));
     land = mix(land, land * vec3(1.12, 1.0, 0.82), desert * 0.5);
     // Mountains: bare rock, darker and greyer with height.
     land = mix(land, vec3(0.36, 0.34, 0.32) * (0.8 + 0.4 * rg2), smoothstep(0.05, 0.16, e + 0.08 * mtn) * 0.75);
@@ -733,6 +737,15 @@ void main() {
       // The great deserts sit under the subtropical highs, and spread where it is dry.
       bio = mix(bio, sand, clamp(desert * 1.3 - wet * 0.9, 0.0, 1.0));
       land = mix(land, bio, uLife * warm * lowland + uLife * 0.35 * (1.0 - lowland));
+    }
+    // Mountain chains from the generated map: bare rock along the ridges, streaked light and dark like eroded
+    // slopes, with snow on the high peaks where it is cold.
+    if (uGenK > 0.5) {
+      float ridgeC = smoothstep(0.28, 0.7, GEN.g) * smoothstep(0.0, 0.025, e);
+      float streak = vnoise(q * 60.0 + GEN.g * 8.0);
+      vec3 rock = mix(vec3(0.3, 0.27, 0.24), vec3(0.58, 0.53, 0.47), clamp(GEN.a * 1.4 - 0.2 + 0.3 * (streak - 0.5), 0.0, 1.0));
+      land = mix(land, rock, ridgeC * 0.75);
+      land = mix(land, vec3(0.88, 0.9, 0.94), smoothstep(0.62, 0.85, GEN.g) * smoothstep(0.02, 0.06, e) * smoothstep(290.0, 268.0, T) * 0.9);
     }
     // Colour map: the real surface colours (with life or seas still drawn on top if the world gets them).
     bool cmapR = uMapMode > 4.5 && uMapMode < 8.5;
@@ -964,17 +977,20 @@ void main() {
 const TERRAIN_COMMON = `
 uniform float uSeed, uOcean, uMapMode, uRelief, uCraters, uRough;
 uniform sampler2D uMap;
+uniform sampler2D uGen;     // the globe's generated terrain map, where uGenK is 1 (so the ground matches it)
+uniform float uGenK;
 uniform vec2 uLocal;        // offset of this spot in the small-scale noise (varies with location)
 // Planet-scale elevation at object-space direction d, as on the globe: x = elevation (noise units, 0 at
 // sea level), y = mountain ridges 0..1.
 vec2 bigTerrain(vec3 d) {
   vec3 q = d * 1.7 + uSeed;
-  float h = fbm(q, 6);
+  vec4 GEN = uGenK > 0.5 ? mapTex(uGen, d) : vec4(0.0);
+  float h = uGenK > 0.5 ? GEN.r : fbm(q, 6);
   float sea = 0.3 + 0.36 * uOcean;
   float e = uOcean > 0.0 ? h - sea : h - 0.56;
   float rg = 1.0 - abs(2.0 * vnoise(q * 3.1 + 11.0) - 1.0);
   float rg2 = 1.0 - abs(2.0 * vnoise(q * 7.3 + 3.0) - 1.0);
-  float mtn = rg * rg * (0.65 + 0.35 * rg2) * smoothstep(0.0, 0.1, e);
+  float mtn = (uGenK > 0.5 ? GEN.g : rg * rg * (0.65 + 0.35 * rg2)) * smoothstep(0.0, 0.1, e);
   if (uMapMode > 0.5 && uMapMode < 1.5) {
     vec4 MP = mapTex(uMap, d);
     float coast = MP.r + (h - 0.5) * 0.5;
@@ -1782,6 +1798,46 @@ out vec2 vUV;
 void main() {
   vUV = aCorner * 0.5 + 0.5;
   gl_Position = vec4(aCorner, 0.0, 1.0);
+}
+`;
+
+// Generated terrain map of a world without a real one (render3d.js genStep): equirectangular, the same
+// layout as the photo maps, made once in strips and then only sampled. Far more noise than could be run per
+// pixel every frame: continents and coasts bent by domain warping (Quilez, iquilezles.org/articles/warp),
+// mountain chains of ridged multifractal noise (Musgrave, in Ebert et al., Texturing & Modeling, 2003)
+// along belts like plate edges. R: height (fbm-like, ~0.3-0.7), G: mountains 0..1, B: moisture, A: tone.
+export const GEN_FS = HEAD + NOISE + `
+in vec2 vUV;
+uniform float uSeed;
+uniform vec2 uRows;     // this strip: first row and height, as fractions of the map
+out vec4 outColor;
+float ridged(vec3 p) {
+  float s = 0.0, a = 0.5, w = 1.0;
+  for (int i = 0; i < 6; i++) {
+    float n = 1.0 - abs(2.0 * vnoise(p) - 1.0);
+    n *= n * w;
+    w = clamp(n * 1.6, 0.0, 1.0);   // crests sharpen where the chain is already high
+    s += n * a;
+    p = p * 2.07 + vec3(5.1, 1.3, 7.7);
+    a *= 0.5;
+  }
+  return s;
+}
+void main() {
+  float v = uRows.x + vUV.y * uRows.y;
+  float lon = (vUV.x - 0.5) * 6.2831853, lat = (0.5 - v) * 3.14159265;
+  vec3 d = vec3(cos(lat) * cos(lon), sin(lat), -cos(lat) * sin(lon));   // (inverse of mapTex's lookup)
+  vec3 q = d * 1.7 + uSeed;
+  vec3 w = vec3(fbm(q * 0.8 + vec3(1.7, 9.2, 3.1), 4), fbm(q * 0.8 + vec3(8.3, 2.8, 5.5), 4), fbm(q * 0.8 + vec3(4.1, 6.6, 1.3), 4)) - 0.5;
+  vec3 qw = q + w * 1.2;
+  // Continents, plus finer octaves for fractal coasts: bays, headlands, island arcs. The fine layer is warped
+  // again at its own scale, so coasts curl rather than just roughen.
+  vec3 qd = qw * 6.0 + w * 4.0;
+  vec3 w2 = vec3(fbm(qd + vec3(3.3, 7.1, 2.2), 3), fbm(qd + vec3(9.4, 1.6, 6.8), 3), 0.0) - 0.5;
+  float h = fbm(qw, 6) + (fbm(qd + w2 * 1.5 + 13.0, 6) - 0.5) * 0.17;
+  float belt = smoothstep(0.45, 0.65, fbm(qw * 1.3 + 21.0, 3));
+  float m = clamp(ridged(qw * 2.6 + 11.0) * (0.35 + 0.65 * belt) * 1.3, 0.0, 1.0);
+  outColor = vec4(h, m, fbm(qw * 1.3 + 31.0, 6), fbm(qw * 2.4 + 7.0, 6));
 }
 `;
 

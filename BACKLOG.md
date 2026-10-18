@@ -50,3 +50,15 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 - Near Saturn the particle step reads 3.8–5.4 ms on the iPhone (Safari's JavaScriptCore) against about 1 ms
   near Earth, but 1.1–1.4 ms in Chrome either way, and the same when called directly. Not yet explained;
   look again if it grows.
+
+## Better-looking worlds (in progress)
+
+1. Done: generated terrain maps for made-up rocky worlds (render3d.js genStep, shaders.js GEN_FS): warped
+   continents with fractal coasts, ridged mountain belts, moisture and tone, made once per world; rock and
+   snow along the mountain chains.
+2. Clouds for made-up worlds: a generated weather map (streaks, swirling storms), cloud shadows on the
+   ground, lit cloud thickness.
+3. Gas giants: jets, curling band edges and drifting storms, animated by advecting the pattern (curl noise,
+   Bridson et al. 2007).
+4. Polish: stronger rim glow for thick or hazy air, a little contrast.
+5. Ring debris: real 3D rocks for the few thousand nearest the camera (now flat discs, seen as ovals).

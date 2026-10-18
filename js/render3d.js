@@ -2,7 +2,7 @@ import { PK } from './physics.js';
 import { isLuminous, tempToRGB, schwarzschild } from './bodies.js';
 import { transientLum } from './stellar.js';
 import { EARTH_MASS } from './units.js';
-import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS, RIM_FS, TERRAIN_VS, TERRAIN_FS, RING_FS, CLOUD_FS } from './shaders.js';
+import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS, RIM_FS, TERRAIN_VS, TERRAIN_FS, RING_FS, CLOUD_FS, GEN_FS } from './shaders.js';
 import { atmosphereOptics, setOpticsUniforms, stretchOptics, atmosphereTop, groundLight } from './optics.js';
 import { heatOutput } from './thermal.js';
 import { earthMap, moonMap } from './geography.js';
@@ -359,7 +359,7 @@ export class Renderer3D {
     this.gen = ++contextGen;
     canvas.addEventListener('webglcontextrestored', () => {
       this.gen = ++contextGen;
-      this.mapTex = new Map(); this.dTex = null; this.nightTex = null; this.tMesh = null; this.post = null;
+      this.mapTex = new Map(); this.dTex = null; this.nightTex = null; this.tMesh = null; this.post = null; this.genMaps = null;
       this.init(); this.lost = false;
     });
     this.init();
@@ -412,6 +412,7 @@ export class Renderer3D {
     this.pTerrain = this.program(TERRAIN_VS, TERRAIN_FS);
     this.pRing = this.program(DISK_VS, RING_FS);
     this.pField = this.program(FULL_VS, TEMP_FIELD_FS);
+    this.pGen = this.program(FULL_VS, GEN_FS);
     this.hdr = !!gl.getExtension('EXT_color_buffer_float');
     this.post = null;
   }
@@ -816,6 +817,7 @@ export class Renderer3D {
     this.bindDonor(u, b, l);
     this.bindEarthDay(u, b, th);
     this.bindHeight(u, b, false);
+    this.bindGen(u, b, Infinity);
     gl.uniform1f(u.uRelief, 4000 * reliefK);
     gl.uniform1f(u.uCraters, l.craters ? Math.min(1, l.craters * 2.5) : 0);
     gl.uniform1f(u.uRough, 1);
@@ -974,6 +976,79 @@ export class Renderer3D {
 
   // A world's real (or borrowed) elevation: texture, orientation and metres-per-unit. globeK: shading
   // exaggeration on the globe, in units of the radius (0 for the surface view).
+  // Generated terrain maps (GEN_FS) for worlds without a real map: equirectangular, 2048 × 1024, half-float
+  // where it can be rendered to. Made once per world, 64 rows a frame at the start of a frame (genStep), and
+  // only sampled after; the four most recently seen are kept. Until its map is done a world draws as before.
+  bindGen(u, b, shownPx) {
+    const gl = this.gl;
+    let k = 0;
+    // (Not where a real or painted map sets the geography: Earth, Mars, Tatooine ... keep theirs.)
+    if (b.kind === 'rocky' && !b.donor && !b.surfaceMap && shownPx > 6) {
+      this.genMaps ||= new Map();
+      let m = this.genMaps.get(b);
+      if (!m) { m = { b, seed: seeded(b.id) * 40, row: 0, done: false, used: 0 }; this.genMaps.set(b, m); }
+      m.used = this.frameNo || 0;
+      if (m.done) {
+        k = 1;
+        gl.activeTexture(gl.TEXTURE12);
+        gl.bindTexture(gl.TEXTURE_2D, m.tex);
+        gl.uniform1i(u.uGen, 12);
+        gl.activeTexture(gl.TEXTURE0);
+      }
+    }
+    gl.uniform1f(u.uGenK, k);
+  }
+
+  genStep() {
+    this.frameNo = (this.frameNo || 0) + 1;
+    if (!this.genMaps || !this.genMaps.size) return;
+    const gl = this.gl, W = 2048, H = 1024, ROWS = 64;
+    // Forget maps not drawn for a while, beyond the four most recent.
+    if (this.genMaps.size > 4) {
+      const old = [...this.genMaps.values()].sort((a, c) => a.used - c.used);
+      for (const m of old.slice(0, this.genMaps.size - 4)) {
+        if (m.tex) gl.deleteTexture(m.tex);
+        if (m.fbo) gl.deleteFramebuffer(m.fbo);
+        this.genMaps.delete(m.b);
+      }
+    }
+    const m = [...this.genMaps.values()].find((x) => !x.done && x.b.alive);
+    if (!m) return;
+    if (!m.tex) {
+      m.tex = gl.createTexture();
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, m.tex);
+      if (this.hdr) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, W, H, 0, gl.RGBA, gl.HALF_FLOAT, null);
+      else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, W, H, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      m.fbo = gl.createFramebuffer();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, m.fbo);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, m.tex, 0);
+    }
+    gl.disable(gl.BLEND); gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE);
+    const p = this.pGen;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, m.fbo);
+    // Rows count from the bottom in GL; the map's row 0 (v = 0) is the north edge, as in the photo maps.
+    gl.viewport(0, m.row, W, ROWS);
+    gl.useProgram(p.p);
+    gl.uniform1f(p.u.uSeed, m.seed);
+    gl.uniform2f(p.u.uRows, m.row / H, ROWS / H);
+    gl.bindVertexArray(this.quad);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    m.row += ROWS;
+    if (m.row >= H) {
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, m.tex);
+      gl.generateMipmap(gl.TEXTURE_2D);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      m.done = true;
+    }
+  }
+
   bindHeight(u, b, globe) {
     const gl = this.gl;
     let file = null, k = 1, rot = IDENT3;
@@ -1061,6 +1136,7 @@ export class Renderer3D {
   draw(now, ui, dtReal, simDt) {
     if (this.lost) return;
     this.adaptQuality(dtReal, now);
+    this.genStep();
     const gl = this.gl, cam = this.cam, world = this.world;
     // The Pixel view renders at a fraction of the resolution and is upscaled with hard edges.
     const scale = this.settings.view === 'pixel' ? Math.max(2, Math.round(3 * this.dpr)) : 1;
@@ -1453,6 +1529,7 @@ export class Renderer3D {
     this.bindDonor(u, b, l);
     this.bindEarthDay(u, b, th);
     this.bindHeight(u, b, true);
+    this.bindGen(u, b, shownPx);
     // A donor already brings real craters; keep only a trace of the generated ring-shaped ones.
     if (b.donor && !imgMap) gl.uniform1f(u.uCraters, (l.craters || 0) * 0.3);
     const city = /^Earth( \d+)?$/.test(b.name) && b.life && (b.lifeAge || 0) > 3.7e9;

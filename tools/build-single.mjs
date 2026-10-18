@@ -10,6 +10,14 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const fragment = args.includes('--fragment');
 const out = args.find((a) => !a.startsWith('--')) || join(root, 'dist', 'pocket-universe.html');
+// Every shader program must have its WebGPU translation, up to date (tools/make_wgsl.mjs).
+{
+  const { PROGRAMS } = await import('./wgsl-programs.mjs');
+  const { programKey } = await import('./glsl2vk.mjs');
+  const { WGSL } = await import('../js/wgsl.js');
+  const stale = PROGRAMS.filter(([, vs, fs]) => !WGSL[programKey(vs, fs)]).map(([n]) => n);
+  if (stale.length) { console.error(`js/wgsl.js is out of date for: ${stale.join(', ')}. Run node tools/make_wgsl.mjs first.`); process.exit(1); }
+}
 const ORDER = ['units', 'bodies', 'stellar', 'thermal', 'gravzones', 'geography', 'ias15', 'tree', 'coagulate', 'minors', 'physics', 'moons', 'presets', 'camera', 'render', 'shaders', 'optics', 'render3d', 'wgsl', 'glgpu', 'gpu', 'input', 'facts', 'book', 'thumbs', 'audio', 'ui', 'main'];
 
 // Each ES module becomes a function scope; imports read from a shared registry.
