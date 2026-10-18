@@ -117,6 +117,7 @@ class App {
       }
       cv.hidden = false;
       const gl = new GLonGPU(device, cv, { offscreen: !!window.__TEST_OFFSCREEN });
+      gl.onError = (m) => this.ui.toast('WebGPU reported a problem (Settings shows the details): ' + m, true);
       const r = new Renderer3D(cv, this.world, this.cam, this.settings, gl);
       this.webglR3d = this.r3d && !this.r3d.webgpu ? this.r3d : this.webglR3d;
       document.getElementById('gl').hidden = true;
@@ -124,12 +125,7 @@ class App {
       this.r3d = r;
       cv.hidden = !this.renderer.overlay;   // (Classic view: the 2D canvas draws everything)
       r.resize();
-      device.lost.then((info) => {
-        if (this.r3d !== r) return;
-        this.ui.toast('The WebGPU renderer stopped (' + (info.message || 'device lost') + '). Back to WebGL.', true);
-        this.settings.webgpu = false; this.saveSettings();
-        this.useWebGPU(false);
-      });
+      device.lost.then((info) => { if (this.r3d === r) this.webgpuFailed(info.message || 'device lost'); });
     } catch (err) {
       console.warn(err);
       this.gpuError = String(err.message || err);
@@ -732,7 +728,8 @@ class App {
       return;
     }
     const q = this.r3d && this.renderer.overlay ? ` · res ${Math.round((this.r3d.quality ?? 1) * 100)}%${this.r3d.samples ? ' AA' : ''}` : '';
-    el.textContent = `${Math.round(1 / p.dt)} fps (tap to test) · physics ${p.ph.toFixed(1)} ms · drawing ${p.dr.toFixed(1)} ms${q} · ${this.world.bodies.length} bodies, ${this.world.np + this.world.nr} particles`;
+    const api = this.r3d && this.renderer.overlay ? (this.r3d.webgpu ? ' · WebGPU' : ' · WebGL') : '';
+    el.textContent = `${Math.round(1 / p.dt)} fps (tap to test) · physics ${p.ph.toFixed(1)} ms · drawing ${p.dr.toFixed(1)} ms${q}${api} · ${this.world.bodies.length} bodies, ${this.world.np + this.world.nr} particles`;
   }
 
   frame(now) {
@@ -756,9 +753,23 @@ class App {
           t.phase = 'done'; t.until = now + 12000;
         }
       }
+      this.gpuFrameErrors = 0;
+      if (this.r3d && this.r3d.webgpu && this.r3d.gl.stalled) this.webgpuFailed('the GPU stopped answering');
     } catch (err) {
       console.error(err);
+      // The WebGPU renderer failing frame after frame: say why and go back to WebGL rather than freeze.
+      this.gpuFrameErrors = (this.gpuFrameErrors || 0) + 1;
+      if (this.r3d && this.r3d.webgpu && this.gpuFrameErrors >= 3) this.webgpuFailed(String(err && err.message || err));
     }
+  }
+
+  webgpuFailed(why) {
+    this.gpuError = 'WebGPU renderer stopped: ' + why;
+    this.ui.toast(`The WebGPU renderer stopped (${why}). Back to WebGL; Settings shows the details.`, true);
+    this.settings.webgpu = false; this.saveSettings();
+    const el = document.getElementById('set-webgpu');
+    if (el) el.checked = false;
+    this.useWebGPU(false);
   }
 
   // Tap the performance readout: tells apart a browser cap from the app being too slow.

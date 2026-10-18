@@ -51,7 +51,11 @@ export class GLonGPU {
       this.ctx.configure({ device, format: this.canvasFormat, alphaMode: 'opaque' });
     }
     this.diag = [];
-    device.addEventListener?.('uncapturederror', (e) => { if (this.diag.length < 12) this.diag.push(e.error.message.slice(0, 300)); console.warn('WebGPU:', e.error.message); });
+    device.addEventListener?.('uncapturederror', (e) => {
+      if (this.diag.length < 12) this.diag.push(e.error.message.slice(0, 300));
+      console.warn('WebGPU:', e.error.message);
+      if (this.onError && this.diag.length === 1) this.onError(e.error.message.slice(0, 160));
+    });
     this.ubuf = device.createBuffer({ size: UBUF, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.ustage = new ArrayBuffer(UBUF);
     this.uoff = 0;
@@ -107,7 +111,11 @@ export class GLonGPU {
   flushFrame() {
     this.endPass();
     if (this.uoff > 0) this.device.queue.writeBuffer(this.ubuf, 0, this.ustage, 0, this.uoff);
-    if (this.encoder) this.device.queue.submit([this.encoder.finish()]);
+    if (this.encoder) {
+      this.device.queue.submit([this.encoder.finish()]);
+      // Watchdog: one probe at a time on when the GPU finishes; see stalled.
+      if (!this.waiting) { const t = (this.waiting = performance.now()); this.device.queue.onSubmittedWorkDone().then(() => { if (this.waiting === t) this.waiting = 0; }); }
+    }
     this.encoder = null;
     // Replaced textures and buffers: destroying them now lets the submitted work finish first.
     if (this.retired) { for (const r of this.retired) r.destroy(); this.retired = null; }
@@ -115,6 +123,10 @@ export class GLonGPU {
     this.frameTex = null;
     this.frame++;
   }
+
+  // The GPU has been working on one submission for over 10 s: hung, or far too slow to use. (The first
+  // frames compile every pipeline and may take seconds, so they are not counted.)
+  get stalled() { return this.frame > 120 && this.waiting > 0 && performance.now() - this.waiting > 10000; }
 
   finish() { this.flushFrame(); }
   flush() {}

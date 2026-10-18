@@ -375,7 +375,8 @@ export class UI {
     const el = $('set-' + key);
     if (el) el.checked = s[key];
     if (key === 'collisions') this.app.world.collisions = s.collisions;
-    if (key === 'webgpu') this.app.useWebGPU(s.webgpu);
+    if (key === 'webgpu') this.app.useWebGPU(s.webgpu).then(() => this.checkGPU());
+    if (key === 'gpuRings') this.checkGPU();
     this.app.saveSettings();
   }
 
