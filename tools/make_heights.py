@@ -5,6 +5,9 @@
 #   ldem_4.tif                  Moon, LRO LOLA (NASA SVS CGI Moon Kit), km, 1440x720, 0° at the centre
 #   megt90n000cb.img            Mars, MGS MOLA MEGDR 4 px/deg (PDS), big-endian int16 m, 0°E at the left
 #   venus_topo.tif              Venus, Magellan global topography 4641 m (USGS), int16 m (no-data -32768)
+#   etopo5.npy                  Earth, NOAA ETOPO 2022 surface (ice-top) elevation, every 5th 1' point
+#                               (fetched by OPeNDAP: .../ETOPO_2022_v1_60s_N90W180_surface.nc.dods?
+#                               z.z[0:5:10799][0:5:21599]), m, south at row 0, -180° at the left
 #   merc_dem_1024.jpg           Mercury, MESSENGER global DEM 665 m browse (USGS), 8-bit stretched,
 #                               0°E at the left; range -5380..+4480 m (Becker et al. 2016)
 import sys, os
@@ -31,8 +34,8 @@ def fill_nodata(a):
         fix = bad & (n > 0); a[fix] = s[fix] / n[fix]
     return np.nan_to_num(a, nan=0.0)
 
-def save(h, name):
-    h = h - np.median(h)                       # relative to the typical surface level
+def save(h, name, sea_level=False):
+    if not sea_level: h = h - np.median(h)    # relative to the typical surface level (Earth: to the sea)
     v = np.clip(np.round(h) + 32768, 0, 65535).astype(np.uint16)
     rgb = np.stack([v >> 8, v & 255, np.zeros_like(v)], -1).astype(np.uint8)
     p = os.path.join(OUT, name + '-height.png')
@@ -51,6 +54,8 @@ v = np.frombuffer(raw[off:off + 8192 * 4096 * 2].tobytes(), dtype='<i2').reshape
 v[v < -30000] = np.nan
 v = resize(fill_nodata(resize(v, (2880, 1440))))
 save(v, 'venus')
+
+save(resize(np.load(os.path.join(SRC, 'etopo5.npy'))[::-1].astype(float)), 'earth', sea_level=True)
 
 m = np.asarray(Image.open(os.path.join(SRC, 'merc_dem_1024.jpg')).convert('L')).astype(float) / 255
 m = -5380 + m * (4480 + 5380)

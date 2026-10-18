@@ -167,7 +167,8 @@ Switch in the **View** panel.
     still move, form and dissipate — on every world with clouds.
   - *Sun*: a light pattern of active regions; colour, limb darkening, granulation and spots stay physical.
   - *Milky Way*: the ESO panorama as the sky background, in galactic coordinates.
-  - *Real elevation* (`tools/make_heights.py`, 1440×720, 16-bit metres): Moon (LRO LOLA, NASA SVS CGI
+  - *Real elevation* (`tools/make_heights.py`, 1440×720, 16-bit metres): Earth (NOAA ETOPO 2022, land and
+    sea floor), Moon (LRO LOLA, NASA SVS CGI
     Moon Kit), Mars (MGS MOLA MEGDR, PDS), Venus (Magellan global topography, USGS), Mercury (MESSENGER
     DEM, USGS). On the globe its slopes shade the surface (2× exaggerated, as in most planetary
     renders), so craters, basins and volcanoes show along the terminator; in the surface view the ground

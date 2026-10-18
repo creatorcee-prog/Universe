@@ -653,10 +653,11 @@ void main() {
       vec3 gradR = vec3(0.0);
       if (uHMapK > 0.5) {
         float hR = mapTex(uHMap, uHRot * vObj).r * uHGlobe;
+        if (uOcean > 0.0) hR = max(hR, 0.0);        // the sea surface is flat over the sea floor
         gradR = sign(det) * (dFdx(hR) * r1 + dFdy(hR) * r2);
       }
       vec3 Nb = normalize(abs(det) * N - grad * 0.05 * uRelief * (1.0 - 0.8 * uHMapK) - gradR);
-      N = normalize(mix(N, Nb, max(landMask * clamp(uRelief, 0.0, 1.0), uHMapK)));
+      N = normalize(mix(N, Nb, max(landMask * clamp(uRelief, 0.0, 1.0), uHMapK * (uOcean > 0.0 ? landMask : 1.0))));
       day = max(dot(N, uL0), 0.0);
     }
     // Climate zones: wet tropics, dry subtropical belts near 25-30° (Hadley cells), wetter mid-latitudes.
@@ -1020,7 +1021,7 @@ out vec3 vNrm;                         // smooth ground normal (view space)
 // Generated relief: continents and ranges, or with a real height map only the hills below its resolution.
 float terrainH(vec3 d, vec2 p, float res, out vec2 em) {
   em = bigTerrain(d);
-  if (uHMapK > 0.5) return smallHeight(p, 0.45, res);
+  if (uHMapK > 0.5) return smallHeight(p, uOcean > 0.0 ? clamp(em.y * 1.5 + 0.15, 0.0, 1.0) : 0.45, res);
   return bigHeight(em) + smallHeight(p, clamp(em.y * 1.5 + 0.15, 0.0, 1.0), res);
 }
 float mapHeight(vec3 d) { return uHMapK > 0.5 ? mapTex(uHMap, uHRot * d).r * uHScale : 0.0; }
