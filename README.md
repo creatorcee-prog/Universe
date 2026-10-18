@@ -166,7 +166,8 @@ Switch in the **View** panel.
     a new longitude each cloud generation, carried by the winds and storms), so clouds look real but
     still move, form and dissipate — on every world with clouds.
   - *Sun*: a light pattern of active regions; colour, limb darkening, granulation and spots stay physical.
-  - *Milky Way*: the ESO panorama as the sky background, in galactic coordinates.
+  - *Milky Way*: ESO's 6000-px all-sky panorama (eso0932a, S. Brunier) with its point stars removed (the
+    app draws sharp stars over it), 4096×2048, in galactic coordinates.
   - *Real elevation* (`tools/make_heights.py`, 1440×720, 16-bit metres): Earth (NOAA ETOPO 2022, land and
     sea floor), Moon (LRO LOLA, NASA SVS CGI
     Moon Kit), Mars (MGS MOLA MEGDR, PDS), Venus (Magellan global topography, USGS), Mercury (MESSENGER

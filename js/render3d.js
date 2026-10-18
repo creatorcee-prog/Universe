@@ -1360,19 +1360,19 @@ export class Renderer3D {
       }
       gl.activeTexture(gl.TEXTURE5);
       gl.bindTexture(gl.TEXTURE_2D, t.tex);
-      if (t.ver !== sm.ver) {
+      if (t.ver !== sm.ver || t.sm !== sm) {
         if (sm.img) {
           // Image maps are only ever shown whole, often small on screen: mipmapped against shimmer.
           gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, sm.img);
           gl.generateMipmap(gl.TEXTURE_2D);
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-        } else if (t.ver < 0 || !sm.dirtyRows || t.W !== sm.W) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, sm.W, sm.H, 0, gl.RGBA, gl.UNSIGNED_BYTE, sm.data);
+        } else if (t.ver < 0 || !sm.dirtyRows || t.W !== sm.W || t.sm !== sm) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, sm.W, sm.H, 0, gl.RGBA, gl.UNSIGNED_BYTE, sm.data);
         else {
           const [y0, y1] = sm.dirtyRows;
           gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y0, sm.W, y1 - y0 + 1, gl.RGBA, gl.UNSIGNED_BYTE, sm.data.subarray(y0 * sm.W * 4, (y1 + 1) * sm.W * 4));
         }
         sm.dirtyRows = null;
-        t.ver = sm.ver; t.W = sm.W;
+        t.ver = sm.ver; t.W = sm.W; t.sm = sm; // (a new map object, e.g. a photo replacing its stand-in, is always re-uploaded)
       }
       gl.uniform1i(u.uMap, 5);
       gl.activeTexture(gl.TEXTURE0);

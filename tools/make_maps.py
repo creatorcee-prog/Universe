@@ -1,7 +1,7 @@
 # Builds assets/maps from 2048x1024 equirectangular source maps (Solar System Scope / NASA, CC BY 4.0).
 # Usage: python3 tools/make_maps.py <source-dir> ; the sources are named <body>.jpg in that directory
 # (mercury, venus, venus-clouds, mars, jupiter, saturn, uranus, neptune, earth-day, earth-night,
-# earth-clouds, milkyway, sun, moon), plus earth-relief.png (the land/relief map decoded from NASA's
+# earth-clouds, sun, moon, and eso0932a.jpg for the Milky Way), plus earth-relief.png (the land/relief map decoded from NASA's
 # hypsometric map, the previous assets/maps/earth.png). Writes assets/maps/*.jpg and assets/maps/earth.png, and prints the
 # cloud-map statistics that js/render3d.js uses (CLOUD_STATS).
 import sys, os
@@ -105,5 +105,10 @@ c = lum(load('earth-clouds'))
 save(c, 'earth-clouds')
 print('CLOUD_STATS mean %.4f std %.4f' % (c.mean(), c.std()))
 
-# Milky Way panorama (galactic coordinates).
-save(load('milkyway'), 'milkyway', q=90)
+# Milky Way: ESO's all-sky panorama (eso0932a, S. Brunier; CC BY 4.0), galactic coordinates, north up.
+# Point stars are removed (a median filter), so only the glow, dust lanes, nebulae and the Magellanic
+# Clouds remain; the app draws its own sharp stars over it.
+mw = Image.open(os.path.join(SRC, 'eso0932a.jpg')).convert('RGB')
+mw = mw.filter(ImageFilter.MedianFilter(5)).resize((4096, 2048), Image.LANCZOS)
+mw.save(os.path.join(OUT, 'milkyway.jpg'), quality=90)
+print('milkyway', mw.size, os.path.getsize(os.path.join(OUT, 'milkyway.jpg')) // 1024, 'KB')

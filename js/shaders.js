@@ -1529,6 +1529,8 @@ uniform float uF, uMinPx, uMaxPx;
 out vec3 vCol;
 out float vShade;
 out float vPx;
+flat out float vSeed;
+out float vW, vDepthR;  // clip w, and the rock's radius in the same units (for its depth relief)
 ` + LOGDEPTH_V + `
 void main() {
   vec3 vp = uView * aPos;
@@ -1538,14 +1540,19 @@ void main() {
   gl_PointSize = clamp(px, uMinPx, uMaxPx);
   vCol = aCol;
   vShade = aShade;
+  vSeed = fract(float(gl_VertexID) * 0.6180339887) * 97.0;
+  vW = gl_Position.w;
+  vDepthR = aSize * min(1.0, gl_PointSize / max(px, 1e-6));
   vFragDepth = 1.0 + gl_Position.w * ` + DEPTH_K + `;
 }
 `;
 
-export const POINTS_FS = HEAD + `
+export const POINTS_FS = HEAD + NOISE + `
 in vec3 vCol;
 in float vShade;
 in float vPx;
+flat in float vSeed;
+in float vW, vDepthR;
 ` + LOGDEPTH_F + `
 uniform int uGlow;
 uniform vec3 uLight;   // view space
@@ -1553,15 +1560,42 @@ out vec4 outColor;
 void main() {
   vec2 pc = gl_PointCoord * 2.0 - 1.0;
   float r2 = dot(pc, pc);
-  if (r2 > 1.0) discard;
   if (uGlow == 1) {
+    if (r2 > 1.0) discard;
     outColor = vec4(vCol * exp(-r2 * 2.5), 1.0);
-  } else {
-    vec3 n = vec3(pc.x, -pc.y, sqrt(1.0 - r2));
-    float lit = vPx < 3.0 ? 0.75 : 0.18 + 0.82 * max(dot(n, uLight), 0.0);
-    outColor = vec4(vCol * lit * mix(0.12, 1.0, vShade), 1.0);
+    ` + WRITE_DEPTH + `
+    return;
   }
-  ` + WRITE_DEPTH + `
+  if (vPx < 5.0) {
+    // Too small to show a shape: a dot.
+    if (r2 > 1.0) discard;
+    outColor = vec4(vCol * 0.75 * mix(0.12, 1.0, vShade), 1.0);
+    ` + WRITE_DEPTH + `
+    return;
+  }
+  // A rock: each particle its own elongation, orientation and lumpy outline (from its seed), with
+  // bumps and pits on its surface and its own depth relief, so neighbours cut into each other in 3D.
+  float s = vSeed;
+  float ang = hash(vec3(s, 1.0, 2.0)) * 6.2831853, el = 0.55 + 0.45 * hash(vec3(s, 3.0, 4.0));
+  vec2 q = mat2(cos(ang), -sin(ang), sin(ang), cos(ang)) * pc;
+  q.y /= el;
+  float a = atan(q.y, q.x);
+  float R = 0.82 + 0.1 * sin(a * 2.0 + s) + 0.06 * sin(a * 3.0 + s * 1.7) + 0.05 * sin(a * 5.0 + s * 2.3) + 0.04 * (vnoise(vec3(cos(a), sin(a), s) * 3.0) - 0.5);
+  float rq = length(q) / R;
+  if (rq > 1.0) discard;
+  float h = sqrt(max(1.0 - rq * rq, 0.0));
+  vec3 n = normalize(vec3(pc.x, -pc.y, h * 0.9 + 0.1));
+  // Surface relief: knobs and small craters.
+  vec3 sp = vec3(q * 2.2, s);
+  float k1 = vnoise(sp * 1.0), k2 = vnoise(sp * 2.6 + 5.0), cr = crater(sp * 1.6 + 9.0);
+  vec2 g = vec2(vnoise(sp + vec3(0.07, 0.0, 0.0)) - k1, vnoise(sp + vec3(0.0, 0.07, 0.0)) - k1) / 0.07;
+  n = normalize(n + vec3(g.x, -g.y, 0.0) * 0.18 * h + vec3(q, 0.0) * 0.25 * smoothstep(0.35, 0.1, cr));
+  float lit = 0.12 + 0.88 * max(dot(n, uLight), 0.0);
+  float tone = (0.82 + 0.3 * hash(vec3(s, 7.0, 1.0))) * (0.9 + 0.2 * k2) * mix(0.75, 1.0, smoothstep(0.1, 0.3, cr));
+  outColor = vec4(vCol * lit * tone * mix(0.12, 1.0, vShade), 1.0);
+  // Depth: nearer where the rock bulges toward the viewer.
+  float w = max(vW - h * vDepthR, vW * 0.5);
+  gl_FragDepth = log2(1.0 + w * ` + DEPTH_K + `) * uLogDepthFC * 0.5;
 }
 `;
 
@@ -1698,7 +1732,7 @@ uniform mat3 uView;
 uniform vec2 uTan;       // tan(fov/2) * aspect, tan(fov/2)
 uniform vec3 uGalN, uGalC;
 uniform float uBright;
-uniform sampler2D uMW;   // panorama in galactic coordinates (south up, longitude increasing to the left)
+uniform sampler2D uMW;   // panorama in galactic coordinates (north up, longitude increasing to the left)
 uniform float uMWK;
 out vec4 outColor;
 void main() {
@@ -1710,15 +1744,23 @@ void main() {
   if (uMWK > 0.5) {
     vec3 e0 = normalize(cross(uGalN, uGalC));
     float l = atan(dot(d, e0), dot(d, uGalC)), bb = asin(clamp(dot(d, uGalN), -1.0, 1.0));
-    vec2 uv = vec2(fract(0.5 - l / 6.2831853), 0.5 + bb / 3.14159265);
+    vec2 uv = vec2(fract(0.5 - l / 6.2831853), 0.5 - bb / 3.14159265);
     // Derivatives from a seam-free parametrisation so the 180° wrap keeps its detail.
     vec2 uv2 = vec2(fract(uv.x + 0.5), uv.y);
     vec2 gx = dFdx(uv), gy = dFdy(uv), gx2 = dFdx(uv2), gy2 = dFdy(uv2);
     if (abs(gx2.x) + abs(gy2.x) < abs(gx.x) + abs(gy.x)) { gx = gx2; gy = gy2; }
     vec3 m = textureGrad(uMW, uv, gx, gy).rgb;
-    // The panorama is a dim, display-ready image: lift its faint band (about 4% grey) to about the
-    // brightness the dark-adapted eye sees, while the bright core and its stars stay in range.
-    outColor = vec4(vec3(0.004, 0.006, 0.013) + 5.0 * m / (1.0 + 3.0 * m) * uBright, 1.0);
+    vec3 col = pow(m, vec3(2.2)) * 1.3;
+    // Faint unresolved stars, denser where the band is bright (the panorama's own stars were removed).
+    vec3 g = d * 520.0;
+    vec3 cell = floor(g);
+    float h = hash(cell);
+    float thr = 0.993 - 0.02 * clamp(dot(m, vec3(0.33)) * 3.0, 0.0, 1.0);
+    if (h > thr) {
+      float f = length(fract(g) - 0.5);
+      col += mix(vec3(0.75, 0.82, 1.0), vec3(1.0, 0.9, 0.78), hash(cell + 3.1)) * smoothstep(0.32, 0.0, f) * (h - thr) / (1.0 - thr) * 0.7;
+    }
+    outColor = vec4(vec3(0.004, 0.006, 0.013) + col * uBright, 1.0);
     return;
   }
   float b = dot(d, uGalN);
