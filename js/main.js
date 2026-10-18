@@ -47,6 +47,7 @@ class App {
     this.loadPreset('solar');
     this.last = performance.now();
     this.frame = this.frame.bind(this);
+    document.getElementById('perf').addEventListener('click', () => this.startFpsTest());
     requestAnimationFrame(this.frame);
   }
 
@@ -652,17 +653,52 @@ class App {
     if (now - p.t < 400) return;
     p.t = now;
     el.hidden = false;
+    const ft = this.fpsTest;
+    if (ft && ft.phase !== 'done') return;
+    if (ft && now < ft.until) {
+      const cap = Math.round(ft.empty), ms = ft.full;
+      const verdict = cap < 50 ? `the browser holds this page at ${cap} fps even when it draws nothing, so the cap is outside the app`
+        : ms > 16.7 ? `the browser allows ${cap} fps, but a frame takes ${ms.toFixed(1)} ms with the GPU (60 fps needs under 16.7)`
+        : `the browser allows ${cap} fps and a frame takes ${ms.toFixed(1)} ms with the GPU: 60 fps is possible`;
+      el.textContent = `Test: ${verdict}.`;
+      return;
+    }
     const q = this.r3d && this.renderer.overlay ? ` · res ${Math.round((this.r3d.quality ?? 1) * 100)}%${this.r3d.samples ? ' AA' : ''}` : '';
-    el.textContent = `${Math.round(1 / p.dt)} fps · physics ${p.ph.toFixed(1)} ms · drawing ${p.dr.toFixed(1)} ms${q} · ${this.world.bodies.length} bodies, ${this.world.np + this.world.nr} particles`;
+    el.textContent = `${Math.round(1 / p.dt)} fps (tap to test) · physics ${p.ph.toFixed(1)} ms · drawing ${p.dr.toFixed(1)} ms${q} · ${this.world.bodies.length} bodies, ${this.world.np + this.world.nr} particles`;
   }
 
   frame(now) {
     requestAnimationFrame(this.frame);
+    const t = this.fpsTest;
+    if (t && t.phase === 'empty') {
+      // Frame-rate test, part 1: draw nothing, to see what rate the browser itself allows this page.
+      t.n++;
+      if (now - t.t0 > 2000) { t.empty = (t.n - 1) / ((now - t.t0) / 1000); t.phase = 'full'; t.t0 = now; t.n = 0; t.ms = 0; this.last = now; }
+      return;
+    }
     try {
+      const a = performance.now();
       this.step(now);
+      if (t && t.phase === 'full') {
+        // Part 2: full frames, waiting for the GPU to finish each one, so the time includes the GPU's work.
+        if (this.r3d && this.r3d.gl) this.r3d.gl.finish();
+        t.ms += performance.now() - a; t.n++;
+        if (now - t.t0 > 2000) {
+          t.full = t.ms / Math.max(1, t.n);
+          t.phase = 'done'; t.until = now + 12000;
+        }
+      }
     } catch (err) {
       console.error(err);
     }
+  }
+
+  // Tap the performance readout: tells apart a browser cap from the app being too slow.
+  startFpsTest() {
+    if (this.fpsTest && this.fpsTest.phase !== 'done') return;
+    this.fpsTest = { phase: 'empty', t0: performance.now(), n: 0 };
+    const el = document.getElementById('perf');
+    if (el) el.textContent = 'Testing the frame rate (4 s)…';
   }
 
   step(now) {
