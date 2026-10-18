@@ -35,6 +35,17 @@ Each stage ships behind a Settings switch ("Renderer: WebGPU (beta)"), so the wo
 7. **GPU physics** — particle gravity from the bodies, collisions on a spatial grid, and particle self-gravity
    (GPU Barnes–Hut or a particle-mesh solver), for dust clouds and impacts with far more particles.
 
+## Progress
+
+Stages 1, 2, 4, 5 and 6 were reached together by a shortcut: instead of rewriting each shader by hand,
+js/glgpu.js runs render3d.js's WebGL 2 calls on WebGPU, and tools/make_wgsl.mjs translates every GLSL
+program to WGSL at build time (glslang + Tint, vendored in tools/vendor). Headless side-by-side renders
+(tools/render-compare.mjs) match WebGL for Earth, Saturn, the Sun with bloom, the Moon, the pixel view and
+temperature zones. This gives the same picture on the new API, not a better one yet: the gains (rings
+sharing the depth buffer, compute-built atmosphere tables, GPU particles and physics) come from the native
+WGSL work that can now be done one piece at a time on top of it. Next: phone check of the beta switch, then
+stage 3 (rings drawn in the same pass).
+
 ## How we test
 
 - Shader logic: headless Chrome with software WebGPU, rendering into an off-screen texture
