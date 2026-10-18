@@ -127,6 +127,47 @@ function heightMap(file) {
 }
 const IDENT3 = new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
 
+// Real shapes of small bodies (assets/maps/shape-<name>.png, tools/make_shapes.py). Named bodies use
+// their own; other small bodies (created asteroids and comets, planetesimals, Halley) borrow one of their
+// kind at a random orientation. Above ~400 km bodies are pulled round by their own gravity.
+const SHAPES = { Phobos: 'phobos', Deimos: 'deimos', Vesta: 'vesta' };
+const ASTEROID_SHAPES = ['eros', 'itokawa', 'bennu', 'kleopatra', 'geographos', 'toutatis', 'mithra', 'golevka', 'hw1', 'phobos', 'deimos'];
+const shapeImg = {};
+function shapeMap(file) {
+  let e = shapeImg[file];
+  if (!e) {
+    e = shapeImg[file] = { data: null };
+    const im = new Image();
+    im.onload = () => {
+      try {
+        const c = document.createElement('canvas'); c.width = im.width; c.height = im.height;
+        const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(im, 0, 0);
+        const d = g.getImageData(0, 0, im.width, im.height).data, f = new Float32Array(im.width * im.height);
+        for (let i = 0; i < f.length; i++) f[i] = (d[i * 4] * 256 + d[i * 4 + 1]) / 16384;
+        e.data = f; e.W = im.width; e.H = im.height;
+      } catch { /* unreadable: stays round */ }
+    };
+    const inline = typeof window !== 'undefined' && window.__MAPS__ && window.__MAPS__['shape-' + file];
+    im.src = inline || `assets/maps/shape-${file}.png`;
+  }
+  return e.data ? e : null;
+}
+function shapeFor(b) {
+  if (b.kind !== 'rocky') return null;
+  const own = SHAPES[b.name.replace(/ \d+$/, '')];
+  if (own) return { file: own, rot: IDENT3 };
+  const rkm = b.r * 1.495978707e8;
+  if (rkm > 400 || /^(Earth|Moon|Mars|Venus|Mercury)( \d+)?$/.test(b.name)) return null;
+  const small = b.comet || b.m / EARTH_MASS < 1e-4 || b.name.startsWith('Planetesimal');
+  if (!small) return null;
+  const r = seeded(b.id * 3 + 1), r2 = seeded(b.id * 5 + 2), r3 = seeded(b.id * 11 + 7);
+  const file = b.comet ? '67p' : rkm > 200 ? 'vesta' : ASTEROID_SHAPES[Math.floor(r * ASTEROID_SHAPES.length) % ASTEROID_SHAPES.length];
+  const a = r2 * Math.PI * 2, t = (r3 - 0.5) * Math.PI, cA = Math.cos(a), sA = Math.sin(a), cT = Math.cos(t), sT = Math.sin(t);
+  // Ry(a) * Rx(t), column-major
+  const rot = new Float32Array([cA, 0, -sA, sA * sT, cT, cA * sT, sA * cT, -sT, cA * cT]);
+  return { file, rot };
+}
+
 // Earth: land, sea depth, mountains and ice decoded from a NASA hypsometric relief map (the hand-traced
 // geography fills the 40° of longitude the source lacked), in the same channels as earthMap(). Read back
 // to pixels because painting edits it. Until it has loaded, the hand-traced map stands in.
@@ -881,6 +922,32 @@ export class Renderer3D {
     gl.uniform2f(u.uCloudStats, 0.2784, 0.2456); // earth-clouds.jpg mean and standard deviation (tools/make_maps.py)
   }
 
+  // A small body's real (or borrowed) shape; replaces the generated lumpiness.
+  bindShape(u, b) {
+    const gl = this.gl;
+    if (b.shape === undefined) b.shape = shapeFor(b);
+    const sh = b.shape && shapeMap(b.shape.file);
+    gl.uniform1f(u.uShapeK, sh ? 1 : 0);
+    if (!sh) return;
+    if (!sh.tex) {
+      sh.tex = gl.createTexture();
+      gl.activeTexture(gl.TEXTURE11);
+      gl.bindTexture(gl.TEXTURE_2D, sh.tex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, sh.W, sh.H, 0, gl.RED, gl.FLOAT, sh.data);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    }
+    gl.activeTexture(gl.TEXTURE11);
+    gl.bindTexture(gl.TEXTURE_2D, sh.tex);
+    gl.uniform1i(u.uShape, 11);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.uniformMatrix3fv(u.uShapeRot, false, b.shape.rot);
+    gl.uniform1f(u.uLumpy, 0);
+    gl.uniform1f(u.uFacet, 0);
+  }
+
   // A world's real (or borrowed) elevation: texture, orientation and metres-per-unit. globeK: shading
   // exaggeration on the globe, in units of the radius (0 for the surface view).
   bindHeight(u, b, globe) {
@@ -1249,6 +1316,7 @@ export class Renderer3D {
     gl.uniform1f(u.uSoft, l.atmo && l.kind === 0 ? 0.08 : 0.02);
     gl.uniform1f(u.uDayNight, l.kind === 1 ? 0.02 : l.atmo ? (l.cloud >= 1 ? 0.01 : 0.06) : 0.35);
     gl.uniform1f(u.uFacet, l.lumpy ? 0.85 : nImp ? 0.12 : 0);
+    this.bindShape(u, b);
     gl.uniform1f(u.uTemp, temp);
     gl.uniform1f(u.uSnowLat, snowLat);
     gl.uniform1f(u.uIce, th && th.ice > 0.003 ? 1 : 0);

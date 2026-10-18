@@ -111,6 +111,13 @@ uniform float uRadius;
 uniform vec3 uTideDir;  // world axes
 uniform float uTide;    // prolate stretch toward the strongest tidal pull
 uniform float uLumpy;   // irregular shape for small bodies
+uniform sampler2D uShape; // a real shape: radius / volume-equivalent radius per direction (tools/make_shapes.py)
+uniform mat3 uShapeRot;
+uniform float uShapeK;
+float shapeR(vec3 d) {
+  vec3 q = uShapeRot * d;
+  return textureLod(uShape, vec2(atan(-q.z, q.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(q.y, -1.0, 1.0)) / 3.14159265), 0.0).r;
+}
 uniform float uSeed;
 uniform vec4 uImp[16];   // impact direction (body frame) and strength
 uniform vec4 uImpB[16];  // x: angular size
@@ -133,13 +140,24 @@ void main() {
     h += depth * 0.45 * exp(-pow((a - w) / (w * 0.35), 2.0));
   }
   p *= 1.0 + h;
+  vec3 nObj = aPos;
+  if (uShapeK > 0.5) {
+    // Real shape: each direction out to the measured surface; the normal from the neighbouring surface
+    // points (so it stays smooth across the sphere's triangles).
+    p *= shapeR(aPos);
+    vec3 t1 = normalize(cross(abs(aPos.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), aPos)), t2 = cross(aPos, t1);
+    float e = 0.012;
+    vec3 a1 = normalize(aPos + t1 * e), a2 = normalize(aPos + t2 * e), b1 = normalize(aPos - t1 * e), b2 = normalize(aPos - t2 * e);
+    nObj = normalize(cross(a1 * shapeR(a1) - b1 * shapeR(b1), a2 * shapeR(a2) - b2 * shapeR(b2)));
+    if (dot(nObj, aPos) < 0.0) nObj = -nObj;
+  }
   vec3 wp = uRot * p;
   float s = dot(wp, uTideDir);
   wp = (wp - s * uTideDir) / sqrt(1.0 + uTide) + s * uTideDir * (1.0 + uTide);
   vec3 world = uCenter + wp * uRadius;
   vObj = aPos;
   vViewPos = uView * world;
-  vN = uView * (uRot * aPos);
+  vN = uView * (uRot * nObj);
   gl_Position = uProj * vec4(vViewPos, 1.0);
   vFragDepth = 1.0 + gl_Position.w * ` + DEPTH_K + `;
 }

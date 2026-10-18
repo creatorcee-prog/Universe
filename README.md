@@ -174,6 +174,12 @@ Switch in the **View** panel.
     renders), so craters, basins and volcanoes show along the terminator; in the surface view the ground
     follows it, with generated hills below its resolution. Created worlds borrow the heights of a real
     world of their type, scaled for gravity (relief ~ 1/g).
+  - *Real shapes* (`tools/make_shapes.py`): Phobos (NAIF DSK, Ernst et al. 2014), Deimos (Mars Express,
+    Thomas), Vesta (Gaskell), and as a pool for other small bodies Eros (NEAR), Itokawa (Hayabusa),
+    Bennu, Kleopatra, Geographos, Toutatis, Mithra, Golevka and 1996 HW1 (NASA 3D Resources); comets
+    (Halley included) take 67P's (Rosetta). Each is the surface's distance from the centre in every
+    direction; created asteroids and planetesimals under ~400 km borrow one at a random orientation
+    (larger bodies are pulled round by their gravity).
   - *Donor maps for new worlds*: a world without a map of its own borrows the brightness pattern of a
     real world of its type — cratered, icy, dusty, volcanic, small or giant — at a random orientation,
     tinted with its own colours and climate, so each new world has realistic detail and no two look
