@@ -811,6 +811,13 @@ export class Renderer3D {
     gl.uniform2f(u.uLocal, fr(sv.lat * 977.3) * 800, fr(sv.lon * 613.7) * 800);
     gl.uniform3fv(u.uL0, ld[0]);
     gl.uniform3fv(u.uSunCol, sunCol);
+    {
+      // The Sun in the body's own frame, and its angular size, for the shadows the terrain casts.
+      const P = lights && lights.primary;
+      const wd = P && P.d > 0 ? [P.dx / P.d, P.dy / P.d, P.dz / P.d] : [0, 1, 0];
+      gl.uniform3f(u.uSunO, rot[0] * wd[0] + rot[1] * wd[1] + rot[2] * wd[2], rot[3] * wd[0] + rot[4] * wd[1] + rot[5] * wd[2], rot[6] * wd[0] + rot[7] * wd[1] + rot[8] * wd[2]);
+      gl.uniform1f(u.uSunAngT, P && P.s && P.s.r ? P.s.r / P.d : 0.00465);
+    }
     gl.uniform3fv(u.uAmb, amb);
     gl.uniform3fv(u.uUpV, upV); gl.uniform3fv(u.uEastV, toV(east)); gl.uniform3fv(u.uNorthV, toV(north));
     gl.uniform3fv(u.uColA, l.colA || [0.6, 0.6, 0.6]);
@@ -1196,6 +1203,25 @@ export class Renderer3D {
     glows.push(() => this.sprite(vp, (px * depth) / this.F, rgb, 5, 0, 0));
   }
 
+  // Planetshine: sunlight reflected by the planet a moon orbits lights its night side (earthshine on the
+  // Moon, Saturnshine on Mimas). Its true strength, albedo × the planet's lit fraction seen from the moon ×
+  // (R/d)², is ~1e-4 of sunlight for the Moon and ~3% for Mimas; it is compressed (to the power ¼) much as
+  // the eye adapts, so it shows as the faint glow seen in photos (5% of daylight on the Moon, 23% on Mimas).
+  // Returns [view direction, colour] or null.
+  planetshine(b, sunCol) {
+    const P = b.host && this.world.resolve(b.host), S = this.lumList && this.lumList[0];
+    if (!P || !P.alive || isLuminous(P) || !S || P.r < 2 * b.r) return null;
+    const dx = P.x - b.x, dy = P.y - b.y, dz = P.z - b.z, d = Math.hypot(dx, dy, dz);
+    const sx = S.x - P.x, sy = S.y - P.y, sz = S.z - P.z, sd = Math.hypot(sx, sy, sz) || 1;
+    const k = 0.5 * (1 - (sx * dx + sy * dy + sz * dz) / (sd * d));   // lit fraction of the planet facing b
+    const alb = P.th && P.th.albedo ? P.th.albedo : P.kind === 'gas' ? 0.5 : 0.3;
+    const g = alb * k * (P.r / d) ** 2;
+    if (!(g > 1e-7)) return null;
+    const c = (P.color || [200, 200, 200]).map((v) => v / 255), m = Math.max(c[0], c[1], c[2]) || 1;
+    const I = 0.55 * Math.pow(g, 0.25);
+    return [this.viewOf(dx / d, dy / d, dz / d), [sunCol[0] * I * c[0] / m, sunCol[1] * I * c[1] / m, sunCol[2] * I * c[2] / m]];
+  }
+
   // The two brightest light sources seen from body b: view-space directions and colour * intensity.
   lightsFor(b) {
     const L = [];
@@ -1453,10 +1479,14 @@ export class Renderer3D {
           if (lat2 < reach * reach) cand.push([lat2, o]);
         }
         cand.sort((a, c) => a[0] - c[0]);
+        const atmB = this.occAtm || (this.occAtm = new Float32Array(4));
         for (const [, o] of cand.slice(0, 4)) {
           occ.set([o.x - this.ex, o.y - this.ey, o.z - this.ez, o.r], nOcc * 4);
+          // Air bends sunset-red light into the shadow: fully for Earth's 1 bar or a giant's deep atmosphere.
+          atmB[nOcc] = o.kind === 'gas' ? 0.6 : o.atm && o.atm.p > 0 ? Math.min(1, Math.sqrt(o.atm.p)) : 0;
           nOcc++;
         }
+        gl.uniform1fv(u.uOccAtm, atmB);
       }
       gl.uniform4fv(u.uOcc, occ);
       gl.uniform1i(u.uOccN, nOcc);
@@ -1475,6 +1505,8 @@ export class Renderer3D {
     const ld = lights ? lights.dirs : [[0, 1, 0], [0, 0, 0], [0, 1, 0], [0, 0, 0]];
     gl.uniform3fv(u.uL0, ld[0]); gl.uniform3fv(u.uLc0, ld[1]);
     gl.uniform3fv(u.uL1, ld[2]); gl.uniform3fv(u.uLc1, ld[3]);
+    const bounce = lights ? this.planetshine(b, ld[1]) : null;
+    gl.uniform3fv(u.uL2, bounce ? bounce[0] : [0, 1, 0]); gl.uniform3fv(u.uLc2, bounce ? bounce[1] : [0, 0, 0]);
     // Atmosphere. Worlds with a surface get physically based scattering from their gas mix (js/optics.js);
     // giant planets keep a rim glow in their look's colour.
     const optics = l.kind === 0 ? atmosphereOptics(b) : null;

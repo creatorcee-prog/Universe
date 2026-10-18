@@ -241,6 +241,20 @@ Switch in the **View** panel.
   the same face toward their planet.
 - **Eclipses and transits**: moons and planets cast shadows on each other, with a penumbra as wide as the
   Sun's disc seen from there. Io's shadow crosses Jupiter, and the Moon can eclipse the Sun on Earth.
+  - *Red eclipses*: a world with air bends the red light of its sunsets into its shadow, so the Moon in
+    Earth's umbra turns copper instead of vanishing (strength √(pressure in bar), up to Earth's).
+- **Light traced along a few rays** (cheap stand-ins for ray tracing):
+  - *Planetshine*: sunlight reflected by a moon's planet lights its night side: earthshine on the Moon,
+    Saturnshine on Mimas, in the planet's colour. True strength is albedo × the planet's lit fraction seen
+    from the moon × (R/d)², about 0.01% of sunlight for the Moon and 3% for Mimas; it is compressed
+    (to the power ¼) the way the eye adapts, to 5% and 23%.
+  - *Long shadows at the terminator*: on worlds with elevation maps, each point near the day-night line
+    walks ten steps toward the Sun (2.6–180 km on the Moon) over the map; ground above the line to the Sun,
+    which climbs at the Sun's elevation and curves with the sphere, shades it, softly across the Sun's disc.
+    Crater rims and mountains throw long shadows, as in photographs taken near the terminator.
+  - *Shadows on the ground*: standing on a surface, each point of the terrain marches 14 steps toward the
+    Sun (20 m to 50 km) whenever it is below 27°, so hills and mountains shade the valleys at sunrise and
+    sunset. Both run only where the Sun is low, so midday costs nothing extra.
 - **The Great Red Spot**: a spiralling anticyclone at its measured size (about 16,000 km), with a pale
   collar and a turbulent wake. Jupiter's band edges carry sheared eddies and filaments.
 - **Stars**: convection cells scale with the star's size. They're fine texture on the Sun, and a few giant

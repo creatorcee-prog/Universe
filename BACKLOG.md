@@ -22,8 +22,8 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 - **Clearer info pages** that point the user to the extra detail more obviously.
 - **Atmospheres as seen in photos**: limb haze and scattering colour, visible thickness, and a
   measured height (scale height and where the air is thinner than a set limit).
-- **More realistic lighting** ("semi ray tracing"): soft shadows, eclipses, light from moons and rings,
-  and reflected planet-shine. Full path tracing is too slow for a phone at 60 fps.
+- **More lighting**: light reflected by Saturn's rings onto its night side, moonlight on Earth's night
+  side, and shadows of big moons on rings. (Planetshine, red eclipses and cast terrain shadows are done.)
 - **Black hole heat**. Hawking radiation is only 6 × 10⁻⁸ K × (M☉ / M) (Hawking 1974), far colder
   than the 2.7 K microwave background, so a stellar black hole absorbs more than it emits. The heat
   and X-rays come from the gas falling in (accretion disks reach millions of K). Model that disk as a

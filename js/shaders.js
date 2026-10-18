@@ -323,6 +323,7 @@ uniform float uCrack;     // tidal stress near the Roche limit
 uniform float uTime;
 uniform vec4 uStorm;      // body-frame direction and size of a great storm
 uniform vec3 uL0, uLc0, uL1, uLc1;   // two strongest lights: view-space direction, colour * intensity
+uniform vec3 uL2, uLc2;   // light reflected by the planet this body orbits (earthshine, Saturnshine)
 uniform vec3 uAtmo;
 uniform float uAtmoK;
 uniform vec4 uImp[16];
@@ -345,6 +346,7 @@ uniform float uDeckH;      // cloud deck height (body radii), for the shadows
 uniform sampler2D uNight;  // where they are (Black Marble), when uNightMap = 1
 uniform float uNightMap;
 uniform vec4 uOcc[4];      // bodies that can eclipse this one: centre relative to the eye (world axes), radius
+uniform float uOccAtm[4];  // how much red light each one's atmosphere bends into its shadow (0 airless, 1 Earth)
 uniform int uOccN;
 uniform float uSunAng;     // angular radius of the light source seen from here (penumbra width)
 uniform float uGran;       // star convection-cell frequency (fewer, larger cells for bigger stars)
@@ -378,8 +380,11 @@ vec3 bandTable(float lat, float which) {
 
 // Fraction of the light blocked by other bodies (eclipses, moons' shadows on giant planets), with a
 // penumbra as wide as the Sun's disc seen from the surface.
-float eclipse(vec3 P, vec3 L) {
+// red: the share of the shadow that an atmosphere fills with refracted red sunlight (a lunar eclipse's
+// copper Moon: Earth's air bends the sunset light of its whole rim into the umbra).
+float eclipse(vec3 P, vec3 L, out float red) {
   float s = 0.0;
+  red = 0.0;
   for (int i = 0; i < 4; i++) {
     if (i >= uOccN) break;
     vec3 C = uView * uOcc[i].xyz;
@@ -387,7 +392,9 @@ float eclipse(vec3 P, vec3 L) {
     if (t <= 0.0) continue;
     float d = length(C - P - L * t);
     float pen = t * uSunAng;
-    s = max(s, smoothstep(uOcc[i].w + pen, uOcc[i].w - pen, d));
+    float si = smoothstep(uOcc[i].w + pen, uOcc[i].w - pen, d);
+    s = max(s, si);
+    red = max(red, si * uOccAtm[i]);
   }
   return s;
 }
@@ -416,6 +423,7 @@ float lightTerm(vec3 N, vec3 L) {
 void main() {
   vec3 V = normalize(-vViewPos);
   vec3 N = normalize(vN);
+  float hsh = 1.0;   // sunlight left after the shadows the ground casts on itself (from its elevation map)
   if (uFacet > 0.0) {
     // In units of the body's radius: in AU, a small moon's per-pixel steps (~1e-10) underflow the cross
     // product, and normalising the denormal result gives NaN (drawn black).
@@ -673,6 +681,26 @@ void main() {
         float hR = mapTex(uHMap, uHRot * vObj).r * uHGlobe;
         if (uOcean > 0.0) hR = max(hR, 0.0);        // the sea surface is flat over the sea floor
         gradR = sign(det) * (dFdx(hR) * r1 + dFdy(hR) * r2);
+        // Long shadows near the terminator: walk toward the Sun over the elevation map. Ground rising above
+        // the line to the Sun (which climbs at the Sun's elevation, plus x²/2 as the sphere curves away)
+        // shades this point, softly over the width of the Sun's disc. Heights at their true scale (the
+        // slope shading above doubles them).
+        vec3 Lo = transpose(uRot) * (transpose(uView) * uL0);
+        vec3 P0 = normalize(vObj);
+        float sE = dot(P0, Lo);
+        if (uPx > 40.0 && sE > -0.02 && sE < 0.3) {
+          vec3 T = normalize(Lo - P0 * sE);
+          float tE = sE / sqrt(max(1.0 - sE * sE, 1e-4));
+          float h0 = hR * 0.5, x = 0.0015, sun = max(uSunAng, 0.0047);
+          for (int i = 0; i < 10; i++) {
+            vec3 d = uHRot * normalize(P0 + T * x);
+            float hx = textureLod(uHMap, vec2(atan(-d.z, d.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(d.y, -1.0, 1.0)) / 3.14159265), 0.0).r * uHGlobe * 0.5;
+            if (uOcean > 0.0) hx = max(hx, 0.0);
+            float ray = h0 + x * tE + 0.5 * x * x;
+            hsh = min(hsh, clamp(0.5 + (ray - hx) / (2.0 * x * sun), 0.0, 1.0));
+            x *= 1.6;
+          }
+        }
       }
       vec3 Nb = normalize(abs(det) * N - grad * 0.05 * uRelief * (1.0 - 0.8 * uHMapK) - gradR);
       N = normalize(mix(N, Nb, max(landMask * clamp(uRelief, 0.0, 1.0), uHMapK * (uOcean > 0.0 ? landMask : 1.0))));
@@ -801,8 +829,10 @@ void main() {
   // Lighting, with the shadow of the planet's own rings.
   vec3 Pc = vViewPos - uView * uCenter;
   float rs = ringShadow(Pc, uL0);
-  float ecl = uOccN > 0 ? eclipse(Pc + uView * uCenter, uL0) : 0.0;
-  vec3 lit = vec3(0.015) + uLc0 * lightTerm(N, uL0) * (1.0 - 0.85 * rs) * (1.0 - ecl) + uLc1 * lightTerm(N, uL1);
+  float eclRed = 0.0;
+  float ecl = uOccN > 0 ? eclipse(Pc + uView * uCenter, uL0, eclRed) : 0.0;
+  vec3 lit = vec3(0.015) + uLc0 * lightTerm(N, uL0) * (1.0 - 0.85 * rs) * ((1.0 - ecl) * hsh + eclRed * vec3(0.3, 0.085, 0.03))
+           + uLc1 * lightTerm(N, uL1) + uLc2 * max(dot(N, uL2), 0.0);
   // Giant planets darken toward the limb (sunlight there is scattered in the haze above the clouds).
   if (uKind == 1) lit *= 0.55 + 0.45 * pow(mu, 0.45);
   // The clouds themselves are drawn on their own layer above (CLOUD_FS); here only their shadows,
@@ -817,7 +847,7 @@ void main() {
   float spec = pow(max(dot(N, Hv), 0.0), 90.0) * 0.4 * water * (1.0 - cloud);
   // Sunglint on water widens and brightens toward the limb (Fresnel).
   spec += pow(max(dot(N, Hv), 0.0), 12.0) * 0.12 * water * (1.0 - cloud) * pow(1.0 - mu, 3.0);
-  vec3 outc = col * lit + spec * uLc0 * (1.0 - rs) * (1.0 - ecl);
+  vec3 outc = col * lit + spec * uLc0 * (1.0 - rs) * (1.0 - ecl) * hsh;
   // City lights on the night side: clustered along coasts and in lowlands, absent from ice and desert.
   if (uCity > 0.0 && uKind == 0) {
     float night = 1.0 - smoothstep(-0.12, 0.08, dot(N, uL0));
@@ -1035,6 +1065,9 @@ out vec3 vDir;
 out vec2 vPlanar;
 out vec3 vInfo;                        // x: height above sea (m), y: mountains, z: distance (m)
 out vec3 vNrm;                         // smooth ground normal (view space)
+out float vShadow;                     // sunlight left after the terrain's own shadows
+uniform vec3 uSunO;                    // direction to the Sun, object frame
+uniform float uSunAngT;                // the Sun's angular radius (rad)
 ` + LOGDEPTH_V + `
 // Generated relief: continents and ranges, or with a real height map only the hills below its resolution.
 float terrainH(vec3 d, vec2 p, float res, out vec2 em) {
@@ -1075,6 +1108,26 @@ void main() {
     gy += (mapHeight(normalize(uObs + (uEast * p.x + uNorth * (p.y + ep2)) / uRm)) - Hm) / ep2;
   }
   vNrm = uView * (uRot * normalize(uObs - uEast * gx - uNorth * gy));
+  // Shadows cast by the terrain: march toward the Sun over the height field. Ground rising above the line to
+  // the Sun (climbing at its elevation, and by x²/2R as the planet curves away below it) shades this point,
+  // softly over the width of the Sun's disc. Only with the Sun below ~27°, when shadows are long.
+  vShadow = 1.0;
+  float sU = dot(uSunO, d);
+  vec2 sh2 = vec2(dot(uSunO, uEast), dot(uSunO, uNorth));
+  float shl = length(sh2);
+  if (sU > -0.035 && sU < 0.45 && shl > 1e-4) {
+    vec2 hd = sh2 / shl;
+    float tE = sU / shl, x = max(res, 20.0), sunA = max(uSunAngT, 0.002);
+    for (int i = 0; i < 14; i++) {
+      vec2 q = p + hd * x;
+      vec3 dq = normalize(uObs + (uEast * q.x + uNorth * q.y) / uRm);
+      vec2 emq;
+      float hq = max(terrainH(dq, q, max(res, x * 0.08), emq) + mapHeight(dq), sea);
+      float ray = Hs + x * tE + x * x / (2.0 * uRm);
+      vShadow = min(vShadow, clamp(0.5 + (ray - hq) / (2.0 * x * sunA), 0.0, 1.0));
+      x *= 1.75;
+    }
+  }
   vDir = d; vPlanar = p; vInfo = vec3(H, em.y, r);
   gl_Position = uProj * vec4(vViewPos, 1.0);
   vFragDepth = 1.0 + gl_Position.w * ` + DEPTH_K + `;
@@ -1087,6 +1140,7 @@ in vec3 vDir;
 in vec2 vPlanar;
 in vec3 vInfo;
 in vec3 vNrm;
+in float vShadow;
 ` + LOGDEPTH_F + `
 uniform vec3 uL0, uSunCol, uAmb;       // sun direction (view), sunlight reaching the ground, sky light
 uniform vec3 uEastV, uNorthV, uUpV;    // local axes in view space
@@ -1097,6 +1151,7 @@ uniform float uFogH;                   // scale height of that haze (m)
 uniform vec3 uFogSun, uFogAnti, uSkyZen; // sky colour at the horizon toward / away from the sun, zenith
 out vec4 outColor;
 void main() {
+  vec3 sunC = uSunCol * vShadow;         // the Sun's light, where the terrain does not shade it
   float H = vInfo.x, mtnBig = vInfo.y, dist = vInfo.z;
   vec3 V = normalize(-vViewPos);
   float res = max(0.002, dist * uPxAng);            // metres per pixel here
@@ -1128,15 +1183,15 @@ void main() {
     vec3 sky = mix(mix(uFogAnti, uFogSun, az * 0.5 + 0.5), uSkyZen, sqrt(up));
     float fres = 0.02 + 0.98 * pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 5.0);
     // Light scattered back up from inside the water: deep blue-green (open ocean reflects ~5-7%).
-    vec3 deep = vec3(0.012, 0.05, 0.075) * (uSunCol * max(dot(uUpV, uL0), 0.0) + uAmb);
+    vec3 deep = vec3(0.012, 0.05, 0.075) * (sunC * max(dot(uUpV, uL0), 0.0) + uAmb);
     col = mix(deep, sky, fres);
     // Sun glitter: the sun's reflection broken up by the waves.
     vec3 Hh = normalize(uL0 + V);
-    col += uSunCol * pow(max(dot(N, Hh), 0.0), 600.0) * 6.0 * step(0.0, dot(uUpV, uL0));
+    col += sunC * pow(max(dot(N, Hh), 0.0), 600.0) * 6.0 * step(0.0, dot(uUpV, uL0));
     if (frozen > 0.0) {
       vec3 iceCol = vec3(0.8, 0.86, 0.92) * (0.85 + 0.15 * vnoise(vec3(q / 7.0, 1.0)));
       vec3 Ni = uUpV;
-      col = mix(col, iceCol * (uSunCol * max(dot(Ni, uL0), 0.0) + uAmb), frozen);
+      col = mix(col, iceCol * (sunC * max(dot(Ni, uL0), 0.0) + uAmb), frozen);
     }
   } else {
     // Geometric normal of the mesh plus fine relief computed per pixel.
@@ -1193,7 +1248,7 @@ void main() {
     col *= tex;
     // Lambert with a little wrap, sky light from above, and the planet's own heat when molten.
     float ndl = max(dot(N, uL0), 0.0);
-    col = col * (uSunCol * ndl + uAmb * (0.55 + 0.45 * dot(N, uUpV)));
+    col = col * (sunC * ndl + uAmb * (0.55 + 0.45 * dot(N, uUpV)));
     float hot = smoothstep(800.0, 1500.0, T);
     if (hot > 0.0) {
       float flow = fbm(vec3(pp / 60.0, uTime * 0.02), 4);
