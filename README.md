@@ -245,9 +245,10 @@ Switch in the **View** panel.
     Earth's umbra turns copper instead of vanishing (strength √(pressure in bar), up to Earth's).
 - **Atmospheres you can see and measure**:
   - *Thickness*: the Surface tab gives the scale height and how deep the air is: 99% of it lies below 4.6
-    scale heights (39 km on Earth, 51 km on Mars, 150 km on Venus and 190 km on Titan, from the model's
-    own temperatures), and it thins to a millionth of the surface pressure by 13.8 scale heights (~116 km
-    on Earth, close to the 100 km "edge of space"). The overview shows the pressure with the 99% depth.
+    scale heights (40 km on Earth, 52 km on Mars, 73 km on Venus and 101 km on Titan), and it thins to a
+    millionth of the surface pressure by 13.8 scale heights (120 km on Earth, near the 100 km "edge of
+    space"). The air is taken at its surface temperature all the way up (real atmospheres cool with height,
+    so the true depths are somewhat smaller). The overview shows the pressure with the 99% depth.
   - *Visible from afar*: a real atmosphere is thinner than a pixel once its planet is small on screen (Earth's
     is ~1% of its radius), so it is drawn stretched up to 30× taller with its haze spread thinner. The column
     optical depth is unchanged, so its colours stay right, and it shows as a rim at least 2.5 pixels wide.
