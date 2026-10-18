@@ -52,9 +52,7 @@ class App {
     GPULayer.create(this.glCanvas).then((g) => { this.gpu = g; });
     // If WebGL loses its context while WebGPU runs beside it (seen with some software renderers), give up
     // the WebGPU layer for this session; WebGL then restores and draws the rings itself.
-    this.glCanvas.addEventListener('webglcontextlost', () => {
-      if (this.gpu) { this.gpu.dispose(); this.gpu = null; this.ui.toast('WebGPU was switched off: it clashed with WebGL in this browser.', true); }
-    });
+    this.watchGLLoss(this.glCanvas);
     // The WebGPU renderer (beta): the same renderer, drawing through js/glgpu.js.
     if (this.settings.webgpu || window.__TEST_WEBGPU) this.useWebGPU(true);
     this.loadPreset('solar');
@@ -90,14 +88,21 @@ class App {
   // Switch the Realistic view between WebGL (the default) and the WebGPU renderer. Both run the same code
   // (render3d.js); WebGPU goes through GLonGPU with the shaders translated ahead of time. Any failure falls
   // back to WebGL and says why.
+  // Each switch starts the other renderer afresh: turning WebGPU on releases WebGL's context (memory is
+  // tight on phones, and a WebGL context left idle beside WebGPU can be lost), and turning it off destroys
+  // the WebGPU device and builds WebGL again on a new canvas (a lost context cannot be had back).
   async useWebGPU(on) {
     if (!on) {
       if (this.r3d && this.r3d.webgpu) {
-        this.r3d = this.webglR3d || null;
+        const old = this.r3d;
+        this.r3d = null;
         if (this.gpuCanvas) this.gpuCanvas.hidden = true;
-        this.glCanvas = document.getElementById('gl');
-        if (!this.r3d) this.setView(this.settings.view, true);
-        else { this.glCanvas.hidden = !this.renderer.overlay; this.r3d.resize(); }
+        try { old.gl.device.destroy(); } catch (e) { console.warn(e); }
+        const dead = document.getElementById('gl'), cv = dead.cloneNode(false);
+        dead.replaceWith(cv);
+        this.watchGLLoss(cv);
+        this.glCanvas = cv;
+        this.setView(this.settings.view, true);
       }
       return;
     }
@@ -119,10 +124,15 @@ class App {
       const gl = new GLonGPU(device, cv, { offscreen: !!window.__TEST_OFFSCREEN });
       gl.onError = (m) => this.ui.toast('WebGPU reported a problem (Settings shows the details): ' + m, true);
       const r = new Renderer3D(cv, this.world, this.cam, this.settings, gl);
-      this.webglR3d = this.r3d && !this.r3d.webgpu ? this.r3d : this.webglR3d;
+      const was = this.r3d;
       document.getElementById('gl').hidden = true;
       this.glCanvas = cv;
       this.r3d = r;
+      if (was && !was.webgpu) {
+        this.releasingGL = true;
+        try { const x = was.gl.getExtension('WEBGL_lose_context'); if (x) x.loseContext(); } catch (e) { console.warn(e); }
+        this.releasingGL = false;
+      }
       cv.hidden = !this.renderer.overlay;   // (Classic view: the 2D canvas draws everything)
       r.resize();
       device.lost.then((info) => { if (this.r3d === r) this.webgpuFailed(info.message || 'device lost'); });
@@ -761,6 +771,15 @@ class App {
       this.gpuFrameErrors = (this.gpuFrameErrors || 0) + 1;
       if (this.r3d && this.r3d.webgpu && this.gpuFrameErrors >= 3) this.webgpuFailed(String(err && err.message || err));
     }
+  }
+
+  // If WebGL loses its context while the WebGPU ring layer runs beside it (seen with some software
+  // renderers), give up that layer for this session; WebGL then restores and draws the rings itself.
+  watchGLLoss(canvas) {
+    canvas.addEventListener('webglcontextlost', () => {
+      if (this.releasingGL || (this.r3d && this.r3d.webgpu)) return;   // (released on purpose)
+      if (this.gpu) { this.gpu.dispose(); this.gpu = null; this.ui.toast('WebGPU was switched off: it clashed with WebGL in this browser.', true); }
+    });
   }
 
   webgpuFailed(why) {

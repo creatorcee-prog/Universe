@@ -38,6 +38,7 @@ const PHOTO = [
   ...['Callisto', 'Europa', 'Ganymede', 'Phobos', 'Deimos'].map((n) => [new RegExp(`^${n}( \\d+)?$`), n.toLowerCase(), 7, 'rocky']),
 ];
 const photoImg = {};
+let contextGen = 0; // see Renderer3D's gen
 function loadImage(file, ext = 'jpg') {
   let e = photoImg[file];
   if (!e) {
@@ -352,10 +353,12 @@ export class Renderer3D {
     this.lost = false;
     canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); this.lost = true; });
     // On restore every GL object is gone: rebuild, and drop the caches holding the old ones (the context
-    // generation `gen` marks textures cached on shared objects such as shape and height maps).
-    this.gen = 0;
+    // generation `gen` marks textures cached on shared objects such as shape and height maps). It is unique
+    // across renderers too: switching between WebGL and WebGPU makes a new one, which must not pick up
+    // the other's textures.
+    this.gen = ++contextGen;
     canvas.addEventListener('webglcontextrestored', () => {
-      this.gen++;
+      this.gen = ++contextGen;
       this.mapTex = new Map(); this.dTex = null; this.nightTex = null; this.tMesh = null; this.post = null;
       this.init(); this.lost = false;
     });
