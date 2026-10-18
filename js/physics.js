@@ -580,6 +580,7 @@ export class World {
   // Advance by simDt years, spending at most budgetMs of wall-clock time.
   // Returns the simulated time actually covered (less than simDt when the sim cannot keep up).
   advance(simDt, budgetMs) {
+    this.prof = [0, 0, 0, 0];
     if (simDt <= 0) return 0;
     // Massive particles in tight orbits (a debris disk) need frames shorter than their local dynamical
     // time for collisions and clumping to be followed; long frames (slow devices, high speed) are split.
@@ -675,8 +676,12 @@ export class World {
     const done = simDt - remaining;
     this.limited = remaining > 0;
 
+    // Where the time goes (Settings → Show performance): bodies, moons, particles, the rest.
+    const pf = this.prof || (this.prof = [0, 0, 0, 0]), t1 = performance.now();
     stepMinors(this, minorGroups, att, cp, cpT, steps, t0, done);
+    const t2 = performance.now();
     this.stepParticles(att, steps, t0, done);
+    const t3 = performance.now();
     this.diskAccretion(done);
     // Particles with mass pull on each other and on the bodies (Barnes-Hut tree).
     particleGravity(this, done, this.tree);
@@ -688,6 +693,8 @@ export class World {
     thermalStep(this, done);
     this.releaseOrphanRings();
     if (this.ringOuter.size) this.disturbRings();
+    const t4 = performance.now();
+    pf[0] += t1 - start; pf[1] += t2 - t1; pf[2] += t3 - t2; pf[3] += t4 - t3;
     return done;
   }
 

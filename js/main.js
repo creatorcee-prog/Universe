@@ -723,6 +723,8 @@ class App {
     const p = this.pf;
     if (dtReal > 0 && dtReal < 0.5) p.dt += (dtReal - p.dt) * k;
     p.ph += ((this.physMs || 0) - p.ph) * k;
+    const pr = this.world.prof || [0, 0, 0, 0];
+    p.parts = (p.parts || [0, 0, 0, 0]).map((v, i) => v + (pr[i] - v) * k);
     p.dr += (drawMs - p.dr) * k;
     if (now - p.t < 400) return;
     p.t = now;
@@ -739,7 +741,7 @@ class App {
     }
     const q = this.r3d && this.renderer.overlay ? ` · res ${Math.round((this.r3d.quality ?? 1) * 100)}%${this.r3d.samples ? ' AA' : ''}` : '';
     const api = this.r3d && this.renderer.overlay ? (this.r3d.webgpu ? ' · WebGPU' : ' · WebGL') : '';
-    el.textContent = `${Math.round(1 / p.dt)} fps (tap to test) · physics ${p.ph.toFixed(1)} ms · drawing ${p.dr.toFixed(1)} ms${q}${api} · ${this.world.bodies.length} bodies, ${this.world.np + this.world.nr} particles`;
+    el.textContent = `${Math.round(1 / p.dt)} fps (tap to test) · physics ${p.ph.toFixed(1)} ms (bodies ${p.parts[0].toFixed(1)}, moons ${p.parts[1].toFixed(1)}, particles ${p.parts[2].toFixed(1)}, other ${p.parts[3].toFixed(1)}) · drawing ${p.dr.toFixed(1)} ms${q}${api} · ${this.world.bodies.length} bodies, ${this.world.np + this.world.nr} particles`;
   }
 
   frame(now) {
