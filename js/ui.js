@@ -391,7 +391,7 @@ export class UI {
         gpu = a ? 'available' + (a.info && a.info.vendor ? ` (${a.info.vendor})` : '') : 'present, but no adapter was given (blocked or switched off)';
       }
     } catch (e) { gpu = 'present, but it failed: ' + e.message; }
-    const g = this.app.gpu;
+    const g = this.app.gpuEmb || this.app.gpu;
     const state = g ? (g.lost ? 'switched off after an error' : this.app.settings.gpuRings ? 'drawing Saturn’s rings' : 'ready (turn on the rings above)') : '';
     const r = this.app.r3d, rg = r && r.webgpu ? r.gl : null;
     const diag = [...(g && g.diag || []), ...(rg ? rg.diag : []), ...(this.app.gpuError ? [this.app.gpuError] : [])];

@@ -49,11 +49,15 @@ struct RU {
   vp: vec4f,       // x: focal length (px), y, z: viewport (px), w: pixel ratio
   nsph: vec4f,     // x: occluders in use
   sph: array<vec4f, 16>,  // occluders: centre (view space, AU), radius
+  xf: vec4f,       // drawn inside the WebGPU renderer: x: ±1 (render targets are upside down), y: its log-depth factor
 };
 @group(0) @binding(0) var<storage, read> stat: array<vec4f>;   // r, height, size factor, albedo
 @group(0) @binding(1) var<storage, read> phase: array<f32>;
 @group(0) @binding(2) var<uniform> u: RU;
-struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) col: vec4f };
+struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) col: vec4f, @location(2) dw: f32 };
+// The renderer's logarithmic depth (shaders.js WRITE_DEPTH), so the chunks are hidden by what is in front.
+struct FO { @location(0) c: vec4f, @builtin(frag_depth) d: f32 };
+fn logDepth(w: f32, fc: f32) -> f32 { return log2(1.0 + w * 1e12) * fc * 0.5; }
 fn hash(n: u32) -> f32 { var x = n * 747796405u + 2891336453u; x = ((x >> ((x >> 28u) + 4u)) ^ x) * 277803737u; return f32((x >> 22u) ^ x) / 4294967295.0; }
 @vertex
 fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VO {
@@ -99,7 +103,8 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VO {
     clip = vec4f(clip.xy + c * DOT * 2.0 / u.vp.yz * clip.w, clip.zw);
   }
   if (clip.w <= 0.0) { return o; }
-  o.pos = vec4f(clip.xy, 0.5 * clip.w, clip.w);
+  o.pos = vec4f(clip.x, clip.y * u.xf.x, 0.5 * clip.w, clip.w);
+  o.dw = clip.w;
   // Light: sunlit face, or the faint glow through the ring from the unlit side; dark in the planet's shadow.
   let L = u.sunO.xyz;
   let tL = dot(po, L);
@@ -112,13 +117,15 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VO {
   o.col = vec4f(min(u.sun.rgb * tint * I + 0.012, vec3f(1.0)), a * near);
   return o;
 }
-@fragment
-fn fs(i: VO) -> @location(0) vec4f {
+fn shade(i: VO) -> vec4f {
   let r2 = dot(i.uv, i.uv);
   if (r2 > 1.0) { discard; }
   let a = i.col.a * (1.0 - smoothstep(0.25, 1.0, r2));
   return vec4f(i.col.rgb * a, a);
-}`;
+}
+// fs: on the ring layer's own canvas (no depth buffer); fsD: inside the renderer, writing its depth.
+@fragment fn fs(i: VO) -> @location(0) vec4f { return shade(i); }
+@fragment fn fsD(i: VO) -> FO { return FO(shade(i), logDepth(i.dw, u.xf.y)); }`;
 
 
 // The swarm of rocks around the camera when it is near the rings. Generated on the fly: the ring plane under
@@ -139,9 +146,12 @@ struct SU {
   vp: vec4f,
   rings: array<vec4f, 16>,   // r0, r1, τ, albedo (planet radii)
   cells: array<vec4f, 6>,    // per level: the camera's cell (along-track, radial) and its position within it
+  xf: vec4f,                 // as in the rings' uniforms
 };
 @group(0) @binding(0) var<uniform> u: SU;
-struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) col: vec4f, @location(2) seed: f32, @location(3) lv: vec3f };
+struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) col: vec4f, @location(2) seed: f32, @location(3) lv: vec3f, @location(4) dw: f32 };
+struct FO { @location(0) c: vec4f, @builtin(frag_depth) d: f32 };
+fn logDepth(w: f32, fc: f32) -> f32 { return log2(1.0 + w * 1e12) * fc * 0.5; }
 fn h3(p: vec3i) -> vec3f {
   var q = vec3u(bitcast<u32>(p.x), bitcast<u32>(p.y), bitcast<u32>(p.z)) * vec3u(1664525u, 1013904223u, 2654435761u);
   q.x += q.y * q.z; q.y += q.z * q.x; q.z += q.x * q.y;
@@ -198,7 +208,8 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VO {
   let px = max(spx, 1.2 * u.vp.w);
   clip = vec4f(clip.xy + c * px * 2.0 / u.vp.yz * clip.w, clip.zw);
   if (clip.w <= 0.0) { return o; }
-  o.pos = vec4f(clip.xy, 0.5 * clip.w, clip.w);
+  o.pos = vec4f(clip.x, clip.y * u.xf.x, 0.5 * clip.w, clip.w);
+  o.dw = clip.w;
   // In the planet's shadow? (Track position plus this offset, in ring coordinates.)
   let po = u.pos.xyz + u.trk.y * scale * (fa * vec3f(-u.pos.y, u.pos.x, 0.0) / max(length(u.pos.xy), 1e-6) + fr * vec3f(u.pos.xy / max(length(u.pos.xy), 1e-6), 0.0));
   let L = u.sunO.xyz;
@@ -218,8 +229,7 @@ fn vnoise(p: vec2f) -> f32 {
   let d = fract(sin(dot(i + vec2f(1.0, 1.0), vec2f(12.9898, 78.233))) * 43758.55);
   return mix(mix(a, b, w.x), mix(c, d, w.x), w.y);
 }
-@fragment
-fn fs(i: VO) -> @location(0) vec4f {
+fn shade(i: VO) -> vec4f {
   // A lumpy rock: an irregular outline, and shading as if round, lit from the Sun's side.
   let ang = atan2(i.uv.y, i.uv.x);
   let edge = 0.78 + 0.22 * vnoise(vec2f(ang * 1.6 + i.seed, i.seed));
@@ -231,7 +241,9 @@ fn fs(i: VO) -> @location(0) vec4f {
   let a = i.col.a * (1.0 - smoothstep(0.85, 1.0, r));
   let c = i.col.rgb * (0.08 + 0.92 * lam) * pits;
   return vec4f(c * a, a);
-}`;
+}
+@fragment fn fs(i: VO) -> @location(0) vec4f { return shade(i); }
+@fragment fn fsD(i: VO) -> FO { return FO(shade(i), logDepth(i.dw, u.xf.y)); }`;
 
 const SWARM_READY = true;
 
@@ -261,45 +273,62 @@ export class GPULayer {
     }
   }
 
-  constructor(device, ctx, format, canvas) {
-    this.device = device; this.ctx = ctx; this.canvas = canvas;
+  // Two ways to run: on its own device and transparent canvas over the WebGL view (ctx, canvas), or inside
+  // the WebGPU renderer (embedded: its device, drawing into its scene target with its depth buffer; see
+  // drawInto), so the two do not compete for the GPU and the rings are hidden by whatever is in front.
+  constructor(device, ctx, format, canvas, embedded = false) {
+    this.device = device; this.ctx = ctx; this.canvas = canvas; this.format = format; this.embedded = embedded;
     this.lost = false;
-    device.lost.then(() => { this.lost = true; canvas.remove(); });
+    if (!embedded) device.lost.then(() => { this.lost = true; canvas.remove(); });
     const cm = device.createShaderModule({ code: COMPUTE });
     this.cPipe = device.createComputePipeline({ layout: 'auto', compute: { module: cm, entryPoint: 'main' } });
-    const rm = device.createShaderModule({ code: RENDER });
-    this.rPipe = device.createRenderPipeline({
-      layout: 'auto',
-      vertex: { module: rm, entryPoint: 'vs' },
-      fragment: { module: rm, entryPoint: 'fs', targets: [{ format, blend: {
-        color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-        alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' } } }] },
-      primitive: { topology: 'triangle-strip' },
-    });
-    const sm = device.createShaderModule({ code: SWARM });
+    this.rMod = device.createShaderModule({ code: RENDER });
+    this.sMod = device.createShaderModule({ code: SWARM });
     // Shader compiler messages and GPU errors, shown in Settings so a screenshot of it tells what went wrong.
     this.diag = [];
-    for (const [name, m] of [['rings', rm], ['orbits', cm], ['swarm', sm]]) m.getCompilationInfo?.().then((ci) => { for (const x of ci.messages) if (x.type !== 'info') this.diag.push(`${name} ${x.type} ${x.lineNum}:${x.linePos} ${x.message}`); });
-    device.addEventListener?.('uncapturederror', (e) => { if (this.diag.length < 8) this.diag.push(e.error.message.slice(0, 200)); });
-    this.sPipe = device.createRenderPipeline({
-      layout: 'auto',
-      vertex: { module: sm, entryPoint: 'vs' },
-      fragment: { module: sm, entryPoint: 'fs', targets: [{ format, blend: {
-        color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-        alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' } } }] },
-      primitive: { topology: 'triangle-strip' },
-    });
-    this.sU = device.createBuffer({ size: 64 + 16 * 11 + 16 * 16 + 16 * 6, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    this.sData = new Float32Array((64 + 16 * 11 + 16 * 16 + 16 * 6) / 4);
-    this.sBind = device.createBindGroup({ layout: this.sPipe.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: this.sU } }] });
+    for (const [name, m] of [['rings', this.rMod], ['orbits', cm], ['swarm', this.sMod]]) m.getCompilationInfo?.().then((ci) => { for (const x of ci.messages) if (x.type !== 'info') this.diag.push(`${name} ${x.type} ${x.lineNum}:${x.linePos} ${x.message}`); });
+    if (!embedded) device.addEventListener?.('uncapturederror', (e) => { if (this.diag.length < 8) this.diag.push(e.error.message.slice(0, 200)); });
+    // Explicit layouts, so one bind group serves every pipeline variant (one per target format, sample count
+    // and depth format).
+    const vf = GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT;
+    this.rBGL = device.createBindGroupLayout({ entries: [
+      { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
+      { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
+      { binding: 2, visibility: vf, buffer: { type: 'uniform' } }] });
+    this.sBGL = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: vf, buffer: { type: 'uniform' } }] });
+    this.pipes = new Map();
+    this.sU = device.createBuffer({ size: 64 + 16 * 12 + 16 * 16 + 16 * 6, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.sData = new Float32Array((64 + 16 * 12 + 16 * 16 + 16 * 6) / 4);
+    this.sBind = device.createBindGroup({ layout: this.sBGL, entries: [{ binding: 0, resource: { buffer: this.sU } }] });
     this.cU = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    this.rU = device.createBuffer({ size: 64 + 16 * 9 + 16 * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    this.rData = new Float32Array((64 + 16 * 9 + 16 * 16) / 4);
+    this.rU = device.createBuffer({ size: 64 + 16 * 10 + 16 * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.rData = new Float32Array((64 + 16 * 10 + 16 * 16) / 4);
     this.rings = new Map();   // host body -> { n, stat, phase, binds }
+  }
+
+  // The ring and swarm pipelines for a target: colour format, MSAA samples, depth format (null: none).
+  pipesFor(format, samples = 1, depthFormat = null) {
+    const key = `${format}|${samples}|${depthFormat}`;
+    let p = this.pipes.get(key);
+    if (p) return p;
+    const blend = { color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' } };
+    const make = (module, bgl) => this.device.createRenderPipeline({
+      layout: this.device.createPipelineLayout({ bindGroupLayouts: [bgl] }),
+      vertex: { module, entryPoint: 'vs' },
+      fragment: { module, entryPoint: depthFormat ? 'fsD' : 'fs', targets: [{ format, blend }] },
+      primitive: { topology: 'triangle-strip' },
+      multisample: { count: samples },
+      // Tested against the scene's depth, not written (the chunks are see-through at their edges).
+      depthStencil: depthFormat ? { format: depthFormat, depthWriteEnabled: false, depthCompare: 'less-equal' } : undefined,
+    });
+    p = { ring: make(this.rMod, this.rBGL), swarm: make(this.sMod, this.sBGL) };
+    this.pipes.set(key, p);
+    return p;
   }
 
   dispose() {
     this.lost = true;
+    if (this.embedded) return;   // (the renderer owns the device)
     this.canvas.remove();
     try { this.device.destroy(); } catch { /* already gone */ }
   }
@@ -338,7 +367,7 @@ export class GPULayer {
     const mk = (arr) => { const b = dev.createBuffer({ size: arr.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST }); dev.queue.writeBuffer(b, 0, arr); return b; };
     const sb = mk(stat), pb = mk(ph);
     const cBind = dev.createBindGroup({ layout: this.cPipe.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: sb } }, { binding: 1, resource: { buffer: pb } }, { binding: 2, resource: { buffer: this.cU } }] });
-    const rBind = dev.createBindGroup({ layout: this.rPipe.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: sb } }, { binding: 1, resource: { buffer: pb } }, { binding: 2, resource: { buffer: this.rU } }] });
+    const rBind = dev.createBindGroup({ layout: this.rBGL, entries: [{ binding: 0, resource: { buffer: sb } }, { binding: 1, resource: { buffer: pb } }, { binding: 2, resource: { buffer: this.rU } }] });
     r = { count, stat: sb, phase: pb, cBind, rBind, sRad };
     this.rings.set(host, r);
     return r;
@@ -346,7 +375,7 @@ export class GPULayer {
 
   // Uniforms for the swarm around the camera. The cells live in the frame of the ring material at the camera's
   // radius, which turns at ω(r) = √(GM/r³); the camera's cell is tracked in double precision on the CPU.
-  swarmUniforms(r3d, h, ux, wx, n, d, cs, G, sunO, sunC, simDt, sRad) {
+  swarmUniforms(r3d, h, ux, wx, n, d, cs, G, sunO, sunC, simDt, sRad, t, logFC) {
     const R = h.r, e = [d[40], d[41], d[42]];                          // eye in ring coordinates (planet radii)
     const rho = Math.hypot(e[0], e[1]), phi = Math.atan2(e[1], e[0]);
     const w = Math.sqrt((39.47692641 * h.m) / Math.pow(rho * R, 3));    // material's angular speed (rad/yr)
@@ -379,10 +408,11 @@ export class GPULayer {
     S.set([...sunO, 0], 44);
     S.set([...sunC, 0], 48);
     S.set([e[0], e[1], 0, Math.abs(e[2])], 52);
-    S.set([r3d.F, r3d.canvas.width, r3d.canvas.height, r3d.dpr], 56);
+    S.set([r3d.F, t.w, t.h, r3d.dpr], 56);
     const Rkm = R * 1.495978707e8;
     SATURN.forEach(([r0, r1, tau, alb], i) => S.set([r0 / Rkm, r1 / Rkm, tau, alb], 60 + i * 4));
     cells.forEach((c, i) => S.set(c, 124 + i * 4));
+    S.set([t.flip, logFC, 0, 0], 148);
     this.device.queue.writeBuffer(this.sU, 0, S);
     return { nl, reach: G * cs * 2 ** (nl - 1) };
   }
@@ -394,18 +424,33 @@ export class GPULayer {
     return out;
   }
 
-  // r3d: the WebGL renderer, for its camera matrices and view helpers. simDt: simulated years this frame.
+  // r3d: the renderer, for its camera matrices and view helpers. simDt: simulated years this frame.
+  // On its own canvas: clears it, then draws every host's rings.
   draw(r3d, world, simDt, hosts) {
     if (this.lost) return;
     const gl = r3d.canvas, cv = this.canvas;
     if (cv.width !== gl.width || cv.height !== gl.height) { cv.width = gl.width; cv.height = gl.height; }
     const dev = this.device, enc = dev.createCommandEncoder();
-    const pass0 = enc.beginRenderPass({ colorAttachments: [{ view: this.ctx.getCurrentTexture().createView(), loadOp: 'clear', clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: 'store' }] });
+    const view = this.ctx.getCurrentTexture().createView();
+    const pass0 = enc.beginRenderPass({ colorAttachments: [{ view, loadOp: 'clear', clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: 'store' }] });
     pass0.end();
-    for (const h of hosts) {
+    for (const h of hosts) this.drawHost(r3d, world, simDt, h, enc, { view, format: this.format, samples: 1, depth: null, depthFormat: null, flip: 1, w: gl.width, h: gl.height }, 0);
+    dev.queue.submit([enc.finish()]);
+  }
+
+  // Inside the WebGPU renderer (js/glgpu.js external()): one host's rings, recorded into the renderer's
+  // command encoder and drawn into its current target t (view, format, samples, depth, flip, size).
+  drawInto(r3d, world, simDt, h, enc, t) {
+    if (this.lost) return;
+    this.drawHost(r3d, world, simDt, h, enc, t, r3d.logFC);
+  }
+
+  drawHost(r3d, world, simDt, h, enc, t, logFC) {
+    const dev = this.device;
+    {
       const info = r3d.ringInfo && r3d.ringInfo.get(h);
-      if (!info) continue;
-      const count = r3d.settings.sharp ? 500000 : 250000;
+      if (!info) return;
+      const count = this.testCount || (r3d.settings.sharp ? 500000 : 250000);   // (testCount: fewer, for software GPUs in tests)
       const ring = this.ringFor(h, count);
       // Advance the orbits: ω = √(GM/R³) r^−3/2 rad per year (r in planet radii).
       const R = h.r, k = Math.sqrt((39.47692641 * h.m) / (R * R * R));
@@ -439,7 +484,7 @@ export class GPULayer {
       d.set([...sunO, 0], 36);
       const e = [-rel[0] / R, -rel[1] / R, -rel[2] / R];
       d.set([e[0] * ux[0] + e[1] * ux[1] + e[2] * ux[2], e[0] * wx[0] + e[1] * wx[1] + e[2] * wx[2], e[0] * n[0] + e[1] * n[1] + e[2] * n[2], 0], 40);
-      d.set([r3d.F, gl.width, gl.height, r3d.dpr], 44);
+      d.set([r3d.F, t.w, t.h, r3d.dpr], 44);
       // Occluders: the planet and the nearest large bodies around it.
       const occ = [h];
       const reach = info.rout * 4;
@@ -458,19 +503,22 @@ export class GPULayer {
       const h0 = Math.abs(ez);
       const G = 24, cs = Math.max(h0 * 0.07, 2e-7);                 // cell size (planet radii)
       const swarm = (SWARM_READY || this.forceSwarm) && h0 < 0.08 && rho > 0.9 * (66900 / (R * 1.495978707e8)) && rho < 1.1 * (140230 / (R * 1.495978707e8));
-      const sw = swarm ? this.swarmUniforms(r3d, h, ux, wx, n, d, cs, G, sunO, sunC, simDt, ring.sRad) : null;
+      const sw = swarm ? this.swarmUniforms(r3d, h, ux, wx, n, d, cs, G, sunO, sunC, simDt, ring.sRad, t, logFC) : null;
       d.set([no, sw ? sw.reach : 0, 0, 0], 48);
+      d.set([t.flip, logFC, 0, 0], 116);
       dev.queue.writeBuffer(this.rU, 0, d);
       ring.swarm = sw;
-      const pass = enc.beginRenderPass({ colorAttachments: [{ view: this.ctx.getCurrentTexture().createView(), loadOp: 'load', storeOp: 'store' }] });
-      pass.setPipeline(this.rPipe); pass.setBindGroup(0, ring.rBind);
+      const pp = this.pipesFor(t.format, t.samples || 1, t.depth ? t.depthFormat : null);
+      const desc = { colorAttachments: [{ view: t.view, loadOp: 'load', storeOp: 'store' }] };
+      if (t.depth) desc.depthStencilAttachment = { view: t.depth, depthLoadOp: 'load', depthStoreOp: 'store' };
+      const pass = enc.beginRenderPass(desc);
+      pass.setPipeline(pp.ring); pass.setBindGroup(0, ring.rBind);
       pass.draw(4, count);
       if (ring.swarm) {
-        pass.setPipeline(this.sPipe); pass.setBindGroup(0, this.sBind);
+        pass.setPipeline(pp.swarm); pass.setBindGroup(0, this.sBind);
         pass.draw(4, (2 * 24 + 1) * (2 * 24 + 1) * 8 * ring.swarm.nl);
       }
       pass.end();
     }
-    dev.queue.submit([enc.finish()]);
   }
 }

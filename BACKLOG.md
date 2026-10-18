@@ -44,3 +44,9 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 - **Speculative life beyond Earth-like worlds**: Sagan & Salpeter's (1976, ApJS 32, 737)
   "floaters, sinkers and hunters" in Jupiter's clouds, and other plausible ideas from speculative
   evolution, shown as a separate "exotic life" verdict next to the Earth-like checklist.
+
+## Performance notes (iPhone)
+
+- Near Saturn the particle step reads 3.8–5.4 ms on the iPhone (Safari's JavaScriptCore) against about 1 ms
+  near Earth, but 1.1–1.4 ms in Chrome either way, and the same when called directly. Not yet explained;
+  look again if it grows.

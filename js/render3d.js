@@ -1616,6 +1616,8 @@ export class Renderer3D {
         gl.disable(gl.CULL_FACE);
       });
     }
+    // Rings drawn by the ring layer inside this frame (WebGPU renderer: same target, same depth buffer).
+    if (ring && shownPx > 2 && this.ringHook && this.gpuHosts && this.gpuHosts.has(b)) glows.push(() => this.ringHook(b));
     // Rings as a smooth sheet (the particles are shown too when the camera is among them).
     if (ring && shownPx > 2 && !(this.gpuHosts && this.gpuHosts.has(b))) {
       glows.push(() => {

@@ -49,7 +49,8 @@ class App {
     this.setView(this.settings.view, true);
     // WebGPU, where the browser offers it: a layer over the WebGL view for compute-heavy effects.
     this.gpu = null;
-    GPULayer.create(this.glCanvas).then((g) => { this.gpu = g; });
+    // (Not while the WebGPU renderer runs: the ring layer then lives on its device.)
+    GPULayer.create(this.glCanvas).then((g) => { if (this.r3d && this.r3d.webgpu) { if (g) g.dispose(); } else this.gpu = g; });
     // If WebGL loses its context while WebGPU runs beside it (seen with some software renderers), give up
     // the WebGPU layer for this session; WebGL then restores and draws the rings itself.
     this.watchGLLoss(this.glCanvas);
@@ -97,12 +98,15 @@ class App {
         const old = this.r3d;
         this.r3d = null;
         if (this.gpuCanvas) this.gpuCanvas.hidden = true;
+        this.gpuEmb = null;
         try { old.gl.device.destroy(); } catch (e) { console.warn(e); }
         const dead = document.getElementById('gl'), cv = dead.cloneNode(false);
         dead.replaceWith(cv);
         this.watchGLLoss(cv);
         this.glCanvas = cv;
         this.setView(this.settings.view, true);
+        // The ring layer back on its own device, over WebGL.
+        if (!this.gpu) GPULayer.create(cv).then((g) => { if (!(this.r3d && this.r3d.webgpu)) this.gpu = g; else if (g) g.dispose(); });
       }
       return;
     }
@@ -124,6 +128,9 @@ class App {
       const gl = new GLonGPU(device, cv, { offscreen: !!window.__TEST_OFFSCREEN });
       gl.onError = (m) => this.ui.toast('WebGPU reported a problem (Settings shows the details): ' + m, true);
       const r = new Renderer3D(cv, this.world, this.cam, this.settings, gl);
+      // The ring layer moves onto this device (one GPU queue instead of two competing for the chip).
+      this.gpuEmb = new GPULayer(device, null, null, null, true);
+      if (this.gpu) { this.gpu.dispose(); this.gpu = null; }
       const was = this.r3d;
       document.getElementById('gl').hidden = true;
       this.glCanvas = cv;
@@ -870,15 +877,23 @@ class App {
     }
     const ui = { selected: this.state.selected, preview, surface: this.surface, zones: this.zones, gzones: this.gzones, laser: this.laser && this.laser.body ? this.laser : null };
     const tr = performance.now();
-    // Rings drawn as GPU debris (Realistic view only; the Pixel view and the surface keep WebGL's).
-    const gpuOn = this.gpu && !this.gpu.lost && this.renderer.overlay && this.settings.view === 'realistic' && !this.surface && this.settings.gpuRings;
-    const gpuHosts = gpuOn ? this.gpu.hosts(this.world) : null;
-    if (this.r3d) this.r3d.gpuHosts = gpuHosts && gpuHosts.size ? gpuHosts : null;
+    // Rings drawn as GPU debris (Realistic view only; the Pixel view and the surface keep WebGL's). With the
+    // WebGPU renderer the ring layer runs inside it (gpuEmb); with WebGL, on its own canvas over it (gpu).
+    const emb = this.r3d && this.r3d.webgpu ? this.gpuEmb : null;
+    const layer = emb || this.gpu;
+    const gpuOn = !!layer && !layer.lost && this.renderer.overlay && this.settings.view === 'realistic' && !this.surface && this.settings.gpuRings;
+    const gpuHosts = gpuOn ? layer.hosts(this.world) : null;
+    if (this.r3d) {
+      this.r3d.gpuHosts = gpuHosts && gpuHosts.size ? gpuHosts : null;
+      const r = this.r3d;
+      this.r3d.ringHook = gpuOn && emb ? (h) => r.gl.external((enc, t) => emb.drawInto(r, this.world, done, h, enc, t)) : null;
+    }
     if (this.renderer.overlay) this.r3d.draw(now, ui, dtReal, done);
     if (this.r3d && this.r3d.webgpu) this.r3d.gl.flushFrame();
     if (this.gpu && !this.gpu.lost) {
-      this.gpu.canvas.hidden = !gpuOn;
-      if (gpuOn) this.gpu.draw(this.r3d, this.world, done, gpuHosts);
+      const own = gpuOn && !emb;
+      this.gpu.canvas.hidden = !own;
+      if (own) this.gpu.draw(this.r3d, this.world, done, gpuHosts);
     }
     this.renderer.draw(now, ui);
     this.perfReadout(now, dtReal, performance.now() - tr);

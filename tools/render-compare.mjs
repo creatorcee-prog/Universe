@@ -1,7 +1,7 @@
 // Renders the same scene with the WebGL renderer and with the WebGPU one (js/glgpu.js, drawn off-screen and
 // read back, since headless Chromium cannot show a WebGPU canvas), and saves both side by side.
 //   node tools/render-compare.mjs <outdir> <name> <preset> <body> <distance in radii> [pitch] [yaw]
-// EVAL='...' runs extra code in the page after the scene is set up (to switch things off while hunting a difference).
+// ONLY=webgpu|webgl renders one side. EVAL='...' runs extra code in the page after the scene is set up (to switch things off while hunting a difference).
 // Needs a local server on :8080 serving the repo.
 import { chromium, devices } from 'playwright';
 import { writeFileSync } from 'fs';
@@ -53,8 +53,10 @@ async function shot(webgpu) {
   return { png, log };
 }
 
-const gl = await shot(false);
-const gp = await shot(true);
+// ONLY=webgpu or ONLY=webgl renders one side.
+const only = process.env.ONLY || '';
+const gl = only === 'webgpu' ? { log: [] } : await shot(false);
+const gp = only === 'webgl' ? { log: [] } : await shot(true);
 if (gl.png) writeFileSync(`${out}/cmp-${name}-webgl.png`, gl.png);
 if (gp.png) writeFileSync(`${out}/cmp-${name}-webgpu.png`, gp.png);
 console.log(name, 'webgl', gl.png ? 'ok' : 'missing', gl.log.slice(0, 4));

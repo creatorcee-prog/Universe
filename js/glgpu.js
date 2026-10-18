@@ -135,6 +135,14 @@ export class GLonGPU {
   get stalled() { return !this.offscreen && this.frame > 120 && this.waiting > 0 && this.waitFrames > 60 && performance.now() - this.waiting > 10000; }
 
   finish() { this.flushFrame(); }
+
+  // Native WebGPU work in the middle of the frame (the ring layer, js/gpu.js): fn(encoder, target) records its
+  // own passes into this frame's encoder, drawing into the framebuffer bound now (its view, format, sample
+  // count, depth view and format, flip, size). Later draws start a new pass that keeps what it drew.
+  external(fn) {
+    this.endPass();
+    fn(this.enc(), this.target(this.state.drawFB));
+  }
   flush() {}
 
   // Test helper: the offscreen default framebuffer's pixels (RGBA, top row first).
