@@ -349,7 +349,14 @@ export class Renderer3D {
     this.dpr = 1;
     this.lost = false;
     canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); this.lost = true; });
-    canvas.addEventListener('webglcontextrestored', () => { this.init(); this.lost = false; });
+    // On restore every GL object is gone: rebuild, and drop the caches holding the old ones (the context
+    // generation `gen` marks textures cached on shared objects such as shape and height maps).
+    this.gen = 0;
+    canvas.addEventListener('webglcontextrestored', () => {
+      this.gen++;
+      this.mapTex = new Map(); this.dTex = null; this.nightTex = null; this.tMesh = null; this.post = null;
+      this.init(); this.lost = false;
+    });
     this.init();
   }
 
@@ -940,7 +947,8 @@ export class Renderer3D {
     const sh = b.shape && shapeMap(b.shape.file);
     gl.uniform1f(u.uShapeK, sh ? 1 : 0);
     if (!sh) return;
-    if (!sh.tex) {
+    if (!sh.tex || sh.gen !== this.gen) {
+      sh.gen = this.gen;
       sh.tex = gl.createTexture();
       gl.activeTexture(gl.TEXTURE11);
       gl.bindTexture(gl.TEXTURE_2D, sh.tex);
@@ -970,7 +978,8 @@ export class Renderer3D {
     const hm = file && heightMap(file);
     gl.uniform1f(u.uHMapK, hm ? 1 : 0);
     if (!hm) return;
-    if (!hm.tex) {
+    if (!hm.tex || hm.gen !== this.gen) {
+      hm.gen = this.gen;
       hm.tex = gl.createTexture();
       gl.activeTexture(gl.TEXTURE10);
       gl.bindTexture(gl.TEXTURE_2D, hm.tex);
@@ -1599,7 +1608,7 @@ export class Renderer3D {
       });
     }
     // Rings as a smooth sheet (the particles are shown too when the camera is among them).
-    if (ring && shownPx > 2) {
+    if (ring && shownPx > 2 && !(this.gpuHosts && this.gpuHosts.has(b))) {
       glows.push(() => {
         const rp = this.pRing, ru = rp.u, n = ring.n;
         const a0 = Math.abs(n[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
@@ -1778,7 +1787,7 @@ export class Renderer3D {
     const far = new Map();
     for (let i = 0; i < world.nr; i++) {
       const host = world.rHost[i];
-      if (host === skip) continue;
+      if (host === skip || (this.gpuHosts && this.gpuHosts.has(host))) continue;   // drawn by the WebGPU layer
       let f = far.get(host);
       if (f === undefined) {
         const ri = this.ringInfo && this.ringInfo.get(host);

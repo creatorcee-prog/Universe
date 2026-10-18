@@ -7,6 +7,7 @@ import { lifetime } from './stellar.js';
 import { Camera } from './camera.js';
 import { Renderer } from './render.js';
 import { Renderer3D } from './render3d.js';
+import { GPULayer } from './gpu.js';
 import { Input } from './input.js';
 import { Sound } from './audio.js';
 import { UI } from './ui.js';
@@ -14,7 +15,7 @@ import { UI } from './ui.js';
 const SETTINGS_KEY = 'universe-pocket-settings';
 
 function loadSettings() {
-  const defaults = { trails: true, labels: true, grid: true, stars: true, trailsRelative: true, collisions: true, sound: true, music: true, uiSound: true, soundSilent: false, bassBoost: false, sharp: false, perf: false, v: 2, view: 'realistic', bloom: true, trailColor: 'body', orbits: false, trueSize: false };
+  const defaults = { trails: true, labels: true, grid: true, stars: true, trailsRelative: true, collisions: true, sound: true, music: true, uiSound: true, soundSilent: false, bassBoost: false, sharp: false, perf: false, gpuRings: false, v: 2, view: 'realistic', bloom: true, trailColor: 'body', orbits: false, trueSize: false };
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
     // v2: interface sounds were off in v1 while the sound set was being replaced; the new set is on.
@@ -45,6 +46,14 @@ class App {
     window.addEventListener('resize', () => { this.renderer.resize(); this.r3d?.resize(); });
     this.renderer.resize();
     this.setView(this.settings.view, true);
+    // WebGPU, where the browser offers it: a layer over the WebGL view for compute-heavy effects.
+    this.gpu = null;
+    GPULayer.create(this.glCanvas).then((g) => { this.gpu = g; });
+    // If WebGL loses its context while WebGPU runs beside it (seen with some software renderers), give up
+    // the WebGPU layer for this session; WebGL then restores and draws the rings itself.
+    this.glCanvas.addEventListener('webglcontextlost', () => {
+      if (this.gpu) { this.gpu.dispose(); this.gpu = null; this.ui.toast('WebGPU was switched off: it clashed with WebGL in this browser.', true); }
+    });
     this.loadPreset('solar');
     this.last = performance.now();
     this.frame = this.frame.bind(this);
@@ -773,7 +782,15 @@ class App {
     }
     const ui = { selected: this.state.selected, preview, surface: this.surface, zones: this.zones, gzones: this.gzones, laser: this.laser && this.laser.body ? this.laser : null };
     const tr = performance.now();
+    // Rings drawn as GPU debris (Realistic view only; the Pixel view and the surface keep WebGL's).
+    const gpuOn = this.gpu && !this.gpu.lost && this.renderer.overlay && this.settings.view === 'realistic' && !this.surface && this.settings.gpuRings;
+    const gpuHosts = gpuOn ? this.gpu.hosts(this.world) : null;
+    if (this.r3d) this.r3d.gpuHosts = gpuHosts && gpuHosts.size ? gpuHosts : null;
     if (this.renderer.overlay) this.r3d.draw(now, ui, dtReal, done);
+    if (this.gpu && !this.gpu.lost) {
+      this.gpu.canvas.hidden = !gpuOn;
+      if (gpuOn) this.gpu.draw(this.r3d, this.world, done, gpuHosts);
+    }
     this.renderer.draw(now, ui);
     this.perfReadout(now, dtReal, performance.now() - tr);
     this.ui.tick(now);
