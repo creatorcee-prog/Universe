@@ -293,7 +293,8 @@ hydrogen/helium) and an **atmosphere** (surface pressure, CO₂ share). Mergers 
   - rock, water and carbon.
 
   Simple life appears after 300 million years of continuous liquid water and dies out after a thousand years
-  without it. The book's live page lists each check.
+  without it. The book's live page lists each check. The info card names what fails, most telling first, e.g.
+  "Uninhabitable due to too cold and air too thin" for Mars.
 
 Feedbacks happen on their own: move Earth inward past about 0.9 AU and it enters a runaway greenhouse; out
 to 1.25 AU and ice-albedo feedback freezes it into a snowball. Climate studies put the real thresholds in
@@ -407,6 +408,17 @@ source list on every entry.
 
   Zones scale with the source's brightness and update as it ages. A hot planet's zones only appear while its
   heat reaches beyond its own surface, and vanish as it cools.
+- **Gravity zones**: select any object and tap **Show gravity zones**. Rings in the orbital plane show, from
+  the inside out (zones that lie under the surface are left out):
+  - for black holes, *the event horizon* (2GM/c²), *the photon sphere* (1.5×) and *the plunge zone* inside the
+    innermost stable orbit (3×, non-spinning);
+  - for black holes and neutron stars, where *Sun-like stars are torn apart*: R☉ (M/M☉)^⅓ (Hills 1975), which
+    falls inside the horizon above about 10⁸ M☉;
+  - *deadly tides for a person*: over 10 g of head-to-foot stretch;
+  - *the Roche limit* for a rubble moon of 3 g/cm³ (2.456 (3M/4πρ)^⅓), about 19,000 km for Earth;
+  - *stable moon orbits*, out to 0.49 of the Hill sphere (Domingos et al. 2006);
+  - *weakly held*, out to the Hill sphere itself (about 1.5 million km for Earth, 0.35 AU for Jupiter), beyond
+    which the parent's pull wins.
 
 - **Particle self-gravity on a second core.** The Barnes–Hut tree for debris, dust and ejecta is built
   and walked in a Web Worker; its pull comes back a frame or two later and is applied as one kick over

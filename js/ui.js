@@ -3,7 +3,7 @@ import { CATALOG, REAL_OBJECTS, typeName, isLuminous, makeBody, reclassify } fro
 import { orbitOf } from './physics.js';
 import { PRESETS } from './presets.js';
 import { Book } from './book.js';
-import { tempZones, localTemp, localHab } from './thermal.js';
+import { tempZones, localTemp, localHab, listReasons } from './thermal.js';
 import { lifetime } from './stellar.js';
 import { renderThumb, category } from './thumbs.js';
 
@@ -165,6 +165,12 @@ export class UI {
       const b = app.state.selected;
       if (!b) return;
       if (app.zones.has(b)) app.zones.delete(b); else app.zones.add(b);
+      this.refreshInfo(true);
+    });
+    $('i-gzones').addEventListener('click', () => {
+      const b = app.state.selected;
+      if (!b) return;
+      if (app.gzones.has(b)) app.gzones.delete(b); else app.gzones.add(b);
       this.refreshInfo(true);
     });
     $('i-rings').addEventListener('click', () => {
@@ -511,7 +517,8 @@ export class UI {
     const hv = b.th && b.th.hab && b.kind === 'rocky' ? b.th.hab : null;
     hab.hidden = !hv;
     if (hv) {
-      hab.textContent = `${hv.verdict} for life${b.life ? ' · life present' : ''}`;
+      const why = hv.reasons && hv.reasons.length ? (hv.verdict === 'Uninhabitable' ? ' due to ' : ': ') + listReasons(hv.reasons) : '';
+      hab.textContent = (hv.verdict === 'Uninhabitable' ? 'Uninhabitable' : `${hv.verdict} for life`) + why + (b.life ? ' · life present' : '');
       hab.className = 'hab ' + (hv.verdict === 'Habitable' ? 'good' : hv.verdict === 'Marginal' ? 'mid' : '');
     }
     $('i-stand').hidden = b.kind !== 'rocky';
@@ -522,6 +529,9 @@ export class UI {
     zb.hidden = !canZone;
     zb.classList.toggle('on', app.zones.has(b));
     zb.textContent = app.zones.has(b) ? 'Hide temperature zones' : 'Show temperature zones';
+    const gb = $('i-gzones');
+    gb.classList.toggle('on', app.gzones.has(b));
+    gb.textContent = app.gzones.has(b) ? 'Hide gravity zones' : 'Show gravity zones';
     const following = app.cam.follow === b;
     $('i-follow').textContent = following ? 'Unlock' : 'Lock view';
     $('i-follow').classList.toggle('on', following);

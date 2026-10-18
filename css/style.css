@@ -216,6 +216,8 @@ input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border-radius: 
 .settings-actions .wide { grid-column: 1 / -1; }
 .info-extra.zones { border-color: rgba(90,220,120,.4); background: rgba(90,220,120,.08); color: #8be6a4; }
 .info-extra.zones.on { background: rgba(90,220,120,.22); }
+.info-extra.grav { border-color: rgba(190,140,255,.45); background: rgba(190,140,255,.08); color: #cdb0ff; }
+.info-extra.grav.on { background: rgba(190,140,255,.22); }
 .info-extra.stand { border-color: rgba(157,184,255,.45); background: rgba(157,184,255,.1); color: var(--cool); }
 .info { grid-template-columns: 1fr; }
 .surface-bar { position: absolute; left: var(--gut-l); right: var(--gut-r); top: calc(env(safe-area-inset-top, 0px) + 66px); margin: 0 auto; max-width: 460px; display: grid; gap: 8px; padding: 10px 12px; border-radius: var(--radius); background: var(--panel); border: 1px solid var(--line); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }

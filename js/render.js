@@ -2,6 +2,7 @@ import { PK } from './physics.js';
 import { G } from './units.js';
 import { isLuminous } from './bodies.js';
 import { tempZones } from './thermal.js';
+import { gravZones } from './gravzones.js';
 
 const TRAIL_LEN = 360;
 
@@ -245,14 +246,19 @@ export class Renderer {
     }
   }
 
-  // Temperature zones: flat rings in the orbital (x-z) plane around each chosen heat source.
+  // Temperature and gravity zones: flat rings in the orbital (x-z) plane around each chosen body.
   drawZones(ui) {
-    if (!ui.zones || !ui.zones.size || ui.surface) return;
+    if (ui.surface || !((ui.zones && ui.zones.size) || (ui.gzones && ui.gzones.size))) return;
     const { ctx, cam, dpr } = this;
     const N = 160, p = this.tmp;
     const W = this.canvas.width, H = this.canvas.height;
-    for (const b of ui.zones) {
-      const z = tempZones(b);
+    const list = [];
+    if (ui.zones) for (const b of ui.zones) list.push([b, tempZones(b)]);
+    if (ui.gzones && ui.gzones.size) {
+      const hier = this.world.hierarchy();
+      for (const b of ui.gzones) list.push([b, gravZones(b, hier)]);
+    }
+    for (const [b, z] of list) {
       if (!z) continue;
       // Points of a circle of radius r, or null if much of it is behind the camera.
       const circle = (r) => {
@@ -290,8 +296,8 @@ export class Renderer {
         addRing(path, outer, false);
         if (inner) addRing(path, inner, true);
         const [r, g, bl] = zone.col;
-        ctx.fillStyle = `rgba(${r},${g},${bl},${zone.fade ? 0.05 : zone.name === 'Habitable zone' ? 0.16 : 0.1})`;
-        if (!this.overlay) ctx.fill(path, 'evenodd');
+        ctx.fillStyle = `rgba(${r},${g},${bl},${zone.a || (zone.fade ? 0.05 : zone.name === 'Habitable zone' ? 0.16 : 0.1)})`;
+        if (!this.overlay || zone.g) ctx.fill(path, 'evenodd'); // the 3D view draws its own temperature field
         ctx.strokeStyle = `rgba(${r},${g},${bl},0.55)`;
         ctx.lineWidth = dpr;
         ctx.setLineDash(zone.fade ? [4 * dpr, 4 * dpr] : []);

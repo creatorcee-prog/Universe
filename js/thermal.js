@@ -274,22 +274,36 @@ function evolveAtmosphere(b, world, dt, Mkg, R, g, area, Pwater) {
 // Can life as we know it exist here? Each requirement is checked separately.
 export function habitability(b) {
   const th = b.th, c = b.comp, atm = b.atm;
-  if (b.kind !== 'rocky') return { verdict: 'Uninhabitable', score: 0, checks: [['A solid surface', false, 'Gas giant: no surface to live on']] };
+  if (b.kind !== 'rocky') return { verdict: 'Uninhabitable', score: 0, reasons: ['no solid surface'], checks: [['A solid surface', false, 'Gas giant: no surface to live on']] };
   const p = atm.p + th.steam;
   const lam = jeans(b, 28);
   const molten = (th.exposed || 0) > 0.2;
+  const boiled = th.steam > 1 || th.Ts > 330;  // what little water a hot world keeps is vapour, not ice
+  // Each check: label, passed, detail, and the short reason it fails (for "Uninhabitable due to …").
   const checks = [
-    ['Liquid water', th.liquid > 0.01, th.liquid > 0.01 ? `${Math.round(th.liquid * 100)}% of the surface` : c.water <= 0 ? 'No water' : th.steam > 1 ? 'Boiled into steam' : 'Frozen'],
-    ['Temperature', th.Ts >= 250 && th.Ts <= 330, `${Math.round(th.Ts)} K (needs about 250–330 K)`],
-    ['Air pressure', p >= 0.01 && p <= 100, `${p < 0.01 ? p.toExponential(1) : p.toPrecision(3)} bar (needs about 0.01–100)`],
-    ['Holds onto its air', lam > 30, lam > 30 ? 'Gravity strong enough' : 'Too small or hot: air escapes to space'],
-    ['Starlight', th.flux >= 0.2 && th.flux <= 3, `${th.flux < 0.01 ? th.flux.toExponential(1) : th.flux.toPrecision(2)} × Earth's`],
-    ['Solid, cool surface', !molten, molten ? 'Molten after an impact' : 'Yes'],
-    ['Raw ingredients', c.rock + c.iron > 0.2 && c.water > 0 && (atm.gases.co2 > 1e-7 || atm.gases.ch4 > 1e-7 || atm.rockCO2 > 0), 'Rock, water and carbon'],
+    ['Liquid water', th.liquid > 0.01, th.liquid > 0.01 ? `${Math.round(th.liquid * 100)}% of the surface` : c.water <= 0 ? 'No water' : boiled ? 'Boiled into steam' : 'Frozen',
+      c.water <= 0 ? 'no water' : boiled ? 'water boiled away' : 'water frozen'],
+    ['Temperature', th.Ts >= 250 && th.Ts <= 330, `${Math.round(th.Ts)} K (needs about 250–330 K)`, th.Ts < 250 ? 'too cold' : 'too hot'],
+    ['Air pressure', p >= 0.01 && p <= 100, `${p < 0.01 ? p.toExponential(1) : p.toPrecision(3)} bar (needs about 0.01–100)`, p < 0.01 ? 'air too thin' : 'air too thick'],
+    ['Holds onto its air', lam > 30, lam > 30 ? 'Gravity strong enough' : 'Too small or hot: air escapes to space', 'gravity too weak to keep air'],
+    ['Starlight', th.flux >= 0.2 && th.flux <= 3, `${th.flux < 0.01 ? th.flux.toExponential(1) : th.flux.toPrecision(2)} × Earth's`, th.flux < 0.2 ? 'too little starlight' : 'too much starlight'],
+    ['Solid, cool surface', !molten, molten ? 'Molten after an impact' : 'Yes', 'molten surface'],
+    ['Raw ingredients', c.rock + c.iron > 0.2 && c.water > 0 && (atm.gases.co2 > 1e-7 || atm.gases.ch4 > 1e-7 || atm.rockCO2 > 0), 'Rock, water and carbon', c.rock + c.iron <= 0.2 ? 'too little rock' : c.water <= 0 ? '' : 'no carbon'],
   ];
   const ok = checks.filter((x) => x[1]).length;
   const verdict = ok === checks.length ? 'Habitable' : ok >= checks.length - 2 && checks[0][1] ? 'Marginal' : 'Uninhabitable';
-  return { verdict, score: ok / checks.length, checks };
+  // "Water frozen" and "too cold" say the same thing twice; keep the plainer one.
+  // Most telling first: heat and light, then air, then water and ingredients.
+  const order = [1, 4, 2, 3, 0, 5, 6];
+  let reasons = order.map((i) => checks[i]).filter((x) => !x[1] && x[3]).map((x) => x[3]);
+  if (reasons.includes('too cold')) reasons = reasons.filter((r) => r !== 'water frozen');
+  if (reasons.includes('too hot')) reasons = reasons.filter((r) => r !== 'water boiled away');
+  return { verdict, score: ok / checks.length, checks, reasons };
+}
+
+// Reasons as one phrase: "too cold, air too thin and no water".
+export function listReasons(r) {
+  return r.length <= 1 ? r.join('') : r.slice(0, -1).join(', ') + ' and ' + r[r.length - 1];
 }
 
 // Life dies out after a thousand years without liquid water at a livable temperature, and simple life

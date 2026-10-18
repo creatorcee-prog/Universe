@@ -3,6 +3,7 @@ import { typeName, isLuminous } from './bodies.js';
 import { orbitOf } from './physics.js';
 import { ENTRIES, TYPES, CONTENTS, typeKey } from './facts.js';
 import { lifetime } from './stellar.js';
+import { listReasons } from './thermal.js';
 
 const MSUN_KG = 1.98847e30, AU_M = 1.495978707e11, G_SI = 6.674e-11;
 const $ = (id) => document.getElementById(id);
@@ -289,7 +290,8 @@ export class Book {
     // Habitability checklist.
     if (b.th && b.th.hab && b.kind === 'rocky') {
       const h = b.th.hab;
-      rows.push(['Can life exist here?', `${h.verdict}${b.life ? ' · life present' : ''}`]);
+      const why = h.reasons && h.reasons.length ? (h.verdict === 'Uninhabitable' ? ' due to ' : ': ') + listReasons(h.reasons) : '';
+      rows.push(['Can life exist here?', `${h.verdict}${why}${b.life ? ' · life present' : ''}`]);
       for (const [label, ok, detail] of h.checks) rows.push([`${ok ? '✓' : '✗'} ${label}`, detail]);
     }
     const lEl = $('live-lede'), fEl = $('live-facts');

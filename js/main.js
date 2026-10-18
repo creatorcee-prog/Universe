@@ -33,6 +33,7 @@ class App {
     this.settings = loadSettings();
     this.renderer = new Renderer(this.canvas, this.world, this.cam, this.settings);
     this.zones = new Set(); // heat sources showing their temperature zones
+    this.gzones = new Set(); // bodies showing their gravity zones
     this.state = { tool: 'view', addItem: 'earth', selected: null, paused: false, speed: 0.1, preset: null, addMethod: 'orbit' };
     this.adding = null;
     this.rate = 0;
@@ -195,6 +196,7 @@ class App {
   loadPreset(id) {
     this.impactSped = false;
     this.zones.clear();
+    this.gzones.clear();
     if (this.surface) this.exitSurface();
     const p = PRESETS.find((x) => x.id === id) || PRESETS[0];
     this.world.reset();
@@ -286,6 +288,7 @@ class App {
     if (this.cam.follow === b) this.cam.follow = null;
     if (this.state.selected === b) this.select(null);
     this.zones.delete(b);
+    this.gzones.delete(b);
     this.world.removeBody(b);
     this.ui.toast(`Removed ${b.name}`);
   }
@@ -763,12 +766,12 @@ class App {
     this.updateAddPreview();
     const a = this.adding;
     const preview = a && a.v ? { x: a.P[0], y: a.P[1], z: a.P[2], path: a.path, bound: a.bound, hit: a.hit, dragTo: a.dragTo } : a ? { x: a.P[0], y: a.P[1], z: a.P[2] } : null;
-    if (this.zones.size) for (const b of [...this.zones]) {
+    for (const set of [this.zones, this.gzones]) if (set.size) for (const b of [...set]) {
       const r = this.world.resolve(b);
-      this.zones.delete(b);
-      if (r && r.alive) this.zones.add(r);
+      set.delete(b);
+      if (r && r.alive) set.add(r);
     }
-    const ui = { selected: this.state.selected, preview, surface: this.surface, zones: this.zones, laser: this.laser && this.laser.body ? this.laser : null };
+    const ui = { selected: this.state.selected, preview, surface: this.surface, zones: this.zones, gzones: this.gzones, laser: this.laser && this.laser.body ? this.laser : null };
     const tr = performance.now();
     if (this.renderer.overlay) this.r3d.draw(now, ui, dtReal, done);
     this.renderer.draw(now, ui);
