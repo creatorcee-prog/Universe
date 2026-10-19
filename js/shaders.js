@@ -287,7 +287,19 @@ void main() {
   // Seen obliquely, toward the limb, the layer is crossed along a longer path and looks denser.
   float a = 1.0 - pow(1.0 - clamp(cf.x, 0.0, 0.995), 1.0 / max(mu, 0.2));
   float d0 = dot(N, uL0), d1 = dot(N, uL1);
-  float lit0 = smoothstep(-0.1, 0.12, d0) * (0.3 + 0.7 * max(d0, 0.0));
+  // Relief of the cloud tops: thick cloud stands higher. The slope of its height across the screen tilts the
+  // normal (as the ground's relief does), so near the terminator storm towers catch the low Sun on one side
+  // and shade the other. Up to a few km on a ~6,000 km planet, exaggerated as the eye reads it from orbit.
+  float hC = (cf.x * 0.7 + cf.y * 0.3) * 0.018;
+  vec3 dpx = dFdx(vViewPos), dpy = dFdy(vViewPos);
+  float sc = 1.0 / max(length(dpx) + length(dpy), 1e-30);
+  dpx *= sc; dpy *= sc;
+  vec3 r1 = cross(dpy, N), r2 = cross(N, dpx);
+  float det = dot(dpx, r1);
+  vec3 grad = sign(det) * (dFdx(hC) * r1 + dFdy(hC) * r2) * (uPx / 2.0);
+  vec3 Nc = normalize(N - grad * smoothstep(40.0, 150.0, uPx));
+  float b0 = dot(Nc, uL0);
+  float lit0 = smoothstep(-0.1, 0.12, d0) * (0.3 + 0.7 * max(mix(d0, b0, 0.85), 0.0));
   float lit1 = smoothstep(-0.1, 0.12, d1) * (0.3 + 0.7 * max(d1, 0.0));
   // Thick tops are brighter, thin edges greyer.
   vec3 col = uColC * (0.72 + 0.32 * cf.y) * (uLc0 * lit0 * (1.0 - uEcl) + uLc1 * lit1 + 0.012);

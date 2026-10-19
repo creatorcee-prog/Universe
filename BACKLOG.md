@@ -81,7 +81,7 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 5. Surface view: curved, lit clouds on a spherical shell at the real cloud height, normals from the noise
    gradient, bright edges toward the Sun, darker bases, a thin cirrus layer. The user also wants volumetric
    clouds and atmospheric fog here (inspiration images to come); volumetrics behind a quality setting.
-6. Cloud self-shading in the planet view: bump normal from the cloud-density gradient, so storm tops catch a
+6. Done: cloud relief in the planet view (bump normal from the cloud thickness's screen slope). Was: bump normal from the cloud-density gradient, so storm tops catch a
    low Sun near the terminator.
 7. Done: real atmosphere on gas giants (optics.js giantOptics: H2/He + methane + haze above the cloud tops,
    full at the limb, a quarter over the face since the photo-based colours already include it). Was: Rayleigh (H2/He) + haze Mie through ATMO_FS, cloud tops as the ground,
