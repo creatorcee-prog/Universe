@@ -537,7 +537,7 @@ export class Renderer {
     // Projected world-up, used to orient gas-giant bands and accretion disks.
     const up = cam.dirToCam(0, 1, 0, { x: 0, y: 0, z: 0 });
     const upAng = Math.atan2(-up.y, up.x);
-    for (const [, b, p] of list) {
+    for (const [z, b, p] of list) {
       const R = b.r * p.s;
       let shown = R;
       if (ui.surface && ui.surface.body === b) continue; // the ground we are standing on
@@ -552,7 +552,7 @@ export class Renderer {
           if (b.comet) this.drawCometTail(b, p);
           shown = this.drawPlanet(b, p, R, upAng);
       }
-      this.screen.set(b, { x: p.x, y: p.y, r: shown });
+      this.screen.set(b, { x: p.x, y: p.y, r: shown, z, R });
       if (this.settings.trueSize && shown < 2 * dpr && (b.kind === 'rocky' || b.kind === 'gas')) {
         ctx.globalCompositeOperation = 'source-over';
         ctx.strokeStyle = 'rgba(200,215,255,0.35)';
@@ -880,9 +880,13 @@ export class Renderer {
       const pb = b[0] === ui.selected || b[0] === this.cam.follow ? 1 : 0;
       return pb - pa || b[0].m - a[0].m;
     });
+    // Discs big enough to hide something behind them (a moon behind Saturn has no label showing through it).
+    const discs = entries.filter(([, p]) => p.R > 6 * dpr);
+    const hidden = (b, p) => discs.some(([c, q]) => c !== b && q.z < p.z && Math.hypot(p.x - q.x, p.y - q.y) < q.R * 0.98);
     let n = 0;
     for (const [b, p] of entries) {
       if (n > 40) break;
+      if (b !== ui.selected && hidden(b, p)) continue;
       if (b.name.startsWith('Planetesimal') && b !== ui.selected) continue;
       const key = Math.floor(p.x / (cell * 3)) + ',' + Math.floor(p.y / cell);
       if (used.has(key) && b !== ui.selected) continue;

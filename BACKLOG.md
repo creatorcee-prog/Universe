@@ -112,3 +112,8 @@ on the phone.
   few to ~20 s in warm heavy rain: a jagged forked bolt from the cloud base, the deck lit around it, the scene
   flashing, thunder after the distance's delay. To refine: splashes and wet ground, a rain sound.
 - S5: ground detail textures and sharper mountains (items 4 and 8 above).
+
+## Ring fixes done
+- From farther than ~4 outer ring radii the rings are the smooth sheet (no more gravel look from afar).
+- Labels of bodies behind a nearer large disc (moons behind Saturn) are hidden.
+- Close-up rocks are 3D (fish-scale billboards remain only for sub-3-pixel rocks).

@@ -459,9 +459,15 @@ export class GPULayer {
   }
 
   // Which hosts this layer draws rings for (the WebGL view then skips its own ring particles for them).
-  hosts(world) {
+  // Only up close (within ~4 outer ring radii): from farther away the rings are a smooth sheet, which the
+  // renderer draws better than a few hundred thousand sub-pixel chunks (they read as gravel).
+  hosts(world, eye) {
     const out = new Set();
-    for (const h of world.ringOuter.keys()) if (h.alive && /^Saturn( \d+)?$/.test(h.name)) out.add(h);
+    for (const [h, ro] of world.ringOuter) {
+      if (!h.alive || !/^Saturn( \d+)?$/.test(h.name)) continue;
+      if (eye && Math.hypot(h.x - eye[0], h.y - eye[1], h.z - eye[2]) > 4 * ro) continue;
+      out.add(h);
+    }
     return out;
   }
 

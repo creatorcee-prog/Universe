@@ -882,7 +882,7 @@ class App {
     const emb = this.r3d && this.r3d.webgpu ? this.gpuEmb : null;
     const layer = emb || this.gpu;
     const gpuOn = !!layer && !layer.lost && this.renderer.overlay && this.settings.view === 'realistic' && !this.surface && this.settings.gpuRings;
-    const gpuHosts = gpuOn ? layer.hosts(this.world) : null;
+    const c = this.cam, gpuHosts = gpuOn ? layer.hosts(this.world, [c.tx + c.ox, c.ty + c.oy, c.tz + c.oz]) : null;
     if (this.r3d) {
       this.r3d.gpuHosts = gpuHosts && gpuHosts.size ? gpuHosts : null;
       const r = this.r3d;
