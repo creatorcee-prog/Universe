@@ -1493,6 +1493,7 @@ uniform vec3 uCenterV;   // planet centre relative to the eye, view axes
 uniform float uPR;       // planet radius
 uniform float uExpo;
 uniform vec3 uHot;       // thermal glow of a molten world's air
+uniform float uDiscK;    // share drawn over the planet's face (1; giant planets less, see below)
 out vec4 outColor;
 void main() {
   vec3 d = normalize(vViewPos);
@@ -1507,6 +1508,8 @@ void main() {
   vec3 L = scatter(o + d * t0, d, t1 - t0, uL0, 1.0, T);
   vec3 col = skyTone(max(L, 0.0) * uExpo);
   float a = clamp(1.0 - dot(T, vec3(0.3333)), 0.0, 1.0);
+  // Over a giant planet's face its photo-based colours already show the haze: only part of it again there.
+  if (hit) { col *= uDiscK; a *= uDiscK; }
   col += uHot * a;
   outColor = vec4(col, hit ? min(a, 0.92) : a * 0.5);
   ` + WRITE_DEPTH + `

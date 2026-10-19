@@ -90,6 +90,39 @@ export function atmosphereOptics(b) {
   };
 }
 
+// Giant planets: the air above the cloud tops (taken as the ~1 bar level, the "ground" the scattering sees),
+// hydrogen and helium (86:14 by number; He refractivity 3.5e-5) with a little methane, and an upper haze of
+// photochemical aerosols (Jupiter and Saturn: thick, absorbing blue, why Saturn looks muted and yellow; Uranus
+// and Neptune: thin, white). Cloud-top temperatures and methane from Voyager, Galileo and Cassini (Jupiter
+// 165 K, 0.2%; Saturn 135 K, 0.45%; Uranus 76 K, 2.3%; Neptune 72 K, 1.5%). The methane absorption the
+// planets' colours already include is applied only partly (it reddens nothing twice; it still blues the limb).
+const GIANTS = {
+  Jupiter: { T: 165, ch4: 0.0021, tau: 1.0, alb: [0.97, 0.9, 0.76], g: 0.65 },
+  Saturn: { T: 135, ch4: 0.0045, tau: 2.0, alb: [0.98, 0.94, 0.82], g: 0.65 },
+  Uranus: { T: 76, ch4: 0.023, tau: 0.3, alb: [0.97, 0.98, 0.99], g: 0.7 },
+  Neptune: { T: 72, ch4: 0.015, tau: 0.2, alb: [0.97, 0.98, 0.99], g: 0.7 },
+};
+export function giantOptics(b) {
+  if (b.kind !== 'gas') return null;
+  const AU_M = 1.495978707e11, MSUN = 1.98847e30, ME = 3.003e-6;
+  const name = b.name.replace(/ \d+$/, '');
+  const p = GIANTS[name] || (b.m / ME < 50 ? { ...GIANTS.Neptune, T: Math.max(60, (b.th && b.th.Ts) || 72) } : { ...GIANTS.Jupiter, T: Math.max(100, (b.th && b.th.Ts) || 165) });
+  const R = b.r * AU_M, g = (6.674e-11 * b.m * MSUN) / (R * R), T = p.T, mu = 2.3;
+  const H = (8.314 * T) / ((mu / 1000) * g);
+  const dens = (1 / 1.01325) * (288 / T);
+  const kmix = 0.86 * GAS.h2.n * GAS.h2.n * GAS.h2.F + 0.14 * 3.5e-5 * 3.5e-5 + p.ch4 * GAS.ch4.n * GAS.ch4.n;
+  const betaR = AIR_BR.map((v) => v * (kmix / AIR_K) * dens);
+  const betaA = CH4_ABS.map((v) => v * p.ch4 * dens * 0.3);
+  const HM = H, betaM = p.alb.map((a) => (p.tau / HM) * a), betaMa = p.alb.map((a) => (p.tau / HM) * (1 - a));
+  const tauS = [0, 1, 2].map((i) => betaR[i] * H + betaM[i] * HM);
+  const tauE = [0, 1, 2].map((i) => tauS[i] + betaA[i] * H + betaMa[i] * HM);
+  return {
+    kind: 'giant', P: 1, T, H, HM, g, mu, tauM: p.tau, tauS, tauE, day: 1, det: [0, 0, 0, 0],
+    betaR: betaR.map((v) => v * R), betaM: betaM.map((v) => v * R), betaA: betaA.map((v) => v * R),
+    betaMa: betaMa.map((v) => v * R), hR: H / R, hM: HM / R, mieG: [p.g, p.g, p.g],
+  };
+}
+
 // Uniforms shared by the surface sky and the atmosphere shell (see SCATTER in shaders.js).
 export function setOpticsUniforms(gl, u, o, steps = 16) {
   gl.uniform3fv(u.uBR, o.betaR); gl.uniform3fv(u.uBM, o.betaM);

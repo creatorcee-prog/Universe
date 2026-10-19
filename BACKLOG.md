@@ -82,7 +82,8 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
    clouds and atmospheric fog here (inspiration images to come); volumetrics behind a quality setting.
 6. Cloud self-shading in the planet view: bump normal from the cloud-density gradient, so storm tops catch a
    low Sun near the terminator.
-7. Real atmosphere on gas giants: Rayleigh (H2/He) + haze Mie through ATMO_FS, cloud tops as the ground,
+7. Done: real atmosphere on gas giants (optics.js giantOptics: H2/He + methane + haze above the cloud tops,
+   full at the limb, a quarter over the face since the photo-based colours already include it). Was: Rayleigh (H2/He) + haze Mie through ATMO_FS, cloud tops as the ground,
    replacing RIM_FS's flat rim.
 8. Sharper distant terrain (low priority): ridged octaves in mountain zones, denser rings near the camera.
 

@@ -3,7 +3,7 @@ import { isLuminous, tempToRGB, schwarzschild } from './bodies.js';
 import { transientLum } from './stellar.js';
 import { EARTH_MASS } from './units.js';
 import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS, RIM_FS, TERRAIN_VS, TERRAIN_FS, RING_FS, CLOUD_FS, GEN_FS, SURFACE_CLOUD_FS, WEATHER_FS } from './shaders.js';
-import { atmosphereOptics, setOpticsUniforms, stretchOptics, atmosphereTop, groundLight } from './optics.js';
+import { atmosphereOptics, giantOptics, setOpticsUniforms, stretchOptics, atmosphereTop, groundLight } from './optics.js';
 import { heatOutput } from './thermal.js';
 import { earthMap, moonMap } from './geography.js';
 
@@ -1882,9 +1882,9 @@ export class Renderer3D {
     gl.uniform3fv(u.uL1, ld[2]); gl.uniform3fv(u.uLc1, ld[3]);
     const bounce = lights ? this.planetshine(b, ld[1]) : null;
     gl.uniform3fv(u.uL2, bounce ? bounce[0] : [0, 1, 0]); gl.uniform3fv(u.uLc2, bounce ? bounce[1] : [0, 0, 0]);
-    // Atmosphere. Worlds with a surface get physically based scattering from their gas mix (js/optics.js);
-    // giant planets keep a rim glow in their look's colour.
-    const optics = l.kind === 0 ? atmosphereOptics(b) : null;
+    // Atmosphere: physically based scattering from the gas mix (js/optics.js); for giant planets, the
+    // hydrogen and haze above their cloud tops.
+    const optics = l.kind === 0 ? atmosphereOptics(b) : l.kind === 1 ? giantOptics(b) : null;
     let atmo = optics ? null : l.atmo || null, atmoK = l.atmoK ?? 0.5;
     if (!optics && b.atm && l.kind === 0) atmo = null;
     // A hot world's atmosphere glows orange.
@@ -1961,6 +1961,7 @@ export class Renderer3D {
           gl.uniform1f(au.uPR, R);
           gl.uniform1f(au.uExpo, 5.5 * (ld[1][0] + ld[1][1] + ld[1][2] > 0 ? 1 : 0));
           gl.uniform3fv(au.uHot, [1, 0.45, 0.15].map((v) => v * hotK * 0.6));
+          gl.uniform1f(au.uDiscK, l.kind === 1 ? 0.25 : 1);
         } else {
           gl.uniform3fv(au.uAtmo, atmo);
           gl.uniform1f(au.uAtmoK, atmoK);
