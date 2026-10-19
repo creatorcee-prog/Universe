@@ -1150,6 +1150,7 @@ float rangeValley(vec2 p) {
   float n = 0.5 * (ridge(vec3(pp / 10800.0, uSeed + 75.3)) + ridge(vec3(pp / 4860.0, uSeed + 80.6)));
   return 1.0 - smoothstep(0.45, 0.75, n);
 }
+uniform float uDunes;   // dune strength: 1 on dry worlds with thin air; little under Venus's (few dunes seen there)
 float smallHeight(vec2 p, float rough, float res) {
   vec2 pp = p + uLocal;
   float h = 0.0, amp = uRelief * (0.012 + 0.04 * rough) * uRough, lam = 2400.0;
@@ -1171,7 +1172,7 @@ float smallHeight(vec2 p, float rough, float res) {
       float f = smoothstep(res * 2.5, res * 6.0, 60.0);
       float ph = (pp.x * 0.8 + pp.y * 0.6) / 60.0 + 1.2 * vnoise(vec3(pp / 300.0, 45.0)) + 0.4 * vnoise(vec3(pp / 80.0, 46.0));
       float t = fract(ph), dune = t < 0.75 ? t / 0.75 : (1.0 - t) / 0.25;   // long windward slope, short slip face
-      h += uRelief * 0.0012 * dune * dune * field * f;
+      h += uRelief * 0.0012 * dune * dune * field * f * uDunes;
     }
   }
   if (uCraters > 0.0) {
@@ -1442,7 +1443,7 @@ void main() {
     float near = 1.0 - smoothstep(60.0, 260.0, dist);
     if (near > 0.0) {
       float isRock = smoothstep(0.3, 0.55, slope + 0.2 * rough * n1) * (1.0 - snow);
-      float isSand = (uOcean <= 0.0 ? 0.6 : 0.0) + (uSeaOK > 0.5 ? smoothstep(6.0, 1.0, H) : 0.0) + desert * 0.6;
+      float isSand = (uOcean <= 0.0 ? 0.6 * uDunes : 0.0) + (uSeaOK > 0.5 ? smoothstep(6.0, 1.0, H) : 0.0) + desert * 0.6 * uDunes;
       isSand = clamp(isSand, 0.0, 1.0) * (1.0 - isRock) * (1.0 - snow);
       float isSoil = (1.0 - isRock) * (1.0 - isSand) * (1.0 - snow);
       // Rock: strata (bands along a tilted plane through the slope) broken by fractures.
@@ -2428,6 +2429,7 @@ uniform float uCloud;        // cloud cover 0..1 from the climate model
 uniform vec3 uCloudCol;
 uniform float uTime;
 uniform vec3 uNorth;         // local north (world), for the cloud deck's coordinates
+uniform vec3 uDeck;          // overcast under a thick haze (Venus): contrast, deck height (radii), feature size (radii)
 uniform vec3 uRingN;         // ring plane normal (world); zero for no rings
 uniform vec2 uRingR;         // inner, outer radius (planet radii)
 uniform float uRingProf[16];
@@ -2467,6 +2469,18 @@ void main() {
     float tMax = ground ? sphereHit(o, d, 1.0).x : sphereHit(o, d, uTop).y;
     L = scatter(o, d, tMax, uSun, 2.2, T);
     Tsun = exp(-tauToSun(1.00002, e));
+    // Under Venus's deck the overcast is brighter under thin cloud and darker under thick: features smaller
+    // than the ~50 km of air below are blurred away by the scattering, but the broad streaks the
+    // super-rotation shears east-west (hundreds of km) still show, softly.
+    if (uDeck.x > 0.0 && !ground && h > 0.0) {
+      vec3 east = normalize(cross(uNorth, uUp));
+      vec3 q = d * (uDeck.y / max(h, 0.04));
+      vec2 c = vec2(dot(q, east), dot(q, uNorth)) / uDeck.z;
+      float w = fbm(vec3(c * 0.35, 1.3), 3);
+      float n = fbm(vec3(c.x * 0.25 + w * 1.6 + uTime * 0.004, c.y * 1.4 + w * 0.6, 7.1), 4);
+      float k = uDeck.x * (n - 0.5) * 2.0 * smoothstep(0.03, 0.35, h);
+      L *= 1.0 + k * vec3(0.85, 1.0, 1.15);   // thicker cloud: darker and a little more orange
+    }
   }
   // The star's disc, dimmed and reddened by the air in front of it.
   float cosA = dot(d, uSun);

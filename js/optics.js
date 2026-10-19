@@ -58,7 +58,11 @@ export function atmosphereOptics(b) {
   // Aerosols. tauM = vertical optical depth; HM = aerosol scale height (m).
   let tauM = 0, HM = 1200, alb = [0.9, 0.9, 0.9], gM = [0.76, 0.76, 0.76], kind = 'none';
   const wet = th.liquid > 0.01 || th.steam > 0.01;
-  if (P > 10 && (gases.co2 || 0) / P > 0.5) { kind = 'sulphuric'; tauM = 30; HM = H * 1.5; alb = [0.9995, 0.998, 0.985]; gM = [0.82, 0.83, 0.85]; }
+  // (Albedos set so the light reaching the ground comes out as the Venera landers measured it, orange-yellow:
+  // green ~0.4 and blue ~0.1 of red (Ekonomov et al. 1984). The haze here fills the whole column, and under
+  // ~70 optical depths of scattering light random-walks far enough that tiny absorption adds up, so the
+  // droplets must be nearly lossless; the clouds' real absorber acts mostly in the near ultraviolet.)
+  if (P > 10 && (gases.co2 || 0) / P > 0.5) { kind = 'sulphuric'; tauM = 30; HM = H * 1.5; alb = [0.9995, 0.99929, 0.9992]; gM = [0.82, 0.83, 0.85]; }
   else if (ch4 > 0.01 && P > 0.1) { kind = 'tholin'; tauM = 2.5 + 2.5 * Math.min(1, ch4 / 0.05); HM = H * 1.6; alb = [0.96, 0.87, 0.68]; gM = [0.62, 0.62, 0.62]; }
   else if (wet) { kind = 'water'; tauM = 0.1 * Math.min(3, Math.sqrt(P)); HM = 1200; alb = [0.92, 0.92, 0.92]; gM = [0.76, 0.76, 0.76]; }
   else if (P < 1) { kind = 'dust'; tauM = 0.5 * Math.min(1, P / 0.006); HM = H; alb = [0.98, 0.91, 0.76]; gM = [0.65, 0.72, 0.84]; }

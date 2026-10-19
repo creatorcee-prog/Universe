@@ -612,6 +612,10 @@ export class Renderer3D {
     gl.uniform3fv(u.uCloudCol, this.look(b).colC || [0.95, 0.96, 1]);
     gl.uniform1f(u.uTime, performance.now() / 1000);
     gl.uniform3fv(u.uNorth, sv.north || [0, 0, 1]);
+    // Venus-like overcast (sulphuric deck ~48 km up; features of ~120 km, about the smallest the ~50 km of
+    // scattering air below leaves visible); none elsewhere.
+    const Rkm = b.r * 1.495978707e8;
+    gl.uniform3f(u.uDeck, optics && optics.kind === 'sulphuric' ? 0.5 : 0, 48 / Rkm, 120 / Rkm);
     const ring = this.ringInfo && this.ringInfo.get(b);
     if (ring) {
       gl.uniform3fv(u.uRingN, ring.n);
@@ -1108,7 +1112,12 @@ export class Renderer3D {
       const al = 0.3 * g.amb[0] + 0.55 * g.amb[1] + 0.15 * g.amb[2];
       if (cl > 1e-9) ambG = c.map((v, i) => 0.5 * (v / cl) * al + 0.5 * g.amb[i]);
     }
-    const amb = g ? ambG.map((v, i) => v * adapt * ambK * (ld[1][i] > 0 ? 1 : 0) + 0.004) : sunCol.map((v) => v * 0.04 * Math.max(0, sunUp) + 0.002);
+    let amb = g ? ambG.map((v, i) => v * adapt * ambK * (ld[1][i] > 0 ? 1 : 0) + 0.004) : sunCol.map((v) => v * 0.04 * Math.max(0, sunUp) + 0.002);
+    // Under a thick overcast (Venus, Titan) nearly all light is the sky's: a uniform sky of radiance L gives
+    // irradiance πL, so a surface of albedo A looks A times as bright as the sky above it (Venera's photos show
+    // the ground plainly lit). Taken from the sky as it is shown (g.zen, already in screen units), and scaled for
+    // the map colours being brighter than real dark basalt (albedo ~0.1): rock a few times darker than the sky.
+    if (g && optics.tauM > 3 && sunUp > -0.1) amb = g.zen.map((v) => v * 0.9 + 0.004);
     const ext = optics ? [0, 1, 2].map((i) => (optics.betaR[i] + optics.betaA[i] + optics.betaM[i] + optics.betaMa[i]) / Rm) : [0, 0, 0];
     const fogH = optics ? ((optics.betaR[1] * optics.hR + optics.betaM[1] * optics.hM) / Math.max(1e-9, optics.betaR[1] + optics.betaM[1])) * Rm : 1;
     const gr = (6.674e-11 * b.m * 1.98847e30) / (Rm * Rm);
@@ -1132,7 +1141,11 @@ export class Renderer3D {
     this.bindGen(u, b, Infinity);
     gl.uniform1f(u.uRelief, 4000 * reliefK);
     gl.uniform1f(u.uCraters, l.craters ? Math.min(1, l.craters * 2.5) : 0);
-    gl.uniform1f(u.uRough, 1);
+    // Venus-thick air: few dunes (Magellan found only two fields), and broken basalt slabs and rubble
+    // underfoot, as in the Venera 13 and 14 panoramas.
+    const thickAir = optics && optics.P > 10;
+    gl.uniform1f(u.uRough, thickAir ? 1.8 : 1);
+    gl.uniform1f(u.uDunes, thickAir ? 0.15 : 1);
     const fr = (x) => x - Math.floor(x);
     gl.uniform2f(u.uLocal, fr(sv.lat * 977.3) * 800, fr(sv.lon * 613.7) * 800);
     gl.uniform3fv(u.uL0, ld[0]);

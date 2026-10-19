@@ -33,7 +33,10 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 - (Done) 1. Planet limb against a nebula: nebulae are a new kind of object (Create, the Orion Nebula among real
   objects, book pages, info readouts, spectrum views, the classic view, soft gravity, no collisions or tides),
   and the Stellar Nursery scenario frames a dusty world against one.
-- 2. Venus-like surface under a visible, sheared cloud deck.
+- (Done) 2. Venus surface: the light under ~90 bar now comes out orange-yellow (blue ~0.1 of red, as Venera
+  measured; it was ~1/400 and read pure red), the ground is lit by the overcast as it should be, the ground is
+  broken rock with few dunes, and the overcast carries soft east-west streaks from the deck 48 km up. The
+  image's crisp cloud texture is not physical from the ground: ~50 km of scattering air blurs anything smaller.
 - 3. Desert sunset with dark storm clouds and a mesa.
 - 4. A solar eclipse seen from the ground.
 - 5. A red dwarf rising behind a red-lit rocky planet, its surface granulated.
