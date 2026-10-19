@@ -48,6 +48,11 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
   orbits; book entry; in Create's real objects), red dwarfs given real temperatures, radii and luminosities
   (the old power law made TRAPPIST-1 1,700 K; now 2,557 K and 5.4e-4 L☉), and their discs mottled by the heavy
   spotting of active M dwarfs (true granules are far too small to see).
+- (Done) Surface detail: 3D rocks and stones scattered over the ground (1,800 lumpy, turned, half-buried,
+  sized as a power law with few boulders and many pebbles; fewer under seas, ice and thick air; a setting),
+  shadowed for real by a shadow map rendered from the Sun (rocks shade the ground, each other and themselves);
+  no dunes on airless worlds. Fixed: the floor shook in Surface view (the camera was placed before the
+  planet's spin advanced, so it lagged one frame).
 
 ## New list
 

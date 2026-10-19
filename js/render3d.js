@@ -192,6 +192,23 @@ function earthReal() {
   return EARTH_REAL;
 }
 
+// A unit icosphere: the icosahedron's 12 corners, each face split into 4 per subdivision, pushed out to the sphere.
+function icosphere(sub) {
+  const t = (1 + Math.sqrt(5)) / 2;
+  let pos = [[-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0], [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t], [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1]];
+  let faces = [[0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11], [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
+    [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9], [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]];
+  const norm = (v) => { const l = Math.hypot(...v); return v.map((x) => x / l); };
+  pos = pos.map(norm);
+  for (let s = 0; s < sub; s++) {
+    const mid = new Map(), next = [];
+    const m = (a, b) => { const k = a < b ? a + ',' + b : b + ',' + a; if (!mid.has(k)) { mid.set(k, pos.length); pos.push(norm(pos[a].map((x, i) => (x + pos[b][i]) / 2))); } return mid.get(k); };
+    for (const [a, b, c] of faces) { const ab = m(a, b), bc = m(b, c), ca = m(c, a); next.push([a, ab, ca], [b, bc, ab], [c, ca, bc], [ab, bc, ca]); }
+    faces = next;
+  }
+  return { pos: new Float32Array(pos.flat()), idx: faces.flat() };
+}
+
 // Realistic view: WebGL2 spheres with procedural, physically driven surfaces.
 // Positions are taken relative to the camera in double precision before going to the GPU,
 // so the same scene works from a few kilometres up to galaxy scale.
@@ -364,7 +381,7 @@ export class Renderer3D {
     this.gen = ++contextGen;
     canvas.addEventListener('webglcontextrestored', () => {
       this.gen = ++contextGen;
-      this.mapTex = new Map(); this.dTex = null; this.nightTex = null; this.tMesh = null; this.post = null; this.genMaps = null; this.noiseTex = null; this.cloudRTs = null; this.skyLayer = null; this.nebRT = null;
+      this.mapTex = new Map(); this.dTex = null; this.nightTex = null; this.tMesh = null; this.rMesh = null; this.shTarget = null; this.post = null; this.genMaps = null; this.noiseTex = null; this.cloudRTs = null; this.skyLayer = null; this.nebRT = null;
       this.init(); this.lost = false;
     });
     this.init();
@@ -1058,12 +1075,85 @@ export class Renderer3D {
     gl.bufferData(gl.ARRAY_BUFFER, v, gl.STATIC_DRAW);
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    // (The rock attributes, all zero for the ground: see rockMesh.)
+    const zb = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, zb);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array((v.length / 2) * 4), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(2);
+    gl.vertexAttribPointer(2, 3, gl.FLOAT, false, 0, 0);
     const ib = gl.createBuffer();
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(idx), gl.STATIC_DRAW);
     gl.bindVertexArray(null);
     this.tMesh = { vao, n: idx.length };
     return this.tMesh;
+  }
+
+  // The rocks' shadow map: 1024² (about 8 cm per texel over 80 m), distance packed into the colour channels
+  // (TERRAIN_FS shDecode), so read without filtering; with its own depth buffer.
+  shadowTarget() {
+    if (this.shTarget) return this.shTarget;
+    const gl = this.gl, T = this.makeTarget(1024, 1024);
+    gl.bindTexture(gl.TEXTURE_2D, T.tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    T.depth = gl.createRenderbuffer();
+    gl.bindRenderbuffer(gl.RENDERBUFFER, T.depth);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, 1024, 1024);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, T.fbo);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, T.depth);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFB);
+    this.shTarget = T;
+    return T;
+  }
+
+  // Rocks around the observer, drawn by the terrain program (TERRAIN_VS places each on the ground there and
+  // decides, from how rocky the ground is, whether it shows). Each is a once-subdivided icosahedron (42
+  // corners) that the shader makes lumpy, flattened and turned. Placed more densely near the observer;
+  // sizes follow a steep power law (mostly fist-sized stones, a few boulders), and only bigger ones farther
+  // out, where small ones would be under a pixel.
+  rockMesh() {
+    if (this.rMesh) return this.rMesh;
+    const gl = this.gl, N = 1800, ico = icosphere(1), nv = ico.pos.length / 3;
+    const rock = new Float32Array(N * nv * 4), local = new Float32Array(N * nv * 3), idx = new Uint32Array(N * ico.idx.length);
+    let seed = 12345;
+    const rnd = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+    for (let k = 0; k < N; k++) {
+      const r = 1.6 + 220 * Math.pow(rnd(), 2.8), a = rnd() * Math.PI * 2;
+      const size = (0.04 + 0.55 * Math.pow(rnd(), 5)) * (1 + r / 90);
+      const x = Math.cos(a) * r, y = Math.sin(a) * r, s = rnd() * 0.999 + 0.0005;
+      for (let i = 0; i < nv; i++) {
+        const o = k * nv + i;
+        rock.set([x, y, size, s], o * 4);
+        local.set([ico.pos[i * 3], ico.pos[i * 3 + 1], ico.pos[i * 3 + 2]], o * 3);
+      }
+      for (let i = 0; i < ico.idx.length; i++) idx[k * ico.idx.length + i] = k * nv + ico.idx[i];
+    }
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    const zb = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, zb);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(N * nv * 2), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    const rb = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, rb);
+    gl.bufferData(gl.ARRAY_BUFFER, rock, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0);
+    const lb = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, lb);
+    gl.bufferData(gl.ARRAY_BUFFER, local, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(2);
+    gl.vertexAttribPointer(2, 3, gl.FLOAT, false, 0, 0);
+    const ib = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+    gl.bindVertexArray(null);
+    this.rMesh = { vao, n: idx.length };
+    return this.rMesh;
   }
 
   // The ground around the observer in the Surface view. Lit by the sunlight that reaches the ground and
@@ -1183,17 +1273,19 @@ export class Renderer3D {
     // underfoot, as in the Venera 13 and 14 panoramas.
     const thickAir = optics && optics.P > 10;
     gl.uniform1f(u.uRough, thickAir ? 1.8 : 1);
-    gl.uniform1f(u.uDunes, thickAir ? 0.15 : 1);
+    gl.uniform1f(u.uDunes, !optics ? 0 : thickAir ? 0.15 : 1);   // (and none without air: dunes need wind)
     gl.uniform1f(u.uArid, this.aridity(b, sv, optics));
     const fr = (x) => x - Math.floor(x);
     gl.uniform2f(u.uLocal, fr(sv.lat * 977.3) * 800, fr(sv.lon * 613.7) * 800);
     gl.uniform3fv(u.uL0, ld[0]);
     gl.uniform3fv(u.uSunCol, sunCol);
+    let sunO = [0, 0, 1];
     {
       // The Sun in the body's own frame, and its angular size, for the shadows the terrain casts.
       const P = lights && lights.primary;
       const wd = P && P.d > 0 ? [P.dx / P.d, P.dy / P.d, P.dz / P.d] : [0, 1, 0];
-      gl.uniform3f(u.uSunO, rot[0] * wd[0] + rot[1] * wd[1] + rot[2] * wd[2], rot[3] * wd[0] + rot[4] * wd[1] + rot[5] * wd[2], rot[6] * wd[0] + rot[7] * wd[1] + rot[8] * wd[2]);
+      sunO = [rot[0] * wd[0] + rot[1] * wd[1] + rot[2] * wd[2], rot[3] * wd[0] + rot[4] * wd[1] + rot[5] * wd[2], rot[6] * wd[0] + rot[7] * wd[1] + rot[8] * wd[2]];
+      gl.uniform3fv(u.uSunO, sunO);
       gl.uniform1f(u.uSunAngT, P && P.s && P.s.r ? P.s.r / P.d : 0.00465);
     }
     gl.uniform3fv(u.uAmb, amb);
@@ -1230,11 +1322,69 @@ export class Renderer3D {
     const rainK = this.weather ? this.weather.rain || 0 : 0;   // (rain cuts visibility to a few km)
     gl.uniform4f(u.uHaze, 4e-5 * (0.3 + 1.7 * humid) * airK * (1 + 12 * rainK), 1500, Pbar > 0.05 ? 1.2e-3 * humid * dawn * (0.3 + 0.7 * cool) * airK : 0, 0);
     if (window.__tdbg) window.__tdbg = { n, eyeH, wr, br: b.r, upWorld: [rot[0] * n[0] + rot[3] * n[1] + rot[6] * n[2], rot[1] * n[0] + rot[4] * n[1] + rot[7] * n[2], rot[2] * n[0] + rot[5] * n[1] + rot[8] * n[2]], svUp: sv.up, upV, ex: [this.ex, this.ey, this.ez], b: [b.x, b.y, b.z] };
+    // Rocks, and their shadow map: the rocks within ~40 m drawn as seen from the Sun (orthographic, in the
+    // observer's east/north/up frame), so the ground and the rocks themselves can tell whether a rock stands
+    // between them and the Sun.
+    const rockiness = !optics ? 1 : optics.P > 10 ? 0.9 : th && th.liquid > 0.05 ? 0.35 : th && th.ice > 0.5 ? 0.6 : 0.85;
+    const rocksOn = rockiness > 0 && !(this.settings.rocks === false);
+    const sh = this.shadowTarget();
+    // (While drawing into the map, the program's map sampler holds something else: reading the texture being
+    // drawn is a feedback loop WebGL refuses.)
+    this.bindTex(3, this.cloudNoise(), u.uShTex);
+    gl.activeTexture(gl.TEXTURE0);
+    let shOn = 0;
+    if (rocksOn && sunUp > 0.03) {
+      const dot = (a, c) => a[0] * c[0] + a[1] * c[1] + a[2] * c[2];
+      let L = [dot(sunO, east), dot(sunO, north), dot(sunO, n)];
+      const ll = Math.hypot(...L); L = L.map((x) => x / ll);
+      let U = [-L[1], L[0], 0];   // L × up: level, across the sunlight
+      const ul = Math.hypot(...U);
+      U = ul > 1e-4 ? U.map((x) => x / ul) : [1, 0, 0];
+      const V = [L[1] * U[2] - L[2] * U[1], L[2] * U[0] - L[0] * U[2], L[0] * U[1] - L[1] * U[0]];
+      gl.uniform3fv(u.uShU, U); gl.uniform3fv(u.uShV, V); gl.uniform3fv(u.uShL, L);
+      gl.uniform2f(u.uShSize, 40, 160);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, sh.fbo);
+      gl.viewport(0, 0, sh.w, sh.h);
+      gl.clearColor(1, 1, 1, 1);
+      gl.clearDepth(1);
+      gl.depthMask(true);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      gl.enable(gl.DEPTH_TEST);
+      gl.depthFunc(gl.LESS);
+      gl.disable(gl.BLEND);
+      gl.uniform1f(u.uShadowPass, 1);
+      gl.uniform1f(u.uLogDepthFC, 2);
+      gl.uniform1f(u.uRocks, rockiness);
+      const rm = this.rockMesh();
+      gl.bindVertexArray(rm.vao);
+      gl.drawElements(gl.TRIANGLES, rm.n, gl.UNSIGNED_INT, 0);
+      gl.uniform1f(u.uShadowPass, 0);
+      gl.uniform1f(u.uLogDepthFC, this.logFC);
+      gl.uniform1f(u.uRocks, 0);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFB);
+      gl.viewport(0, 0, this.sceneW, this.sceneH);
+      gl.depthFunc(gl.LEQUAL);
+      gl.clearColor(0, 0, 0, 0);
+      shOn = 1;
+      this.bindTex(3, sh.tex, u.uShTex);
+      gl.activeTexture(gl.TEXTURE0);
+    }
+    gl.uniform1f(u.uShOn, shOn);
     const m = this.terrainMesh();
     gl.uniform1f(u.uRefl, 0);
     gl.disable(gl.CULL_FACE);
     gl.bindVertexArray(m.vao);
     gl.drawElements(gl.TRIANGLES, m.n, gl.UNSIGNED_INT, 0);
+    // Rocks: how rocky the ground is. Bare, dry worlds are strewn with them (the Moon, Mars, Venus's slabs);
+    // Earth's are mostly under soil and plants; icy worlds have blocks of ice (Titan's rounded "rocks" at the
+    // Huygens site are water ice).
+    if (rocksOn) {
+      const rm = this.rockMesh();
+      gl.uniform1f(u.uRocks, rockiness);
+      gl.bindVertexArray(rm.vao);
+      gl.drawElements(gl.TRIANGLES, rm.n, gl.UNSIGNED_INT, 0);
+      gl.uniform1f(u.uRocks, 0);
+    }
     // Water mirrors the frame: copy it out (resolved), then draw the water again reading its reflection there,
     // over the same pixels (depth EQUAL).
     const post = this.post;
@@ -1546,6 +1696,31 @@ export class Renderer3D {
     if (this.samples !== prevS) this.freePost(); // rebuilt at the next draw
   }
 
+  // Spin bodies (capped so fast time-warp doesn't strobe). Called by the main loop before the surface view
+  // places its camera, so the camera and the ground below it turn together (it used to run here, after the
+  // camera was set: the view lagged the ground by one frame's spin, which jittered with the frame time).
+  stepSpins(world, simDt, dtReal, now) {
+    this.spunAt = now;
+    for (const b of world.bodies) {
+      const l = this.look(b);
+      let s = this.spin.get(b);
+      if (!s) { s = { ang: seeded(b.id) * 6.28 }; this.spin.set(b, s); }
+      if (l.locked) {
+        // Tidally locked: the same face (body +x, longitude 0) always points at the parent planet,
+        // the one closest in tidal terms (smallest distance / cube root of mass).
+        let par = null, best = Infinity;
+        for (const o of world.bodies) {
+          if (o === b || o.m <= b.m) continue;
+          const k = Math.hypot(o.x - b.x, o.y - b.y, o.z - b.z) / Math.cbrt(o.m);
+          if (k < best) { best = k; par = o; }
+        }
+        if (par) { s.ang = Math.atan2(-(par.z - b.z), par.x - b.x); continue; }
+      }
+      const w = (Math.PI * 2) / Math.max(l.day * HOUR_YR, 1e-9);
+      s.ang += Math.min(w * simDt, MAX_SPIN * dtReal) * Math.sign(l.day);
+    }
+  }
+
   draw(now, ui, dtReal, simDt) {
     if (this.lost) return;
     this.adaptQuality(dtReal, now);
@@ -1595,25 +1770,7 @@ export class Renderer3D {
     gl.enable(gl.CULL_FACE);
     gl.cullFace(gl.BACK);
 
-    // Spin bodies (capped so fast time-warp doesn't strobe).
-    for (const b of world.bodies) {
-      const l = this.look(b);
-      let s = this.spin.get(b);
-      if (!s) { s = { ang: seeded(b.id) * 6.28 }; this.spin.set(b, s); }
-      if (l.locked) {
-        // Tidally locked: the same face (body +x, longitude 0) always points at the parent planet,
-        // the one closest in tidal terms (smallest distance / cube root of mass).
-        let par = null, best = Infinity;
-        for (const o of world.bodies) {
-          if (o === b || o.m <= b.m) continue;
-          const k = Math.hypot(o.x - b.x, o.y - b.y, o.z - b.z) / Math.cbrt(o.m);
-          if (k < best) { best = k; par = o; }
-        }
-        if (par) { s.ang = Math.atan2(-(par.z - b.z), par.x - b.x); continue; }
-      }
-      const w = (Math.PI * 2) / Math.max(l.day * HOUR_YR, 1e-9);
-      s.ang += Math.min(w * simDt, MAX_SPIN * dtReal) * Math.sign(l.day);
-    }
+    if (this.spunAt !== now) this.stepSpins(world, simDt, dtReal, now);
     // Cloud clock (days): follows the simulation, at most 0.4 days per real second so fast-forward
     // churns the weather without strobing.
     if (dtReal > 0 && dtReal < 1) this.cloudT = (this.cloudT || 0) + Math.min(Math.max(simDt || 0, 0) * 365.25, 0.4 * dtReal);

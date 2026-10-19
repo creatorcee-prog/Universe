@@ -1210,6 +1210,14 @@ float smallHeight(vec2 p, float rough, float res) {
 
 export const TERRAIN_VS = HEAD + NOISE + MAPTEX_VS + TERRAIN_COMMON + `
 layout(location = 0) in vec2 aPolar;   // distance from the observer (m), azimuth
+layout(location = 1) in vec4 aRock;    // rocks (a second draw with this program): centre (m east, north), size (m), seed;
+                                       // all zero for the ground itself
+layout(location = 2) in vec3 aLocal;   // a rock's vertex on a unit icosphere
+uniform float uRocks;                  // how rocky the ground is here, 0..1 (rocks are hidden as it drops)
+uniform float uShadowPass;             // 1: drawing the rocks into the Sun's shadow map (see drawTerrain)
+uniform vec3 uShU, uShV, uShL;         // the shadow map's axes, local (east, north, up): across, across, toward the Sun
+uniform vec2 uShSize;                  // its half-width (m), its depth range (m)
+out vec3 vLocalQ;                      // this point in the observer's local frame (m east, north, up), for shadows
 uniform mat4 uProj;
 uniform mat3 uView, uRot;              // world -> view, object -> world
 uniform vec3 uObs, uEast, uNorth;      // object frame: observer's direction and local axes
@@ -1223,6 +1231,8 @@ out vec3 vNrm;                         // smooth ground normal (view space)
 out float vShadow;                     // sunlight left after the terrain's own shadows
 out float vEyeAlt;                     // the eye's height above sea level (m)
 out vec2 vValley;                      // valley floor (0..1) here and at the eye, for the mist
+out float vRock;                       // 1 on a rock
+out vec3 vRockL;                       // the rock's own coordinates (unit icosphere), for its texture
 uniform vec3 uSunO;                    // direction to the Sun, object frame
 uniform float uSunAngT;                // the Sun's angular radius (rad)
 ` + LOGDEPTH_V + `
@@ -1234,8 +1244,12 @@ float terrainH(vec3 d, vec2 p, float res, out vec2 em) {
 }
 float mapHeight(vec3 d) { return uHMapK > 0.5 ? mapTex(uHMap, uHRot * d).r * uHScale : 0.0; }
 void main() {
-  float r = aPolar.x;
-  vec2 p = vec2(cos(aPolar.y), sin(aPolar.y)) * r;
+  // A rock: placed at its centre, on the ground as drawn there (the same heights, at the mesh's spacing).
+  float rk = aRock.z;
+  vec2 p = rk > 0.0 ? aRock.xy : vec2(cos(aPolar.y), sin(aPolar.y)) * aPolar.x;
+  float r = rk > 0.0 ? length(p) : aPolar.x;
+  vRock = rk > 0.0 ? 1.0 : 0.0;
+  vRockL = aLocal;
   vec3 d = normalize(uObs + (uEast * p.x + uNorth * p.y) / uRm);
   float res = 0.1 * r + 0.05;            // the mesh's spacing here (rings ~10% apart)
   vec2 em, em0;
@@ -1252,6 +1266,27 @@ void main() {
   vValley = vec2(max(rangeValley(p), coastal), max(rangeValley(vec2(0.0)), uSeaOK > 0.5 ? 1.0 - smoothstep(20.0, 300.0, Href) : 0.0));
   float drop = dot(p, p) / (2.0 * uRm);  // the planet curving away
   vec3 rel = uEast * p.x + uNorth * p.y + uObs * (Hs - Href - drop - uEyeH);
+  vec3 rockOff = vec3(0.0), rockN = vec3(0.0, 0.0, 1.0);
+  if (rk > 0.0) {
+    // Which rocks lie here: more where the ground is rocky and on slopes, in patches (boulder fields), none in the
+    // sea. (Decided from the rock's centre alone, so a rock shows whole or not at all.)
+    vec2 pw = p + uLocal;
+    float patchN = smoothstep(0.3, 0.7, vnoise(vec3(pw / 90.0, 61.0)));
+    float keep = uRocks * (0.25 + 0.75 * patchN);
+    if (hash(vec3(aRock.w * 13.1, 7.0, 3.0)) > keep || H < sea + 0.05) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); vFragDepth = 1.0; return; }
+    // Shape: a lumpy, flattened, elongated stone, turned at random and sunk about a third into the ground,
+    // following the slope it rests on.
+    float s1 = hash(vec3(aRock.w, 1.0, 2.0)), s2 = hash(vec3(aRock.w, 3.0, 4.0)), ang = aRock.w * 6.2832;
+    vec3 L = aLocal * (1.0 + 0.45 * (vnoise(aLocal * 2.2 + aRock.w * 17.0) - 0.5) + 0.15 * (vnoise(aLocal * 5.0 + aRock.w * 5.0) - 0.5));
+    L *= vec3(1.0 + 0.5 * s1, 1.0 - 0.15 * s1, 0.45 + 0.4 * s2);
+    vec2 xy = vec2(cos(ang) * L.x - sin(ang) * L.y, sin(ang) * L.x + cos(ang) * L.y) * rk;
+    float z = (L.z - 0.3) * rk;
+    rockOff = vec3(xy, z);
+    // Its normal: that of the stretched sphere (lumps included roughly), turned the same way.
+    vec3 sc = vec3(1.0 + 0.5 * s1, 1.0 - 0.15 * s1, 0.45 + 0.4 * s2);
+    vec3 nl = normalize(L / (sc * sc));
+    rockN = vec3(cos(ang) * nl.x - sin(ang) * nl.y, sin(ang) * nl.x + cos(ang) * nl.y, nl.z);
+  }
   vec3 world = uRot * rel / uAU;
   vViewPos = uView * world;
   // Normal from the height field's slope (central differences at the mesh spacing), so lighting is smooth
@@ -1269,6 +1304,25 @@ void main() {
     gy += (mapHeight(normalize(uObs + (uEast * p.x + uNorth * (p.y + ep2)) / uRm)) - Hm) / ep2;
   }
   vNrm = uView * (uRot * normalize(uObs - uEast * gx - uNorth * gy));
+  if (rk > 0.0) {
+    // The rock's vertex: out from its centre, tilted with the slope underneath.
+    rel += uEast * rockOff.x + uNorth * rockOff.y + uObs * (rockOff.z + gx * rockOff.x + gy * rockOff.y);
+    world = uRot * rel / uAU;
+    vViewPos = uView * world;
+    vNrm = uView * (uRot * normalize(uEast * rockN.x + uNorth * rockN.y + uObs * rockN.z));
+  }
+  // Where this point is in the observer's own frame (m east, north, up), for the rocks' shadow map.
+  vec3 Q = vec3(p, Hs - Href - drop - uEyeH);
+  if (rk > 0.0) Q += vec3(rockOff.xy, rockOff.z + gx * rockOff.x + gy * rockOff.y);
+  vLocalQ = Q;
+  if (uShadowPass > 0.5) {
+    // Seen from the Sun (orthographic): across, across, and distance toward it (0 nearest the Sun). The depth
+    // goes out through WRITE_DEPTH, which with uLogDepthFC = 2 writes log2(vFragDepth).
+    float dS = clamp((uShSize.y * 0.5 - dot(Q, uShL)) / uShSize.y, 0.0, 1.0);
+    gl_Position = vec4(dot(Q, uShU) / uShSize.x, dot(Q, uShV) / uShSize.x, dS * 2.0 - 1.0, 1.0);
+    vFragDepth = exp2(dS);
+    return;
+  }
   // Shadows cast by the terrain: march toward the Sun over the height field. Ground rising above the line to
   // the Sun (climbing at its elevation, and by x²/2R as the planet curves away below it) shades this point,
   // softly over the width of the Sun's disc. Only with the Sun below ~27°, when shadows are long.
@@ -1279,14 +1333,16 @@ void main() {
   if (sU > -0.035 && sU < 0.45 && shl > 1e-4) {
     vec2 hd = sh2 / shl;
     float tE = sU / shl, x = max(res, 20.0), sunA = max(uSunAngT, 0.002);
+    int steps = rk > 0.0 ? 5 : 14;   // (rocks: fewer, coarser steps; there are many of their vertices)
     for (int i = 0; i < 14; i++) {
+      if (i >= steps) break;
       vec2 q = p + hd * x;
       vec3 dq = normalize(uObs + (uEast * q.x + uNorth * q.y) / uRm);
       vec2 emq;
       float hq = max(terrainH(dq, q, max(res, x * 0.08), emq) + mapHeight(dq), sea);
       float ray = Hs + x * tE + x * x / (2.0 * uRm);
       vShadow = min(vShadow, clamp(0.5 + (ray - hq) / (2.0 * x * sunA), 0.0, 1.0));
-      x *= 1.75;
+      x *= rk > 0.0 ? 2.6 : 1.75;
     }
   }
   vDir = d; vPlanar = p; vInfo = vec3(H, em.y, r);
@@ -1304,6 +1360,8 @@ in vec3 vNrm;
 in float vShadow;
 in float vEyeAlt;
 in vec2 vValley;
+in float vRock;
+in vec3 vRockL;
 ` + LOGDEPTH_F + `
 uniform vec3 uL0, uSunCol, uAmb;       // sun direction (view), sunlight reaching the ground, sky light
 uniform vec3 uEastV, uNorthV, uUpV;    // local axes in view space
@@ -1326,8 +1384,44 @@ float layerDepth(float k, float S, float b, float h0, float h1, float L) {
   float dh = h1 - h0;
   return k * L * (abs(dh) < S * 0.01 ? 0.5 * (a0 + a1) : S * (a0 - a1) / dh);
 }
+in vec3 vLocalQ;
+// The rocks' shadow map (drawn from the Sun just before the ground; see drawTerrain): distance toward the Sun
+// spread over three channels so 8-bit and half-float targets both hold it finely enough.
+uniform float uShadowPass, uShOn;
+uniform sampler2D uShTex;
+uniform vec3 uShU, uShV, uShL;
+uniform vec2 uShSize;
+float shDecode(vec4 c) { return c.r + c.g / 256.0 + c.b / 65536.0; }
 void main() {
+  if (uShadowPass > 0.5) {
+    float dS = log2(vFragDepth);
+    outColor = vec4(floor(dS * 256.0) / 256.0, floor(fract(dS * 256.0) * 256.0) / 256.0, fract(dS * 65536.0), 1.0);
+    ` + WRITE_DEPTH + `
+    return;
+  }
   vec3 sunC = uSunCol * vShadow;         // the Sun's light, where the terrain does not shade it
+  // Rocks' shadows, on the ground and on each other: is a rock nearer the Sun along this point's line to it?
+  // Four spread samples, each the four nearest texels' answers blended by position (soft edges, not blocks); more bias where the
+  // surface turns from the Sun (against self-shadowing speckle); fading out at the map's edge.
+  if (uShOn > 0.5) {
+    vec2 st = vec2(dot(vLocalQ, uShU), dot(vLocalQ, uShV)) / uShSize.x;
+    float edge = max(abs(st.x), abs(st.y));
+    if (edge < 1.0) {
+      float facing = clamp(dot(normalize(vNrm), uL0), 0.0, 1.0);
+      float dS = (uShSize.y * 0.5 - dot(vLocalQ, uShL)) / uShSize.y, bias = (0.04 + 0.25 * (1.0 - facing)) / uShSize.y;
+      vec2 tc0 = (st * 0.5 + 0.5) * 1024.0 - 0.5;
+      float lit = 0.0;
+      for (int k = 0; k < 4; k++) {
+        vec2 tc = tc0 + vec2(k == 0 || k == 2 ? -0.8 : 0.8, k < 2 ? -0.8 : 0.8), f = fract(tc), c0 = (floor(tc) + 0.5) / 1024.0;
+        float t00 = dS - bias > shDecode(texture(uShTex, c0)) ? 0.0 : 1.0;
+        float t10 = dS - bias > shDecode(texture(uShTex, c0 + vec2(1.0 / 1024.0, 0.0))) ? 0.0 : 1.0;
+        float t01 = dS - bias > shDecode(texture(uShTex, c0 + vec2(0.0, 1.0 / 1024.0))) ? 0.0 : 1.0;
+        float t11 = dS - bias > shDecode(texture(uShTex, c0 + vec2(1.0 / 1024.0))) ? 0.0 : 1.0;
+        lit += 0.25 * mix(mix(t00, t10, f.x), mix(t01, t11, f.x), f.y);
+      }
+      sunC *= mix(lit, 1.0, smoothstep(0.85, 1.0, edge));
+    }
+  }
   float H = vInfo.x, mtnBig = vInfo.y, dist = vInfo.z;
   vec3 V = normalize(-vViewPos);
   float res = max(0.002, dist * uPxAng);            // metres per pixel here
@@ -1336,6 +1430,7 @@ void main() {
   // Temperature here: latitude, then air cooling with height (lapse rate).
   float T = uTemp + uLatSpan * (0.33 - lat * lat) - uLapse * max(H, 0.0) * 0.001;
   vec3 col; vec3 N;
+  vec3 rockBase = vec3(0.35, 0.33, 0.3);   // the local rock's colour (set by the ground below), for rocks
   float ssrA = 0.0;                      // reflection pass: how much of the mirrored frame this water pixel shows
   if (water) {
     // Waves: two scales of drifting noise, slope only (the surface stays flat).
@@ -1412,6 +1507,7 @@ void main() {
     vec3 soil = mix(uColA, uColB, smoothstep(0.3, 0.7, fbm(q3 * 2.4 + 7.0, 4) * 0.6 + n1 * 0.4));
     soil = mix(soil, soil * vec3(1.15, 1.0, 0.8), desert * 0.5);
     vec3 rock = mix(vec3(0.33, 0.31, 0.29), uColB * 0.85, uOcean > 0.0 ? 0.35 : 0.75) * (0.8 + 0.4 * n2);
+    rockBase = rock;
     col = soil;
     if (uMapMode > 2.5 && uMapMode < 3.5) col *= 0.6 + 0.8 * mapTex(uMap, vDir).r;
     // Colour map: the ground takes the colour seen from orbit, varied by the local soil pattern.
@@ -1484,6 +1580,15 @@ void main() {
     }
     // Lambert with a little wrap, sky light from above, and the planet's own heat when molten.
     float ndl = max(dot(N, uL0), 0.0);
+    if (vRock > 0.5) {
+      // A rock: its own normal (from the vertex shader), the local rock's colour with the ground's own tint
+      // (dust settles on it), mottled, darker toward its buried base (less sky reaches it there).
+      N = normalize(vNrm);
+      ndl = max(dot(N, uL0), 0.0);
+      float m1 = vnoise(vRockL * 4.0 + vPlanar.x * 0.37), m2 = vnoise(vRockL * 13.0 + vPlanar.y * 0.53);
+      col = mix(rockBase, col, 0.35) * (0.7 + 0.3 * m1) * (0.85 + 0.3 * m2);
+      col *= 0.55 + 0.45 * smoothstep(-0.45, 0.25, vRockL.z);
+    }
     col = col * (sunC * ndl + uAmb * (0.55 + 0.45 * dot(N, uUpV)));
     float hot = smoothstep(800.0, 1500.0, T);
     if (hot > 0.0) {
