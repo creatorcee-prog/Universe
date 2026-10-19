@@ -41,7 +41,9 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
   heat and light source.
 - **More comets** (done: Encke, 67P, Tempel 1, Wild 2, Hartley 2, Swift–Tuttle, Hale–Bopp beside Halley). Was: a curated set (Hale–Bopp, Encke, 67P, Shoemaker–Levy 9's parent orbit…). The named moons
   and dwarf planets are done.
-- **Janus and Epimetheus swapping orbits** needs the planets' flattening (J2) in the moon integrator.
+- **Janus and Epimetheus swapping orbits** (done: planets' flattening J2 in the moon integrator, and moons down to
+  Epimetheus's mass pull on their neighbours; they swap about every 2.3 yr against the real 4 yr, because the
+  starting orbits ignore J2 and sit ~60–100 km apart instead of ~50 km).
 - **Speculative life beyond Earth-like worlds**: Sagan & Salpeter's (1976, ApJS 32, 737)
   "floaters, sinkers and hunters" in Jupiter's clouds, and other plausible ideas from speculative
   evolution, shown as a separate "exotic life" verdict next to the Earth-like checklist.

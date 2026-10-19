@@ -14,7 +14,13 @@ import { G } from './units.js';
 
 const MAX_SUB = 64;         // kicks per moon per frame
 const pertBuf = [], sibBuf = [];   // scratch lists (see pertFor)
-const SIB_GM = 7e-12;       // moons above ~1 km³/s² (Mimas, Proteus and up) pull on their neighbours (M☉ units)
+const SIB_GM = 2.5e-13;     // moons above ~0.03 km³/s² (Epimetheus, Janus, Amalthea and up) pull on their neighbours (M☉ units):
+                            // their mutual pull is what makes Janus and Epimetheus swap orbits every four years
+// The planets' flattening, J2 (Jacobson; Iess et al. 2019 for Saturn): it makes close moons' orbits precess
+// and sets co-orbitals like Janus and Epimetheus apart. Along the planet's pole, as the moon frames use it
+// (presets.js moonState: tilt about the x axis).
+const J2 = { Earth: 1.0826e-3, Mars: 1.9566e-3, Jupiter: 1.4736e-2, Saturn: 1.6298e-2, Uranus: 3.343e-3, Neptune: 3.411e-3 };
+const TILT = { Earth: 23.44, Mars: 25.2, Jupiter: 3.1, Saturn: 26.7, Uranus: 97.8, Neptune: 28.3 };
 
 // Kepler drift of (r, v) about mass mu = GM for time dt, elliptic orbits (f and g functions in the change of
 // eccentric anomaly; Danby, Fundamentals of Celestial Mechanics §6.8). Writes into s = [x, y, z, vx, vy, vz].
@@ -179,6 +185,18 @@ export function stepMinors(world, groups, att, cp, cpT, steps, t0, span) {
       if (s[0] * s[0] + s[1] * s[1] + s[2] * s[2] < (h.r + m.r) ** 2) { m._hit = true; m._stop = true; }
     };
     const rOf = (m) => Math.hypot(m._s[0], m._s[1], m._s[2]);
+    // Oblateness: a = -(3/2) J2 GM R² / r^5 [(1 - 5 z²/r²) r + 2 z pole], z along the pole.
+    const pname = h.name.replace(/ \d+$/, ''), j2 = J2[pname] || 0;
+    const tl = ((h.tiltDeg !== undefined ? h.tiltDeg : TILT[pname] || 0) * Math.PI) / 180;
+    const pole = [0, Math.cos(tl), Math.sin(tl)], jk = 1.5 * j2 * muH * h.r * h.r;
+    const pullJ2 = (s, acc) => {
+      if (!j2) return;
+      const r2 = s[0] * s[0] + s[1] * s[1] + s[2] * s[2], r = Math.sqrt(r2), z = s[0] * pole[0] + s[1] * pole[1] + s[2] * pole[2];
+      const k = jk / (r2 * r2 * r), f = 1 - (5 * z * z) / r2;
+      acc[0] -= k * (f * s[0] + 2 * z * pole[0]); acc[1] -= k * (f * s[1] + 2 * z * pole[1]); acc[2] -= k * (f * s[2] + 2 * z * pole[2]);
+    };
+    // Matters (above 1e-6 of the planet's pull) within ~130 radii for Saturn.
+    const j2Matters = (r) => j2 * (h.r / r) ** 2 > 1e-6;
 
     // 1. The big moons, together. Their positions at each kick are kept for the small ones.
     const core = ms.filter((m) => m.m > SIB_GM);
@@ -197,6 +215,7 @@ export function stepMinors(world, groups, att, cp, cpT, steps, t0, span) {
           acc[0] = acc[1] = acc[2] = 0;
           pullAtt(pert, t, m._s, m, acc);
           for (const o of core) if (o !== m) pullSib(o, o._s, m._s, m, acc);
+          pullJ2(m._s, acc);
           m._acc = m._acc || [0, 0, 0];
           m._acc[0] = acc[0]; m._acc[1] = acc[1]; m._acc[2] = acc[2];
         }
@@ -228,6 +247,7 @@ export function stepMinors(world, groups, att, cp, cpT, steps, t0, span) {
       acc[0] = acc[1] = acc[2] = 0;
       pullAtt(pert, t, m._s, m, acc);
       for (let i = 0; i < sibs.length; i++) pullSib(core[sibs[i]], sibAt(sibs[i], t, so), m._s, m, acc);
+      if (m._j2) pullJ2(m._s, acc);
       apply(m, acc, w);
     };
     for (const m of ms) {
@@ -241,6 +261,9 @@ export function stepMinors(world, groups, att, cp, cpT, steps, t0, span) {
         const o = core[j], dr = Math.max(Math.abs(rOf(o) - r), 0.01 * r);
         if ((o.m / h.m) * (r / dr) ** 2 > 1e-6) sibs.push(j);
       }
+      // (J2 alone only slowly precesses an orbit: it is added to moons that take kicks anyway, rather than making
+      // every inner moon take them.)
+      m._j2 = j2Matters(r);
       if (!pert.length && !sibs.length) { drift(m, span); continue; }
       const n = kicks(period(r, M)), dt = span / n;
       smallKick(m, pert, sibs, t0, dt / 2);
