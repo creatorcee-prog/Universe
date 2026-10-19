@@ -58,8 +58,8 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
    snow along the mountain chains.
 2. Clouds for made-up worlds: a generated weather map (streaks, swirling storms), cloud shadows on the
    ground, lit cloud thickness.
-3. Gas giants: jets, curling band edges and drifting storms, animated by advecting the pattern (curl noise,
-   Bridson et al. 2007).
+3. Done (first version): gas giant bands flow: each latitude slides with an alternating jet (flow map, two
+   cross-faded copies). To refine: curl-noise eddies (Bridson et al. 2007).
 4. Polish: stronger rim glow for thick or hazy air, a little contrast.
 5. Done: ring debris near the camera are real 3D rocks (lumpy icosahedra, turned at random, flat-shaded, writing
    depth inside the WebGPU renderer); smaller and distant ones stay discs.

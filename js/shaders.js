@@ -544,7 +544,16 @@ void main() {
       warp += (fbm(vec3(sp.xy * 18.0, latD * 1.6) + uSeed + 9.0, int(dOct)) - 0.5) * 0.9 * tq;
       float lp = latD + warp;
       bool cmap = uMapMode > 5.5;
-      if (cmap) col = mapTex(uMap, vObj).rgb;
+      // Flowing bands: each latitude slides with its jet (alternating east and west every ~7°, as on Jupiter and
+      // Saturn), so neighbouring bands visibly shear past each other. A flow map: two copies at different ages,
+      // cross-faded, each reset while it is faded out, so the shear never grows without limit.
+      float jet = sin(radians(latD) * 26.0) * (1.0 - 0.5 * abs(vObj.y)) * tq;
+      float FT = 30.0, fph = uTime / FT, fa = fract(fph), fb = fract(fph + 0.5);
+      float wA = 1.0 - abs(2.0 * fa - 1.0);
+      float shA = jet * fa * 0.12, shB = jet * fb * 0.12;     // radians of longitude over a cycle
+      vec3 vA = vec3(vObj.x * cos(shA) - vObj.z * sin(shA), vObj.y, vObj.x * sin(shA) + vObj.z * cos(shA));
+      vec3 vB = vec3(vObj.x * cos(shB) - vObj.z * sin(shB), vObj.y, vObj.x * sin(shB) + vObj.z * cos(shB));
+      if (cmap) col = mix(mapTex(uMap, vB).rgb, mapTex(uMap, vA).rgb, wA);
       else if (uProfile < 2.5) col = bandTable(lp, uProfile);
       else if (uProfile < 3.5) {
         // Uranus: almost featureless cyan haze; faint bands and a brighter polar hood.
@@ -561,6 +570,8 @@ void main() {
       }
       // Cloud texture: two-level domain-warped noise in (longitude, latitude), sheared east-west, so it
       // forms streaks, swirls and filaments like the real cloud decks.
+      float lonF = lon + mix(shB, shA, wA);                   // (the noise flows with the bands too)
+      sp = vec3(cos(lonF), sin(lonF), 0.0);
       vec3 fp = vec3(sp.xy * 10.0, latD * 0.55);
       int fo = int(dOct) + 1;
       vec3 w1 = vec3(fbm(fp + uSeed, fo), fbm(fp + uSeed + 5.2, fo), 0.0);
