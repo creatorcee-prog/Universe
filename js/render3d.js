@@ -2090,6 +2090,20 @@ export class Renderer3D {
         gl.uniform1fv(ru.uProf, ring.prof);
         gl.uniform3fv(ru.uTint, ring.ice ? [0.84, 0.79, 0.7] : [0.5, 0.46, 0.42]);
         gl.uniform1f(ru.uSaturn, /^Saturn( \d+)?$/.test(b.name) ? 1 : 0);
+        // The four biggest moons within reach of the rings, for their shadows on them.
+        const moons = [];
+        for (const m of this.world.bodies) {
+          if (m === b || !m.alive || !(m.r > 0) || isLuminous(m) || Math.hypot(m.x - b.x, m.y - b.y, m.z - b.z) > ring.rout * 10) continue;
+          moons.push(m);
+        }
+        moons.sort((p, q) => q.r - p.r);
+        const ms = new Float32Array(16);
+        for (let i = 0; i < Math.min(4, moons.length); i++) {
+          const m = moons[i];
+          ms.set([...this.viewOf(m.x - this.ex, m.y - this.ey, m.z - this.ez), m.r], i * 4);
+        }
+        gl.uniform4fv(ru.uMoonS, ms);
+        gl.uniform1i(ru.uMoonN, Math.min(4, moons.length));
         gl.uniform1f(ru.uLogDepthFC, this.logFC);
         gl.bindVertexArray(this.quad);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);

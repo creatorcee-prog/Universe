@@ -108,7 +108,18 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VO {
   // Light: sunlit face, or the faint glow through the ring from the unlit side; dark in the planet's shadow.
   let L = u.sunO.xyz;
   let tL = dot(po, L);
-  let shadow = select(1.0, 0.0, tL < 0.0 && length(po - L * tL) < 1.0);
+  var shadow = select(1.0, 0.0, tL < 0.0 && length(po - L * tL) < 1.0);
+  // Moons' shadows (the occluders after the planet), softened over the Sun's penumbra (see RING_FS).
+  let Lv = L.x * u.bu.xyz + L.y * u.bw.xyz + L.z * u.bn.xyz;
+  for (var k = 1u; k < 16u; k++) {
+    if (f32(k) >= u.nsph.x) { break; }
+    let rel = u.sph[k].xyz - pv;
+    let b = dot(rel, Lv);
+    if (b > 0.0) {
+      let pen = 0.0005 * b + 0.02 * u.sph[k].w;
+      shadow *= smoothstep(u.sph[k].w - pen, u.sph[k].w + pen, length(rel - Lv * b));
+    }
+  }
   let lit = sign(L.z) == sign(u.eyeO.z);
   let v = 0.82 + 0.36 * hash(ii);
   // (A thick ring scatters light many times, so its lit face stays bright even with the Sun low over it.)
@@ -534,7 +545,7 @@ export class GPULayer {
       d.set([r3d.F, t.w, t.h, r3d.dpr], 44);
       // Occluders: the planet and the nearest large bodies around it.
       const occ = [h];
-      const reach = info.rout * 4;
+      const reach = info.rout * 10;   // (out to Titan, for its shadow on the rings)
       for (const b of world.bodies) {
         if (b === h || !(b.r > 0) || b.kind === 'core') continue;
         if (Math.hypot(b.x - h.x, b.y - h.y, b.z - h.z) < reach) occ.push(b);

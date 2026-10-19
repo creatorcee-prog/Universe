@@ -1785,7 +1785,23 @@ uniform float uRin, uPR;                    // inner radius / outer radius; plan
 uniform float uProf[16];
 uniform vec3 uTint;
 uniform float uSaturn;                      // 1: Saturn's C/B/A ring colours
+uniform vec4 uMoonS[4];                     // the biggest moons nearby: centre (view space), radius
+uniform int uMoonN;
 out vec4 outColor;
+// Shadows of moons on the rings: a moon between the point and the Sun, softened over the penumbra the Sun's
+// disc gives (~0.0005 rad at Saturn). They show near equinox, when they stretch long across the rings.
+float moonShadow(vec3 p, vec3 L) {
+  float s = 1.0;
+  for (int i = 0; i < 4; i++) {
+    if (i >= uMoonN) break;
+    vec3 rel = uMoonS[i].xyz - p;
+    float b = dot(rel, L);
+    if (b <= 0.0) continue;
+    float pen = 0.0005 * b + 0.02 * uMoonS[i].w;
+    s *= smoothstep(uMoonS[i].w - pen, uMoonS[i].w + pen, length(rel - L * b));
+  }
+  return s;
+}
 void main() {
   float r = length(vC);
   if (r > 1.0 || r < uRin) discard;
@@ -1811,6 +1827,7 @@ void main() {
   vec3 pc = vViewPos - uPlanetV;
   float b = dot(pc, uL0), c = dot(pc, pc) - uPR * uPR;
   float sh = (b < 0.0 && b * b - c > 0.0) ? 1.0 : 0.0;
+  if (uMoonN > 0) sh = max(sh, 1.0 - moonShadow(vViewPos, uL0));
   vec3 lit = col * uLight * I * (1.0 - sh) * 0.95 + col * 0.006;
   outColor = vec4(lit * op, op);
   ` + WRITE_DEPTH + `
