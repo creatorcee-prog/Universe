@@ -132,8 +132,9 @@ const IDENT3 = new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
 // Real shapes of small bodies (assets/maps/shape-<name>.png, tools/make_shapes.py). Named bodies use
 // their own; other small bodies (created asteroids and comets, planetesimals, Halley) borrow one of their
 // kind at a random orientation. Above ~400 km bodies are pulled round by their own gravity.
-const SHAPES = { Phobos: 'phobos', Deimos: 'deimos', Vesta: 'vesta', Haumea: 'haumea' };
-const ASTEROID_SHAPES = ['eros', 'itokawa', 'bennu', 'kleopatra', 'geographos', 'toutatis', 'mithra', 'golevka', 'hw1', 'phobos', 'deimos'];
+const SHAPES = { Phobos: 'phobos', Deimos: 'deimos', Vesta: 'vesta', Haumea: 'haumea', Bennu: 'bennu', Ryugu: 'ryugu', Eros: 'eros',
+  Itokawa: 'itokawa', Lutetia: 'lutetia', 'Šteins': 'steins', Arrokoth: 'arrokoth', '67P/Churyumov–Gerasimenko': '67p' };
+const ASTEROID_SHAPES = ['eros', 'itokawa', 'bennu', 'kleopatra', 'geographos', 'toutatis', 'mithra', 'golevka', 'hw1', 'phobos', 'deimos', 'ryugu', 'lutetia', 'steins'];
 const shapeImg = {};
 function shapeMap(file) {
   let e = shapeImg[file];
@@ -163,7 +164,9 @@ function shapeFor(b) {
   const small = b.comet || b.m / EARTH_MASS < 1e-4 || b.name.startsWith('Planetesimal');
   if (!small) return null;
   const r = seeded(b.id * 3 + 1), r2 = seeded(b.id * 5 + 2), r3 = seeded(b.id * 11 + 7);
-  const file = b.comet ? '67p' : rkm > 200 ? 'vesta' : ASTEROID_SHAPES[Math.floor(r * ASTEROID_SHAPES.length) % ASTEROID_SHAPES.length];
+  // (Planetesimals, the building blocks of planets, now and then take Arrokoth's two-lobed shape.)
+  const pool = b.name.startsWith('Planetesimal') && r > 0.75 ? ['arrokoth'] : ASTEROID_SHAPES;
+  const file = b.comet ? '67p' : rkm > 200 ? 'vesta' : pool[Math.floor(r * pool.length) % pool.length];
   const a = r2 * Math.PI * 2, t = (r3 - 0.5) * Math.PI, cA = Math.cos(a), sA = Math.sin(a), cT = Math.cos(t), sT = Math.sin(t);
   // Ry(a) * Rx(t), column-major
   const rot = new Float32Array([cA, 0, -sA, sA * sT, cT, cA * sT, sA * cT, -sT, cA * cT]);

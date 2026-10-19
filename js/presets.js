@@ -129,6 +129,22 @@ const COMETS = [
   ['Hale–Bopp', 186.0, 0.99509, 89.43, 282.47, 130.59, 0.39, 30],
 ];
 
+// Asteroids and a Kuiper belt object that spacecraft have visited, each drawn with its measured shape
+// (render3d.js SHAPES). Elements from the JPL Small-Body Database (ecliptic J2000; mean anomaly carried back
+// to J2000 by two-body motion, so the near-Earth ones are only roughly where they were): name, a (AU), e, i,
+// Ω, ω, M (deg), mean radius (km), mass (kg), rotation (h), colour, composition.
+// Masses from SBDB's GM (Bennu: OSIRIS-REx; Ryugu: Hayabusa2; Eros: NEAR; Itokawa: Hayabusa; Lutetia:
+// Rosetta); Šteins from its volume at ~1.8 g/cm³, Arrokoth at ~0.25 g/cm³ (Keane et al. 2022), both unmeasured.
+const VISITED = [
+  ['Bennu', 1.126391, 0.203745, 6.0349, 2.0609, 66.2231, 29.43, 0.245, 7.33e10, 4.296, [72, 70, 68], 'asteroid'],
+  ['Ryugu', 1.190919, 0.191073, 5.8664, 251.2897, 211.609, 299.91, 0.448, 4.5e11, 7.633, [74, 70, 66], 'asteroid'],
+  ['Eros', 1.458244, 0.222878, 10.8285, 304.268, 178.9181, 58.28, 8.42, 6.687e15, 5.27, [164, 142, 116], 'asteroid'],
+  ['Itokawa', 1.324052, 0.280178, 1.6209, 69.0745, 162.8409, 44.38, 0.165, 3.15e10, 12.13, [154, 140, 120], 'asteroid'],
+  ['Lutetia', 2.434431, 0.16477, 3.0645, 80.8386, 249.8803, 313.34, 49.1, 1.7e18, 8.166, [142, 136, 128], 'asteroid'],
+  ['Šteins', 2.363142, 0.146787, 9.9247, 55.2936, 251.4371, 175.75, 2.63, 1.37e14, 6.049, [178, 172, 162], 'asteroid'],
+  ['Arrokoth', 44.052578, 0.035557, 2.4506, 159.0377, 188.8507, 278.44, 9.05, 7.8e14, 15.92, [172, 102, 80], 'asteroid'],   // (uniformly red, no bright frost)
+];
+
 // Moons of the dwarf planets, in their planet's equator (the planets' tilts above are set to the moons'
 // orbit planes): [planet, name, a (km), e, i, node, ω, M, 'Q', 0, GM (km³/s²), radius (km)].
 // Dysnomia: Holler et al. 2021, Brown & Butler 2023; Hiʻiaka and Namaka: Ragozzine & Brown 2009; Weywot:
@@ -238,6 +254,12 @@ function solarSystem(world, { belts = true, moon = true, moons = true } = {}) {
     const c = makeBody({ name, kind: 'rocky', comet: true, compKey: 'comet', m: name.startsWith('67P') ? 1.0e13 / 1.98847e30 : mass, r: km(rkm), color: [196, 204, 214] });
     orbit(world, s, c, a, e, i, O, w, M);
     c.minor = true; c.host = s;
+  }
+  for (const [name, a, e, i, O, w, M, rkm, kg, dayH, color, compKey] of VISITED) {
+    const v = makeBody({ name, kind: 'rocky', compKey, m: kg / 1.98847e30, r: km(rkm), color });
+    v.dayH = dayH;
+    orbit(world, s, v, a, e, i, O, w, M);
+    v.minor = true; v.host = s;
   }
   // Halley's real orbit (retrograde, i = 162°), placed shortly before perihelion so its tail is on show.
   const halley = makeBody({ name: "Halley's Comet", kind: 'rocky', comet: true, m: 1.1e-16, r: km(5.5), color: [196, 204, 214] });

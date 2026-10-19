@@ -10,7 +10,10 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
   particle storage reworked, since merging changes the list in place.
 - **Real elevation for more worlds**: Io, Europa, Ganymede, Callisto, Titan, Pluto and Charon borrow
   relief from similar worlds today.
-- **More real asteroid and comet shapes**, e.g. Ryugu, Arrokoth, Lutetia (NAIF / PDS SBN).
+- **More real asteroid and comet shapes** (done: Ryugu, Lutetia, Šteins from mission models; Arrokoth as two
+  ellipsoids with its measured lobe sizes, the PDS model being unreachable from here; Bennu, Ryugu, Eros,
+  Itokawa, Lutetia, Šteins and Arrokoth now fly in the Solar System on JPL orbits, with book entries for three).
+  Arrokoth's far lobe stretches the surface texture; Tempel 1, Wild 2 and Hartley 2 still borrow 67P's shape.
 - Above 60 fps needs Safari with "Prefer Page Rendering Updates near 60fps" off; the app cannot change it.
 
 ## WebGPU rings (from the iPhone screenshots)

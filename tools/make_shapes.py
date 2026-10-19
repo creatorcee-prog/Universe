@@ -8,6 +8,12 @@
 #   Deimos   NAIF MEX/kernels/dsk/DEIMOS_K005_THO_V02.OBJ (Thomas)
 #   67P      PDS SBN ro-c-multi-5-67p-shape-v2.0, spc_esa mtp019 cshp_dv_130_01_lores_obj.obj
 #   Eros, Itokawa, Vesta  NAIF generic_kernels/dsk/asteroids (NEAR MSI 64q, Hayabusa AMICA 64q, Gaskell 256)
+#   Ryugu    JAXA DARTS, data.darts.isas.jaxa.jp/pub/hayabusa2/paper/Watanabe_2019/SHAPE_SFM_49k_v20180804.obj
+#            (Watanabe et al. 2019, Science 364, 268)
+#   Lutetia, Steins  NAIF generic_kernels/dsk/asteroids/{lutetia,steins}/a_old_versions,
+#            ro-a-osinac_osiwac-5-lutetia-shape-v1_0_006k.bds, ...-steins-shape-v1_0_20k.bds (Rosetta OSIRIS)
+#   Arrokoth two flattened ellipsoids, just touching, with the lobe sizes of Spencer et al. 2020 (Science 367,
+#            eaay3999): Wenu 20.6 x 19.9 x 9.4 km, Weeyo 15.4 x 13.8 x 9.8 km (its shape model is on PDS SBN)
 #   other asteroids  NASA 3D Resources (github.com/nasa/NASA-3D-Resources, "3D Printing"): STL models
 #   (that repository's Eros, Itokawa and Vesta files are flat relief tiles for printing, not whole shapes)
 import sys, os, struct
@@ -92,11 +98,31 @@ def save(best, name, req):
     print('%-10s r_eq %8.3f  r/r_eq %.2f..%.2f' % (name, req, best.min(), best.max()))
 
 S = lambda f: os.path.join(SRC, f)
-for name, tri in [('phobos', read_dsk(S('phobos.bds'))), ('deimos', read_obj(S('deimos.obj'))), ('67p', read_obj(S('67p.obj'))),
+# Only the models present in <source-dir> are (re)built.
+def have(f): return os.path.exists(S(f))
+for name, f, rd in [('ryugu', 'ryugu.obj', read_obj), ('lutetia', 'lutetia.bds', read_dsk), ('steins', 'steins.bds', read_dsk)]:
+    if have(f):
+        best, req = radial_map(rd(S(f)))
+        save(best, name, req)
+
+def ellipsoid(c, ax, n=96):
+    u, v = np.meshgrid(np.linspace(0, 2 * np.pi, 2 * n + 1), np.linspace(0, np.pi, n + 1))
+    P = np.stack([np.cos(u) * np.sin(v), np.sin(u) * np.sin(v), np.cos(v)], -1) * np.array(ax) + np.array(c)
+    a, b, cc, d = P[:-1, :-1], P[:-1, 1:], P[1:, :-1], P[1:, 1:]
+    t = np.concatenate([np.stack([a, cc, b], -2).reshape(-1, 3, 3), np.stack([b, cc, d], -2).reshape(-1, 3, 3)])
+    return t[np.linalg.norm(np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]), axis=1) > 1e-12]
+if 'arrokoth' in sys.argv[2:]:
+    # The union's surface seen from its centre of mass: the outermost of the two lobes' surfaces each way.
+    big, small = (10.3, 9.95, 4.7), (7.7, 6.9, 4.9)
+    tri = np.concatenate([ellipsoid((-7.7, 0, 0), big), ellipsoid((10.3, 0, 0), small)])
+    best, req = radial_map(tri)
+    save(best, 'arrokoth', req)
+
+for name, tri in [] if not have('phobos.bds') else [('phobos', read_dsk(S('phobos.bds'))), ('deimos', read_obj(S('deimos.obj'))), ('67p', read_obj(S('67p.obj'))),
                   ('eros', read_dsk(S('eros.bds'))), ('itokawa', read_dsk(S('itokawa.bds'))), ('vesta', read_dsk(S('vesta.bds')))]:
     best, req = radial_map(tri)
     save(best, name, req)
-for name, f in [('bennu', 'Asteroid 101955 Bennu.stl'), ('kleopatra', 'Asteroid 216 Kleopatra.stl'), ('geographos', 'Asteroid 1620 Geographos.stl'),
+for name, f in [] if not have('Asteroid 101955 Bennu.stl') else [('bennu', 'Asteroid 101955 Bennu.stl'), ('kleopatra', 'Asteroid 216 Kleopatra.stl'), ('geographos', 'Asteroid 1620 Geographos.stl'),
                 ('toutatis', 'Asteroid 4179 Toutatis.stl'), ('mithra', 'Asteroid 4486 Mithra.stl'), ('golevka', 'Asteroid 6489 Golevka.stl'),
                 ('hw1', 'Asteroid 8567 1996 HW1.stl')]:
     best, req = radial_map(read_stl(S(f)))

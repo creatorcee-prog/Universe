@@ -193,6 +193,41 @@ export const ENTRIES = {
     ],
     sources: [nasaFS('pluto'), nasa('dwarf-planets/pluto/', 'NASA: Pluto')],
   },
+  Bennu: {
+    kicker: 'Near-Earth asteroid · 101955 Bennu',
+    summary: 'A loose pile of rubble about 490 m across, dark as charcoal. NASA\'s OSIRIS-REx collected a sample from its surface and brought it to Earth.',
+    stats: [['Diameter', '490 m'], ['Mass', '7.3 × 10¹⁰ kg'], ['Density', '1.19 g/cm³ (half empty space)'], ['Year', '1.2 Earth years'], ['Day', '4.3 hours']],
+    facts: [
+      'OSIRIS-REx touched its surface on 20 October 2020; the sample capsule landed in Utah on 24 September 2023 with 121.6 g of rock and dust.',
+      'The sample holds amino acids and all five nucleobases used in DNA and RNA (Glavin et al. 2025).',
+      'Its surface turned out so loose that the spacecraft\'s sampling arm sank in, as into a ball pit.',
+      'It has about a 1-in-2,700 chance of hitting Earth in the year 2182.',
+    ],
+    sources: [wiki('101955_Bennu'), nasa('osiris-rex/', 'NASA: OSIRIS-REx')],
+  },
+  Ryugu: {
+    kicker: 'Near-Earth asteroid · 162173 Ryugu',
+    summary: 'A dark, spinning-top-shaped rubble pile about 900 m across, sampled by Japan\'s Hayabusa2.',
+    stats: [['Diameter', '900 m'], ['Mass', '4.5 × 10¹¹ kg'], ['Density', '1.19 g/cm³'], ['Year', '1.3 Earth years'], ['Day', '7.6 hours']],
+    facts: [
+      'Hayabusa2 reached it in June 2018, fired a copper projectile to dig a fresh crater in April 2019, and sampled it twice.',
+      'Its 5.4 g of samples landed in Australia on 6 December 2020; they match the most primitive meteorites, the CI chondrites.',
+      'The ridge around its equator gives it the spinning-top shape of a body once spun up fast enough to reshape itself.',
+    ],
+    sources: [wiki('162173_Ryugu'), ['JAXA Hayabusa2 data archive', 'https://data.darts.isas.jaxa.jp/pub/hayabusa2/']],
+  },
+  Arrokoth: {
+    kicker: 'Kuiper belt object · 486958 Arrokoth',
+    summary: 'The most distant and most primitive world ever explored up close: two flattened lobes, 36 km end to end, that came together gently soon after the Solar System formed.',
+    stats: [['Length', '36 km'], ['Distance from Sun', '6.6 billion km (44 AU)'], ['Year', '293 Earth years'], ['Day', '15.9 hours']],
+    facts: [
+      'New Horizons flew past it on 1 January 2019, 3,500 km away, three and a half years after Pluto.',
+      'Its lobes touch at a narrow neck with no sign of a violent collision: they orbited each other and slowly merged.',
+      'Its deep red colour comes from organic molecules (tholins) made by sunlight and cosmic rays on its ices.',
+      'Its name means "sky" in the Powhatan language.',
+    ],
+    sources: [wiki('486958_Arrokoth'), nasa('new-horizons/', 'NASA: New Horizons')],
+  },
   "Halley's Comet": {
     kicker: 'Comet · 1P/Halley',
     summary: 'The most famous comet. Halley returns to the inner Solar System about every 76 years, and has been recorded at every return since at least 240 BC.',
@@ -458,7 +493,7 @@ export const CONTENTS = [
   ['Our star', ['Sun']],
   ['Planets', ['Mercury', 'Venus', 'Earth', 'Mars', 'Jupiter', 'Saturn', 'Uranus', 'Neptune']],
   ['Moons', ['Moon', 'Io', 'Europa', 'Ganymede', 'Callisto']],
-  ['Dwarf planets and small bodies', ['Ceres', 'Pluto', "Halley's Comet"]],
+  ['Dwarf planets and small bodies', ['Ceres', 'Pluto', 'Bennu', 'Ryugu', 'Arrokoth', "Halley's Comet"]],
   ['Deep history', ['Theia', 'Proto-Earth']],
   ['Kinds of object', ['comet', 'asteroid', 'planetesimal', 'terrestrial', 'superearth', 'icegiant', 'gasgiant', 'browndwarf', 'M', 'K', 'G', 'F', 'A', 'B', 'O', 'wd', 'ns', 'bh', 'smbh', 'galaxy']],
 ];
