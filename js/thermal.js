@@ -302,7 +302,7 @@ export function habitability(b) {
   const lam = jeans(b, 28);
   const molten = (th.exposed || 0) > 0.2;
   const boiled = th.steam > 1 || th.Ts > 330;  // what little water a hot world keeps is vapour, not ice
-  // Each check: label, passed, detail, and the short reason it fails (for "Uninhabitable due to …").
+  // Each check: label, passed, detail, and the short reason it fails (for "Uninhabitable: …").
   const checks = [
     ['Liquid water', th.liquid > 0.01, th.liquid > 0.01 ? `${Math.round(th.liquid * 100)}% of the surface` : c.water <= 0 ? 'No water' : boiled ? 'Boiled into steam' : 'Frozen',
       c.water <= 0 ? 'no water' : boiled ? 'water boiled away' : 'water frozen'],

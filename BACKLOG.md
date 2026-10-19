@@ -28,7 +28,8 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
   (e.g. Cavendish, Eratosthenes, Kepler's third law, the Roche limit, a slingshot, the Shoemaker–Levy 9 breakup).
 - **Spectrum views** (done, first version: Settings, Light seen: infrared thermal / 5-micron giants, UV, X-ray coronae). Was: infrared (thermal glow), ultraviolet, X-ray and gamma. Most of these can come from
   per-body emission models: blackbody heat, hot coronae, accretion disks and pulsars.
-- **Clearer info pages** that point the user to the extra detail more obviously.
+- **Clearer info pages** (done: an "In the book" card on the overview with the entry's first line and a chip
+  per book page that opens it there; tidier small numbers: ppm, × 10ⁿ, mm/s²; comets no longer "Moon of Sun").
 - **Atmospheres, further**: airglow on the night side, Mars's layered limb hazes, a low-orbit (ISS)
   camera to see Earth's thin blue horizon band. (Thickness readouts, rims visible from afar and Titan's
   detached haze are done.)

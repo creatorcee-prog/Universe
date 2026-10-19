@@ -53,11 +53,25 @@ export class Book {
     this.buildContents();
   }
 
+  // What the book holds for a live body, for the info panel's pointer to it: the lede's first sentence and the
+  // page titles, in the order renderBody lays them out.
+  static preview(b) {
+    const entry = ENTRIES[b.name] || null, type = TYPES[typeKey(b)];
+    const text = entry ? entry.summary : type.text;
+    const first = (text.match(/^.*?[.!?](?=\s|$)/) || [text])[0];
+    const pages = ['Overview'];
+    if (entry && entry.facts.length) pages.push(`${entry.facts.length} facts`);
+    pages.push('Live numbers', type.title, 'Sources');
+    return { first, pages, real: !!entry };
+  }
+
   get isOpen() { return !$('book').hidden; }
 
   // Open on a live body, or on a reference entry / type key when browsing the contents.
-  open(body) {
+  // page: start on that page (an index into preview(body).pages).
+  open(body, page = 0) {
     this.body = body || null;
+    this.startPage = page;
     this.ref = null;
     $('book').hidden = false;
     requestAnimationFrame(() => $('book').classList.add('open'));
@@ -163,8 +177,9 @@ export class Book {
     el.innerHTML = pages.join('');
     this.showEntryView();
     // Reset after the pages are visible; a hidden scroller ignores scroll positions.
-    el.scrollTo({ left: 0, behavior: 'auto' });
-    requestAnimationFrame(() => { el.scrollTo({ left: 0, behavior: 'auto' }); this.updateFolio(); });
+    const left = () => (this.startPage || 0) * el.clientWidth;
+    el.scrollTo({ left: left(), behavior: 'auto' });
+    requestAnimationFrame(() => { el.scrollTo({ left: left(), behavior: 'auto' }); this.startPage = 0; this.updateFolio(); });
     this.updateFolio();
   }
 
@@ -293,7 +308,7 @@ export class Book {
     // Habitability checklist.
     if (b.th && b.th.hab && b.kind === 'rocky') {
       const h = b.th.hab;
-      const why = h.reasons && h.reasons.length ? (h.verdict === 'Uninhabitable' ? ' due to ' : ': ') + listReasons(h.reasons) : '';
+      const why = h.reasons && h.reasons.length ? ': ' + listReasons(h.reasons) : '';
       rows.push(['Can life exist here?', `${h.verdict}${why}${b.life ? ' · life present' : ''}`]);
       for (const [label, ok, detail] of h.checks) rows.push([`${ok ? '✓' : '✗'} ${label}`, detail]);
     }

@@ -39,7 +39,11 @@ const COMP_COLORS = { iron: '#9a8f86', rock: '#b07a4f', water: '#3f7fd6', ice: '
 const COMP_NAMES = { iron: 'Iron', rock: 'Rock', water: 'Water', ice: 'Ices', gas: 'H/He gas' };
 const GAS_COLORS = { n2: '#7e9bd8', o2: '#7fd6a0', co2: '#e0a060', ch4: '#e07a50', h2: '#d8d0ff', steam: '#f0f0f0' };
 const GAS_NAMES = { n2: 'N₂', o2: 'O₂', co2: 'CO₂', ch4: 'CH₄', h2: 'H₂', steam: 'Steam' };
-const pct = (f) => (f >= 0.1 ? Math.round(f * 100) : f >= 0.001 ? (f * 100).toPrecision(2) : (f * 100).toExponential(0)) + '%';
+// Shares: whole percents, then decimals (0.04%), then parts per million or billion (CH₄ 1.9 ppm).
+const pct = (f) => {
+  const n = (x) => +x.toPrecision(2);
+  return f >= 0.1 ? Math.round(f * 100) + '%' : f >= 1e-4 ? n(f * 100) + '%' : f >= 1e-7 ? n(f * 1e6) + ' ppm' : n(f * 1e9) + ' ppb';
+};
 
 // Swatch shown on catalogue chips: a CSS radial gradient approximating the body.
 function swatch(item) {
@@ -134,6 +138,12 @@ export class UI {
       if (b.th) b.th.habTime = 0;
       this.toast(`All life on ${b.name} is gone`);
       this.refreshInfo(true);
+    });
+    $('i-more-open').addEventListener('click', (e) => { e.stopPropagation(); if (app.state.selected) this.book.open(app.state.selected); });
+    $('i-more-pages').addEventListener('click', (e) => {
+      const p = e.target.closest('[data-page]');
+      e.stopPropagation();
+      if (p && app.state.selected) this.book.open(app.state.selected, +p.dataset.page);
     });
     $('i-book').addEventListener('click', (e) => { e.stopPropagation(); if (app.state.selected) this.book.open(app.state.selected); });
     $('btn-search').addEventListener('click', () => { this.openSheet('sheet-search'); this.renderSearch(); setTimeout(() => $('search-q').focus(), 250); });
@@ -495,6 +505,13 @@ export class UI {
     this.infoT = now;
     const app = this.app, w = app.world;
     $('i-name').textContent = b.name;
+    if (this.moreFor !== b) {
+      // Point to the book's pages for this object: its first line, then a chip per page.
+      this.moreFor = b;
+      const pv = Book.preview(b);
+      $('i-more-text').textContent = pv.first;
+      $('i-more-pages').innerHTML = pv.pages.map((t, i) => `<button type="button" data-page="${i}">${t}</button>`).join('');
+    }
     $('i-type').textContent = typeName(b);
     // Which tabs apply to this object.
     const lum = b.kind === 'star' || b.kind === 'wd' || b.kind === 'ns';
@@ -518,7 +535,7 @@ export class UI {
       const rho = (b.m * MSUN) / ((4 / 3) * Math.PI * (b.r * AU_M) ** 3) / 1000;
       $('i-density').textContent = rho > 1e4 ? rho.toExponential(1).replace('e+', ' × 10^') + ' g/cm³' : rho.toPrecision(3) + ' g/cm³';
       const g = (6.674e-11 * b.m * MSUN) / (b.r * AU_M) ** 2;
-      $('i-gravity').textContent = g > 1e4 ? g.toExponential(1).replace('e+', ' × 10^') + ' m/s²' : `${g.toPrecision(3)} m/s² · ${(g / 9.81).toPrecision(2)} g`;
+      $('i-gravity').textContent = g > 1e4 ? g.toExponential(1).replace('e+', ' × 10^') + ' m/s²' : g < 0.1 ? `${(g * 1000).toPrecision(3)} mm/s²` : `${g.toPrecision(3)} m/s² · ${(g / 9.81).toPrecision(2)} g`;
       $('i-vesc').textContent = formatSpeed(Math.sqrt((2 * G * b.m) / b.r));
     } else {
       $('i-density').textContent = '—'; $('i-gravity').textContent = '—';
@@ -549,7 +566,7 @@ export class UI {
     const hv = b.th && b.th.hab && b.kind === 'rocky' ? b.th.hab : null;
     hab.hidden = !hv;
     if (hv) {
-      const why = hv.reasons && hv.reasons.length ? (hv.verdict === 'Uninhabitable' ? ' due to ' : ': ') + listReasons(hv.reasons) : '';
+      const why = hv.reasons && hv.reasons.length ? ': ' + listReasons(hv.reasons) : '';
       hab.textContent = (hv.verdict === 'Uninhabitable' ? 'Uninhabitable' : `${hv.verdict} for life`) + why + (b.life ? ' · life present' : '');
       hab.className = 'hab ' + (hv.verdict === 'Habitable' ? 'good' : hv.verdict === 'Marginal' ? 'mid' : '');
     }

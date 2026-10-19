@@ -26,7 +26,10 @@ export const kms = (v) => v * KM_S_TO_AU_YR;
 function fmt(v, digits = 3) {
   if (!isFinite(v)) return '∞';
   const a = Math.abs(v);
-  if (a !== 0 && (a < 1e-3 || a >= 1e6)) return v.toExponential(2).replace('e+', 'e');
+  if (a !== 0 && (a < 1e-3 || a >= 1e6)) {
+    const [m, e] = v.toExponential(2).split('e');
+    return `${m} × 10${String(+e).replace(/./g, (c) => '⁻⁰¹²³⁴⁵⁶⁷⁸⁹'['-0123456789'.indexOf(c)])}`;
+  }
   return Number(v.toPrecision(digits)).toLocaleString('en-US', { maximumFractionDigits: 3 });
 }
 

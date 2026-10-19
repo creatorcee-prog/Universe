@@ -227,7 +227,7 @@ export function typeName(b) {
   switch (b.kind) {
     case 'rocky':
       if (b.dwarf) return 'Dwarf planet';
-      if (b.host && b.host.alive) return 'Moon of ' + b.host.name;
+      if (b.host && b.host.alive && b.host.kind !== 'star') return 'Moon of ' + b.host.name;   // (comets and asteroids keep the Sun as host)
       if (b.comet && me < 1e-4) return 'Comet';
       if (me < 1e-4) return 'Asteroid';
       if (me < 0.03) return 'Moon-sized body';
