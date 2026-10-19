@@ -1858,7 +1858,11 @@ export class Renderer3D {
       }
     };
     const px = world.px, py = world.py, pz = world.pz, pm = world.pm, pk = world.pk;
+    // From the ground only what is near the world shows (debris of an impact overhead): the sky's own light
+    // lies in front of anything far, and drawn over it a sunlit asteroid would be a dark speck in the blue.
+    const sb = this.surface ? this.surface.body : null, reach2 = sb ? (50 * sb.r) ** 2 : 0;
     for (let i = 0; i < world.np; i++) {
+      if (sb && (px[i] - sb.x) ** 2 + (py[i] - sb.y) ** 2 + (pz[i] - sb.z) ** 2 > reach2) continue;
       const m = pm[i];
       const h = ((i * 2654435761) >>> 0) / 4294967296;
       // Chunk radius from its mass at rock density; massless belt particles get 30-120 km.

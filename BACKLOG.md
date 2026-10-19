@@ -62,3 +62,27 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
    Bridson et al. 2007).
 4. Polish: stronger rim glow for thick or hazy air, a little contrast.
 5. Ring debris: real 3D rocks for the few thousand nearest the camera (now flat discs, seen as ovals).
+
+## Visual to-do from the user (ranked by impact for effort), with notes
+
+1. Tonemap once, at the end. Partly done: the surface sky's Sun disc now reaches the HDR buffer at full
+   brightness (capped at 16x white) and is dimmed by the air once, not twice; the sky keeps its curve. A full
+   move to scene-linear output would mean retuning every shader (planets, rings, sprites are display-referred,
+   tuned in 0..1). Per-channel transmittance needs dual-source blending (not in WebGL 2; optional in WebGPU).
+2. Lens flare (toggle next to Bloom): halo, starburst, ghosts along the Sun-to-centre line, faded by how much
+   of the disc is visible (depth test) and by the air's transmittance.
+3. Higher-resolution Earth day map: Blue Marble Next Generation, 4096x2048 (8192 would take ~170 MB of GPU
+   memory with mipmaps, risky on iPhone), mipmaps and anisotropic filtering, each file under 15 MB.
+4. Ground detail textures in the surface view: tiling rock, soil, sand (colour + normal), blended by slope,
+   height and biome, tinted by the map colour, hash-based tiling, fading with distance.
+5. Surface view: curved, lit clouds on a spherical shell at the real cloud height, normals from the noise
+   gradient, bright edges toward the Sun, darker bases, a thin cirrus layer. The user also wants volumetric
+   clouds and atmospheric fog here (inspiration images to come); volumetrics behind a quality setting.
+6. Cloud self-shading in the planet view: bump normal from the cloud-density gradient, so storm tops catch a
+   low Sun near the terminator.
+7. Real atmosphere on gas giants: Rayleigh (H2/He) + haze Mie through ATMO_FS, cloud tops as the ground,
+   replacing RIM_FS's flat rim.
+8. Sharper distant terrain (low priority): ridged octaves in mountain zones, denser rings near the camera.
+
+Also: after every shader edit, regenerate js/wgsl.js (the build now refuses otherwise) and check the frame rate
+on the phone.

@@ -2060,10 +2060,18 @@ void main() {
       }
     }
   }
-  vec3 Lall = L + (Lring * ringA + Lsun) * T;
+  vec3 Lall = L + Lring * ringA * T;
   vec3 col = tone(Lall * uExpo);
   float alpha = clamp(max(col.r, max(col.g, col.b)) * 1.4, 0.0, 1.0);
   alpha = max(alpha, ringA * dot(T, vec3(0.3333)));
+  // The star's disc at its full brightness (dimmed once by the air in front of it), not squeezed by the curve
+  // above: in the HDR buffer it is far brighter than the sky, so bloom spreads its glare (the composite's
+  // curve brings it to the screen's range at the end).
+  // (Capped at 16x white: the real ratio, ~10^5, would only flood the screen with bloom.)
+  vec3 sunHDR = Lsun * uExpo;
+  sunHDR *= min(1.0, 16.0 / max(max(sunHDR.r, max(sunHDR.g, sunHDR.b)), 1e-6));
+  col += sunHDR;
+  alpha = max(alpha, clamp(max(sunHDR.r, max(sunHDR.g, sunHDR.b)) * 1.4, 0.0, 1.0));
   // Cloud deck overhead: a flat layer seen in perspective, drifting with the wind, lit by the sunlight
   // that got through the air (so it glows orange-pink at sunset), faint at night.
   if (uCloud > 0.0 && h > 0.02) {
