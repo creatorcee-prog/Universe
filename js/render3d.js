@@ -103,8 +103,9 @@ function donorFor(b, l) {
 // Real elevation (assets/maps/<file>-height.png, tools/make_heights.py), decoded to metres. Worlds with a
 // donor borrow the heights of a real world of their type, scaled for gravity (relief goes roughly as
 // 1/g: the same rock supports mountains twice as tall at half the gravity).
-const HEIGHTS = { Earth: 'earth', Moon: 'moon', Mars: 'mars', Venus: 'venus', Mercury: 'mercury' };
-const HEIGHT_G = { earth: 9.81, moon: 1.62, mars: 3.71, venus: 8.87, mercury: 3.70 };   // surface gravity, m/s²
+// (Pluto and Charon: New Horizons, about half of each mapped; the rest is Moon-like relief, see make_heights.py.)
+const HEIGHTS = { Earth: 'earth', Moon: 'moon', Mars: 'mars', Venus: 'venus', Mercury: 'mercury', Pluto: 'pluto', Charon: 'charon' };
+const HEIGHT_G = { earth: 9.81, moon: 1.62, mars: 3.71, venus: 8.87, mercury: 3.70, pluto: 0.62, charon: 0.29 };   // surface gravity, m/s²
 // donor pattern -> [height map, relief relative to it] (flat icy Europa, softer icy relief on Callisto)
 const DONOR_HEIGHT = { moon: ['moon', 1], callisto: ['moon', 0.6], ganymede: ['moon', 0.6], europa: ['moon', 0.2], charon: ['moon', 0.7], pluto: ['moon', 0.7], mars: ['mars', 1], io: ['venus', 0.5], phobos: ['moon', 1], deimos: ['moon', 1] };
 const heightImg = {};

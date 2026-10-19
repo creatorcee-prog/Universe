@@ -8,8 +8,9 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
   through up close (a few thousand particles cannot fill 280,000 km of ring from a distance).
 - **Collision checks off the main thread** (about 1–3 ms a frame with a big dust cloud). This needs the
   particle storage reworked, since merging changes the list in place.
-- **Real elevation for more worlds**: Io, Europa, Ganymede, Callisto, Titan, Pluto and Charon borrow
-  relief from similar worlds today.
+- **Real elevation for more worlds** (done for Pluto and Charon: New Horizons DEMs, Schenk et al. 2018, about half
+  of each mapped, the rest Moon-like relief matched to it). Io, Europa, Ganymede, Callisto and Titan have no
+  global elevation maps (only regional stereo and Cassini's sparse altimetry), so they keep borrowed relief.
 - **More real asteroid and comet shapes** (done: Ryugu, Lutetia, Šteins from mission models; Arrokoth as two
   ellipsoids with its measured lobe sizes, the PDS model being unreachable from here; Bennu, Ryugu, Eros,
   Itokawa, Lutetia, Šteins and Arrokoth now fly in the Solar System on JPL orbits, with book entries for three).

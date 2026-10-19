@@ -1,6 +1,6 @@
 // Picture of a planet from its lit side (the brightest of 8 views around it), for judging looks:
 //   OUT=dir node tools/look.mjs <tag> preset:Name[:dist] ...   -> dir/look-<tag>-<Name>.png
-// DARK=1 takes the darkest view instead (the night side); PITCH sets the camera's pitch (0.25).
+// YAW=<rad> fixes the view's direction. DARK=1 takes the darkest view instead (the night side); PITCH sets the camera's pitch (0.25).
 // WEBGPU=1 uses the WebGPU renderer (slow on software GPUs). SPECTRUM=ir|uv|xray shows that band. TERRA=<compKey> adds a made-up world, named as in
 // the target, at 1 AU from the first star, with life (e.g. TERRA=Earth node tools/look.mjs a empty:Terra).
 import { chromium, devices } from 'playwright';
@@ -48,7 +48,7 @@ for (const t of targets) {
   }, [preset, name, dist]);
   await page.waitForTimeout(6000);
   let best = null;
-  for (const yaw of [0, 0.785, 1.57, 2.36, 3.14, 3.93, 4.71, 5.5]) {
+  for (const yaw of process.env.YAW ? [+process.env.YAW] : [0, 0.785, 1.57, 2.36, 3.14, 3.93, 4.71, 5.5]) {
     await page.evaluate((yaw) => { app.cam.yaw = yaw; }, yaw);
     await page.waitForTimeout(webgpu ? 4000 : 1500);
     const r = await grab();
