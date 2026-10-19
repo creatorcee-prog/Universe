@@ -48,6 +48,7 @@ export function captureRadius(b) {
   // Black holes swallow anything that passes inside a few Schwarzschild radii
   // (the innermost stable orbit is 3 rs); a small floor keeps stellar black holes hittable.
   if (b.kind === 'bh') return Math.max(3 * b.r, 5e-5);
+  if (b.kind === 'nebula') return 0;   // a cloud: everything passes through
   return b.r;
 }
 
@@ -298,9 +299,11 @@ export class World {
     // Conservative per-body bounds let most pairs be rejected with one distance test:
     // contact needs d < reachA + reachB, tidal disruption needs d < the smaller body's widest Roche radius.
     let mMax = 0;
-    for (let i = 0; i < n; i++) if (bs[i].m > mMax) mMax = bs[i].m;
+    // (A nebula's mass is spread over light years: it neither tears bodies apart nor collides.)
+    for (let i = 0; i < n; i++) if (bs[i].m > mMax && bs[i].kind !== 'nebula') mMax = bs[i].m;
     for (let i = 0; i < n; i++) {
       const b = bs[i];
+      if (b.kind === 'nebula') { b._reach = 0; b._roche = 0; continue; }
       b._reach = captureRadius(b) + Math.sqrt(b.vx * b.vx + b.vy * b.vy + b.vz * b.vz) * dt;
       const eligible = !b.noRoche && (b.kind === 'rocky' || b.kind === 'gas' || b.kind === 'star') && mMax > 30 * b.m;
       // Rubble piles assembled from debris break up further out than solid moons: between the rigid (1.26) and
@@ -309,10 +312,10 @@ export class World {
     }
     for (let i = 0; i < n; i++) {
       const a = bs[i];
-      if (!a.alive) continue;
+      if (!a.alive || a.kind === 'nebula') continue;
       for (let j = i + 1; j < n; j++) {
         const b = bs[j];
-        if (!b.alive || !a.alive) continue;
+        if (!b.alive || !a.alive || b.kind === 'nebula') continue;
         const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
         const d2 = dx * dx + dy * dy + dz * dz;
         const lim = Math.max(a._reach + b._reach, a._roche, b._roche);

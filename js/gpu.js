@@ -552,7 +552,7 @@ export class GPULayer {
       const occ = [h];
       const reach = info.rout * 10;   // (out to Titan, for its shadow on the rings)
       for (const b of world.bodies) {
-        if (b === h || !(b.r > 0) || b.kind === 'core') continue;
+        if (b === h || !(b.r > 0) || b.kind === 'core' || b.kind === 'nebula') continue;
         if (Math.hypot(b.x - h.x, b.y - h.y, b.z - h.z) < reach) occ.push(b);
       }
       occ.sort((p, q) => q.r - p.r);

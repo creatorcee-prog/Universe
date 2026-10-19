@@ -29,14 +29,15 @@ export class Camera {
   // approached to a low orbit, 2% of the radius up (Earth: ~130 km; the ISS flies at ~420 km, 1.066 radii).
   clampDist(d) {
     const b = this.follow;
-    const min = b ? Math.max(1e-9, b.kind === 'bh' ? b.r * 3 * 1.6 : b.r * (b.kind === 'core' ? 1.6 : 1.02)) : 1e-9;
+    // (A nebula can be flown into.)
+    const min = b ? Math.max(1e-9, b.kind === 'bh' ? b.r * 3 * 1.6 : b.kind === 'nebula' ? b.r * 1e-4 : b.r * (b.kind === 'core' ? 1.6 : 1.02)) : 1e-9;
     return Math.min(1e13, Math.max(min, d));
   }
 
   // Zooming scales the height above the followed body's surface rather than the distance to its centre, so
   // the last stretch down to a low orbit is as easy to control as the zoom far out.
   zoomFrom(d0, f) {
-    const b = this.follow, R = b && b.kind !== 'bh' && b.kind !== 'core' ? b.r : 0;
+    const b = this.follow, R = b && b.kind !== 'bh' && b.kind !== 'core' && b.kind !== 'nebula' ? b.r : 0;
     return this.clampDist(R + (d0 - R) * f);
   }
 
@@ -44,7 +45,7 @@ export class Camera {
   // none beyond 2.4 radii, full at a low orbit, where the horizon sits ~11° above the middle of the view.
   tilt() {
     const b = this.follow;
-    if (!b || b.kind === 'bh' || b.kind === 'core') return 0;
+    if (!b || b.kind === 'bh' || b.kind === 'core' || b.kind === 'nebula') return 0;
     const x = this.dist / b.r;
     if (x >= 2.4) return 0;
     const k = Math.min(1, (2.4 - x) / 1.0), s = k * k * (3 - 2 * k);

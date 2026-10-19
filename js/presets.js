@@ -316,6 +316,30 @@ export const PRESETS = [
     build(w) { solarSystem(w); },
   },
   {
+    id: 'nursery', name: 'Stellar Nursery',
+    blurb: 'A young dusty world, a few light-years from the glowing cloud its star was born in. The nebula is red with hydrogen, blue-green with oxygen near its hot heart, and crossed by dark lanes of dust. Try the infrared view (Settings), where the dust shines instead.',
+    speed: DAY_YR / 4,
+    camera: { follow: 'Ember', dist: km(4600 * 1.32), pitch: 0.1, yaw: 0 },
+    build(w) {
+      // A young Sun-like star; its planet sits on the far side from the nebula so its lit face looks toward it.
+      const s = w.addBody(sun('Young Sun', 3e7));
+      const a = 1.1, v = Math.sqrt(G * s.m / a);
+      // Ember: Mars-sized, with thin, dusty CO2 air (80 mbar), so its limb glows orange as Mars's does
+      // (optics.js: dusty air; thicker air would scatter blue).
+      const e = makeBody({ name: 'Ember', kind: 'rocky', m: 0.15 * EARTH_MASS, r: km(4600), color: [200, 104, 62], compKey: 'Mars',
+        comp: { iron: 0.25, rock: 0.75, water: 0, rockAlbedo: 0.27, atm: { gases: { co2: 0.075, n2: 0.005 } } } });
+      e.x = 0; e.y = 0; e.z = -a; e.vx = v; e.vy = 0; e.vz = 0;
+      w.addBody(e).host = s;
+      // The nebula: ~1,500 M☉ in a cloud 4 light-years across, ~7 light-years away, high above the horizon
+      // of Ember's starting view
+      // (63,241 AU per light-year).
+      const LY = 63241;
+      const n = makeBody({ name: 'Ember Nebula', kind: 'nebula', m: 1500, r: 2 * LY, color: [235, 90, 110] });
+      n.x = 0; n.y = 5.6 * LY; n.z = -4.5 * LY;
+      w.addBody(n);
+    },
+  },
+  {
     id: 'saturn', name: 'Saturn\'s Rings',
     blurb: 'Saturn, its 63 named moons and its rings. With WebGPU on (Settings), the rings are 250,000 orbiting chunks, and up close a field of individual rocks. Zoom in to skim the ring plane.',
     speed: DAY_YR / 24,

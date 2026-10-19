@@ -14,6 +14,7 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 function portrait(kind, color, band, comet) {
   const [r, g, b] = color || [180, 180, 180];
   if (kind === 'bh' || kind === 'smbh') return ['radial-gradient(circle, #000 0 30%, #ffe2b8 33%, rgba(255,150,70,.6) 42%, rgba(255,120,50,.15) 58%, transparent 70%)', false];
+  if (kind === 'nebula') return ['radial-gradient(circle at 46% 48%, rgba(120,210,255,.75), transparent 22%), radial-gradient(ellipse 44% 36% at 40% 55%, rgba(240,70,110,.75), transparent 70%), radial-gradient(ellipse 40% 46% at 62% 42%, rgba(200,50,90,.55), transparent 72%), linear-gradient(115deg, transparent 44%, rgba(10,8,14,.75) 48%, transparent 53%)', false];
   if (kind === 'galaxy') return ['radial-gradient(ellipse 50% 22% at 50% 50%, rgba(255,236,200,.95), rgba(190,200,255,.35) 55%, transparent 70%)', false];
   if (kind === 'star' || kind === 'wd' || kind === 'ns') return [`radial-gradient(circle, #fff 0 22%, rgb(${r},${g},${b}) 42%, rgba(${r},${g},${b},.3) 58%, transparent 72%)`, false];
   if (comet) return ['radial-gradient(circle at 30% 70%, #fff 0 4%, rgba(200,225,255,.6) 12%, transparent 30%), linear-gradient(35deg, transparent 30%, rgba(160,200,255,.35) 32%, transparent 70%)', false];
@@ -23,6 +24,7 @@ function portrait(kind, color, band, comet) {
 }
 
 function kindFromKey(key) {
+  if (key === 'nebula') return 'nebula';
   if (['M', 'K', 'G', 'F', 'A', 'B', 'O'].includes(key)) return 'star';
   return key;
 }
@@ -141,7 +143,7 @@ export class Book {
       kicker: entry ? entry.kicker : typeName(b),
       title: b.name,
       summary: entry ? entry.summary : type.text,
-      portrait: portrait(b.kind === 'bh' && b.m > 1e5 ? 'smbh' : b.kind === 'core' ? 'galaxy' : b.kind, b.color, b.band, b.comet),
+      portrait: portrait(b.kind === 'bh' && b.m > 1e5 ? 'smbh' : b.kind === 'core' ? 'galaxy' : b.kind, b.color, b.band, b.comet),   // ('nebula' has its own)
       stats: entry ? entry.stats : null,
       statsTitle: entry ? 'In the real universe' : null,
       note: entry ? null : 'This object was made in the simulation, so it has no real-world record. The pages that follow describe objects of its kind and its live numbers.',
@@ -160,7 +162,7 @@ export class Book {
     const entry = ENTRIES[key];
     const pages = [];
     if (entry) {
-      pages.push(this.coverPage({ kicker: entry.kicker, title: key, summary: entry.summary, portrait: portrait(key === 'Sun' ? 'star' : 'x', ENTRY_COLOR[key], key === 'Jupiter' || key === 'Saturn' ? [170, 120, 80] : null, key === "Halley's Comet"), stats: entry.stats, statsTitle: 'In the real universe', note: 'This object is not in the current scenario. Load the Solar System to visit it.' }));
+      pages.push(this.coverPage({ kicker: entry.kicker, title: key, summary: entry.summary, portrait: portrait(key === 'Sun' ? 'star' : key === 'Orion Nebula' ? 'nebula' : 'x', ENTRY_COLOR[key], key === 'Jupiter' || key === 'Saturn' ? [170, 120, 80] : null, key === "Halley's Comet"), stats: entry.stats, statsTitle: 'In the real universe', note: entry.where || 'This object is not in the current scenario. Load the Solar System to visit it.' }));
       if (entry.facts.length) pages.push(this.listPage('Did you know?', entry.facts));
       pages.push(this.sourcesPage(entry.sources));
     } else {
@@ -234,7 +236,12 @@ export class Book {
     rows.push(['Mass', formatMass(b.m)]);
     if (b.kind === 'core') rows.push(['Bulge radius', formatDistance(b.soft)]);
     else rows.push([b.kind === 'bh' ? 'Event-horizon radius' : 'Radius', formatDistance(b.r)]);
-    if (b.kind !== 'bh' && b.kind !== 'core' && Rm > 0) {
+    if (b.kind === 'nebula') {
+      const n = Mkg * 1000 / ((4 / 3) * Math.PI * (Rm * 100) ** 3) / 1.67e-24;
+      rows.push(['Density', `${n < 10 ? n.toPrecision(2) : Math.round(n).toLocaleString('en-US')} atoms per cm³ (air: 2.5 × 10¹⁹)`]);
+      rows.push(['Gas temperature', `${formatTemp(b.temp)}, kept hot by its young stars' ultraviolet light`]);
+      rows.push(['Escape velocity from its edge', formatSpeed(Math.sqrt((2 * G * b.m) / b.r))]);
+    } else if (b.kind !== 'bh' && b.kind !== 'core' && Rm > 0) {
       const rho = Mkg / ((4 / 3) * Math.PI * Rm ** 3);
       rows.push(['Mean density', rho > 1e7 ? rho.toExponential(2).replace('e+', ' × 10^') + ' kg/m³' : Math.round(rho).toLocaleString('en-US') + ' kg/m³']);
       const g = (G_SI * Mkg) / (Rm * Rm);

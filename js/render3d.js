@@ -2,7 +2,7 @@ import { PK } from './physics.js';
 import { isLuminous, tempToRGB, schwarzschild } from './bodies.js';
 import { transientLum } from './stellar.js';
 import { EARTH_MASS } from './units.js';
-import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS, RIM_FS, TERRAIN_VS, TERRAIN_FS, RING_FS, CLOUD_FS, GEN_FS, SURFACE_CLOUD_FS, WEATHER_FS } from './shaders.js';
+import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS, RIM_FS, TERRAIN_VS, TERRAIN_FS, RING_FS, CLOUD_FS, GEN_FS, SURFACE_CLOUD_FS, WEATHER_FS, NEBULA_FS, BLIT_FS } from './shaders.js';
 import { atmosphereOptics, giantOptics, setOpticsUniforms, stretchOptics, atmosphereTop, shellTop, groundLight } from './optics.js';
 import { heatOutput } from './thermal.js';
 import { earthMap, moonMap } from './geography.js';
@@ -364,7 +364,7 @@ export class Renderer3D {
     this.gen = ++contextGen;
     canvas.addEventListener('webglcontextrestored', () => {
       this.gen = ++contextGen;
-      this.mapTex = new Map(); this.dTex = null; this.nightTex = null; this.tMesh = null; this.post = null; this.genMaps = null; this.noiseTex = null; this.cloudRTs = null; this.skyLayer = null;
+      this.mapTex = new Map(); this.dTex = null; this.nightTex = null; this.tMesh = null; this.post = null; this.genMaps = null; this.noiseTex = null; this.cloudRTs = null; this.skyLayer = null; this.nebRT = null;
       this.init(); this.lost = false;
     });
     this.init();
@@ -420,6 +420,8 @@ export class Renderer3D {
     this.pGen = this.program(FULL_VS, GEN_FS);
     this.pSurfCloud = this.program(FULL_VS, SURFACE_CLOUD_FS);
     this.pWeather = this.program(FULL_VS, WEATHER_FS);
+    this.pNebula = this.program(FULL_VS, NEBULA_FS);
+    this.pBlit = this.program(FULL_VS, BLIT_FS);
     this.hdr = !!gl.getExtension('EXT_color_buffer_float');
     this.post = null;
   }
@@ -781,6 +783,55 @@ export class Renderer3D {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
     return this.noiseTex;
+  }
+
+  // Nebulae (NEBULA_FS): ray-marched at quarter resolution into their own buffer (they are smooth; the noise
+  // is the costly part), then laid over the target behind everything else: anything in front of a nebula
+  // hides it, and its dust dims the stars behind.
+  drawNebulae(world, fbo, W, H) {
+    const gl = this.gl, cam = this.cam;
+    const list = [];
+    for (const b of world.bodies) {
+      if (b.kind !== 'nebula' || !b.alive) continue;
+      const vp = this.viewOf(...this.rel(b));
+      if (-vp[2] < -b.r) continue;                                    // wholly behind the camera
+      list.push([b, vp]);
+    }
+    if (!list.length) return;
+    const w = Math.max(16, Math.ceil(W / 4)), h = Math.max(16, Math.ceil(H / 4));
+    if (!this.nebRT || this.nebRT.w !== w || this.nebRT.h !== h) {
+      if (this.nebRT) { gl.deleteTexture(this.nebRT.tex); gl.deleteFramebuffer(this.nebRT.fbo); }
+      this.nebRT = this.makeTarget(w, h);
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.nebRT.fbo);
+    gl.viewport(0, 0, w, h);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.disable(gl.DEPTH_TEST);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    const p = this.pNebula, u = p.u, t = Math.tan(cam.fov / 2);
+    gl.useProgram(p.p);
+    gl.uniformMatrix3fv(u.uView, false, this.V);
+    gl.uniform2f(u.uTan, t * (this.canvas.width / this.canvas.height), t);
+    gl.uniform1i(u.uBand, this.spectrumMode());
+    // Farthest first, so nearer nebulae lie over farther ones.
+    list.sort((a, c) => a[1][2] - c[1][2]);
+    for (const [b, vp] of list) {
+      gl.uniform3fv(u.uC, vp);
+      gl.uniform1f(u.uR, b.r);
+      gl.uniform1f(u.uSeed, (b.id % 97) * 0.13);
+      gl.uniform1f(u.uBright, b.glow === undefined ? 1 : b.glow);
+      gl.bindVertexArray(this.quad);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.viewport(0, 0, W, H);
+    gl.useProgram(this.pBlit.p);
+    this.bindTex(0, this.nebRT.tex, this.pBlit.u.uTex);
+    gl.bindVertexArray(this.quad);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.disable(gl.BLEND);
   }
 
   // The cloud deck seen from the ground (SURFACE_CLOUD_FS), into a quarter-resolution buffer the sky reads.
@@ -1482,6 +1533,7 @@ export class Renderer3D {
       this.drawMilkyWay();
       this.drawSky();
     }
+    if (!this.surface) this.drawNebulae(world, this.sceneFB, this.sceneW, this.sceneH);
     if (this.surface) this.drawSurfaceSky(this.surface);
     if (ui.zones && ui.zones.size && !this.surface) this.drawTempField(world, ui.zones);
     gl.enable(gl.DEPTH_TEST);
@@ -1555,6 +1607,8 @@ export class Renderer3D {
     const ground = this.surface ? this.surface.body : null;
     if (ground) {
       this.bindSkyLayer();
+      // Nebulae in the sky, behind its bodies, seen through the air like them.
+      if (world.bodies.some((x) => x.kind === 'nebula')) { this.drawNebulae(world, this.skyLayer.fbo, this.sceneW, this.sceneH); }
       gl.enable(gl.DEPTH_TEST);
       gl.depthFunc(gl.LEQUAL);
     }
@@ -1739,6 +1793,7 @@ export class Renderer3D {
     if (l.kind === 4) R = b.r * 2.6;
     if (b.kind === 'star') R *= 1 + 0.25 * Math.min(1, b.heat);
     if (b.kind === 'core') { this.queueCoreGlow(b, vp, depth, glows); return; }
+    if (b.kind === 'nebula') return;   // (drawn before the bodies: drawNebulae)
     if (depth < -R * 2) return;
     const Rpx = R * pxPerAU;
     if (Rpx < minPx) R = minPx / pxPerAU;
@@ -1931,7 +1986,7 @@ export class Renderer3D {
         gl.uniform1f(u.uSunAng, sunAng);
         const cand = [];
         for (const o of this.world.bodies) {
-          if (o === b || !(o.r > 0) || isLuminous(o) || o.kind === 'core') continue;
+          if (o === b || !(o.r > 0) || isLuminous(o) || o.kind === 'core' || o.kind === 'nebula') continue;
           const ox = o.x - b.x, oy = o.y - b.y, oz = o.z - b.z;
           const t = ox * Lx + oy * Ly + oz * Lz;
           if (t <= 0 || t > P.d) continue;
@@ -2099,7 +2154,7 @@ export class Renderer3D {
         // The four biggest moons within reach of the rings, for their shadows on them.
         const moons = [];
         for (const m of this.world.bodies) {
-          if (m === b || !m.alive || !(m.r > 0) || isLuminous(m) || Math.hypot(m.x - b.x, m.y - b.y, m.z - b.z) > ring.rout * 10) continue;
+          if (m === b || !m.alive || !(m.r > 0) || isLuminous(m) || m.kind === 'nebula' || Math.hypot(m.x - b.x, m.y - b.y, m.z - b.z) > ring.rout * 10) continue;
           moons.push(m);
         }
         moons.sort((p, q) => q.r - p.r);

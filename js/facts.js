@@ -228,6 +228,18 @@ export const ENTRIES = {
     ],
     sources: [wiki('486958_Arrokoth'), nasa('new-horizons/', 'NASA: New Horizons')],
   },
+  'Orion Nebula': {
+    kicker: 'Emission nebula · M42',
+    where: 'This object is not in the current scenario. The Stellar Nursery scenario has a nebula like it.',
+    summary: 'The nearest large region where massive stars are being born, about 1,350 light-years away. It is visible to the naked eye as the fuzzy middle "star" of Orion\'s sword.',
+    stats: [['Distance', 'about 1,350 light-years'], ['Size', 'about 24 light-years across'], ['Mass', 'about 2,000 Suns'], ['Age of its stars', 'under a million years (many)']],
+    facts: [
+      'Four bright young stars at its heart, the Trapezium, give off the ultraviolet light that makes the gas glow.',
+      'Hubble found over 150 protoplanetary disks ("proplyds") around its young stars: planetary systems in the making.',
+      'Webb found free-floating objects of a few Jupiter masses drifting through it, some in pairs.',
+    ],
+    sources: [wiki('Orion_Nebula'), wiki('Trapezium_Cluster')],
+  },
   "Halley's Comet": {
     kicker: 'Comet · 1P/Halley',
     summary: 'The most famous comet. Halley returns to the inner Solar System about every 76 years, and has been recorded at every return since at least 240 BC.',
@@ -450,6 +462,18 @@ export const TYPES = {
     ],
     sources: [['Event Horizon Telescope: Sagittarius A*', 'https://eventhorizontelescope.org/blog/astronomers-reveal-first-image-black-hole-heart-our-galaxy'], wiki('Tidal_disruption_event')],
   },
+  nebula: {
+    title: 'Nebulae',
+    text: 'Clouds of gas and dust where new stars are born. In an emission nebula, young hot stars light up the gas around them: hydrogen glows red and oxygen blue-green, while lanes of cold dust block the light behind.',
+    facts: [
+      'The red is hydrogen\'s H-alpha line at 656 nm, given off when electrons knocked loose by ultraviolet starlight recombine with protons; the blue-green is doubly ionised oxygen at 501 nm.',
+      'Even a bright nebula holds only a few hundred to a few thousand atoms per cubic centimetre: emptier than the best vacuum made on Earth. Air has 25 billion billion.',
+      'Dust that hides a nebula in visible light glows in the infrared, which is how the Spitzer and Webb telescopes see stars forming inside it.',
+      'Hubble\'s 1995 "Pillars of Creation" in the Eagle Nebula are columns of gas and dust light-years tall, slowly being evaporated by nearby stars.',
+      'In this game a nebula is a softly gravitating cloud that everything passes through; its glow comes from the starlight inside it, which is not modelled star by star.',
+    ],
+    sources: [wiki('Emission_nebula'), wiki('Pillars_of_Creation'), wiki('H-alpha')],
+  },
   galaxy: {
     title: 'Galaxies',
     text: 'Vast systems of stars, gas, dust and dark matter bound by gravity. Spiral galaxies like the Milky Way have a central bulge, often with a supermassive black hole, surrounded by a rotating disk with spiral arms.',
@@ -484,6 +508,7 @@ export function typeKey(b) {
     case 'wd': return 'wd';
     case 'ns': return 'ns';
     case 'bh': return b.m > 1e5 ? 'smbh' : 'bh';
+    case 'nebula': return 'nebula';
     default: return 'galaxy';
   }
 }
@@ -494,6 +519,7 @@ export const CONTENTS = [
   ['Planets', ['Mercury', 'Venus', 'Earth', 'Mars', 'Jupiter', 'Saturn', 'Uranus', 'Neptune']],
   ['Moons', ['Moon', 'Io', 'Europa', 'Ganymede', 'Callisto']],
   ['Dwarf planets and small bodies', ['Ceres', 'Pluto', 'Bennu', 'Ryugu', 'Arrokoth', "Halley's Comet"]],
+  ['Beyond the Solar System', ['Orion Nebula']],
   ['Deep history', ['Theia', 'Proto-Earth']],
-  ['Kinds of object', ['comet', 'asteroid', 'planetesimal', 'terrestrial', 'superearth', 'icegiant', 'gasgiant', 'browndwarf', 'M', 'K', 'G', 'F', 'A', 'B', 'O', 'wd', 'ns', 'bh', 'smbh', 'galaxy']],
+  ['Kinds of object', ['comet', 'asteroid', 'planetesimal', 'terrestrial', 'superearth', 'icegiant', 'gasgiant', 'browndwarf', 'M', 'K', 'G', 'F', 'A', 'B', 'O', 'wd', 'ns', 'bh', 'smbh', 'nebula', 'galaxy']],
 ];

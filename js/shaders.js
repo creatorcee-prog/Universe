@@ -2078,6 +2078,74 @@ void main() {
 }
 `;
 
+// An emission nebula (a stellar nursery like the Orion or Lagoon nebulae), ray-marched through its sphere
+// at quarter resolution. Hydrogen ionised by the young stars inside glows red (H-alpha, 656 nm); the hotter
+// core, where doubly ionised oxygen shines at 501 nm, is blue-green; cold dust in lanes and pillars blocks
+// the light behind it. Turbulent, filamentary structure from domain-warped noise. Colour in each band:
+// infrared shows the dust itself, warm and bright (as Spitzer and Webb see it); ultraviolet the hot, ionised
+// gas; X-rays only the faint hot bubbles blown by the stars.
+export const NEBULA_FS = HEAD + NOISE + `
+in vec2 vUV;
+uniform mat3 uView;
+uniform vec2 uTan;
+uniform vec3 uC;         // centre, view space (AU)
+uniform float uR;        // radius (AU)
+uniform float uSeed;
+uniform float uBright;
+uniform int uBand;       // 0 visible, 1 infrared, 2 ultraviolet, 3 X-ray
+out vec4 outColor;
+void main() {
+  vec3 d = normalize(vec3((vUV.x * 2.0 - 1.0) * uTan.x, (vUV.y * 2.0 - 1.0) * uTan.y, -1.0));
+  // Unit-sphere coordinates in the nebula's own (world-aligned) frame.
+  mat3 W = transpose(uView);
+  vec3 o = W * (-uC) / uR, dw = W * d;
+  float b = dot(o, dw), c = dot(o, o) - 1.0, D = b * b - c;
+  if (D <= 0.0) { outColor = vec4(0.0); return; }
+  float q = sqrt(D), t0 = max(-b - q, 0.0), t1 = -b + q;
+  if (t1 <= 0.0) { outColor = vec4(0.0); return; }
+  const int N = 26;
+  float dt = (t1 - t0) / float(N);
+  vec3 sd = vec3(uSeed * 17.0, uSeed * 31.0, uSeed * 7.0);
+  vec3 col = vec3(0.0);
+  float T = 1.0;
+  for (int i = 0; i < N; i++) {
+    vec3 p = o + dw * (t0 + (float(i) + 0.5) * dt);
+    float r = length(p);
+    float shell = 1.0 - smoothstep(0.45, 1.0, r);
+    if (shell <= 0.0) continue;
+    // Domain-warped turbulence: wispy filaments rather than round blobs.
+    vec3 w = vec3(fbm(p * 1.6 + sd, 3), fbm(p * 1.6 + sd + 5.2, 3), fbm(p * 1.6 + sd + 9.7, 3));
+    float n = fbm(p * 2.8 + w * 2.0 + sd, 4);
+    // Bright, thin filaments (ridges of warped noise) over the broad glow.
+    float fil = pow(1.0 - abs(2.0 * vnoise(p * 7.0 + w * 3.0 + sd + 1.0) - 1.0), 8.0);
+    float gas = shell * (smoothstep(0.34, 0.78, n) * 1.3 + fil * smoothstep(0.3, 0.6, n) * 1.6);
+    // Oxygen glows where the gas is hottest, nearest the central stars.
+    float ox = (1.0 - smoothstep(0.1, 0.8, r)) * smoothstep(0.25, 0.6, vnoise(p * 1.8 + sd + 2.0));
+    // Dust: ridged noise makes lanes and dark pillars.
+    float ridge = 1.0 - abs(2.0 * vnoise(p * 3.2 + w * 1.2 + sd + 4.0) - 1.0);
+    float dust = shell * (smoothstep(0.66, 0.92, ridge) * smoothstep(0.3, 0.6, n) + 0.35 * smoothstep(0.55, 0.75, w.x));
+    vec3 e;
+    float ext = dust * 14.0;
+    if (uBand == 1) { e = vec3(1.0, 0.7, 0.4) * (dust * 0.9 + gas * 0.08); ext *= 0.08; }        // warm dust glows
+    else if (uBand == 2) e = vec3(0.6, 0.75, 1.0) * gas * (0.4 + 1.6 * ox);                   // hot, ionised gas
+    else if (uBand == 3) { e = vec3(0.7, 0.8, 1.0) * ox * gas * 0.25; ext *= 0.2; }           // faint hot bubbles
+    else e = mix(vec3(1.0, 0.1, 0.17), vec3(0.2, 0.55, 1.0), ox) * gas + vec3(0.25, 0.16, 0.3) * gas * gas;
+    col += T * e * dt * 2.0 * uBright;
+    T *= exp(-ext * dt);
+    if (T < 0.02) break;
+  }
+  outColor = vec4(col, 1.0 - T);
+}
+`;
+
+// A lower-resolution layer stretched over the view (premultiplied colour and coverage).
+export const BLIT_FS = HEAD + `
+in vec2 vUV;
+uniform sampler2D uTex;
+out vec4 outColor;
+void main() { outColor = texture(uTex, vUV); }
+`;
+
 // Generated terrain map of a world without a real one (render3d.js genStep): equirectangular, the same
 // layout as the photo maps, made once in strips and then only sampled. Far more noise than could be run per
 // pixel every frame: continents and coasts bent by domain warping (Quilez, iquilezles.org/articles/warp),

@@ -96,6 +96,22 @@ export function renderThumb(item, size = 128) {
     }
     return cv;
   }
+  if (item.kind === 'nebula') {
+    // Red hydrogen glow with a blue-green heart, crossed by a dark dust lane.
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 40; i++) {
+      const a = Math.random() * 6.283, r = R * 0.75 * Math.sqrt(Math.random());
+      const x = c0 + Math.cos(a) * r, y = c0 + Math.sin(a) * r * 0.8, rr = R * (0.25 + Math.random() * 0.35);
+      const g = ctx.createRadialGradient(x, y, 0, x, y, rr);
+      const blue = r < R * 0.25 && Math.random() < 0.6;
+      g.addColorStop(0, blue ? 'rgba(90,200,255,0.22)' : 'rgba(235,60,95,0.2)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g; ctx.fillRect(x - rr, y - rr, rr * 2, rr * 2);
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = 'rgba(12,8,14,0.55)'; ctx.lineWidth = R * 0.18;
+    ctx.beginPath(); ctx.moveTo(c0 - R * 0.2, c0 - R); ctx.quadraticCurveTo(c0 + R * 0.1, c0, c0 - R * 0.05, c0 + R); ctx.stroke();
+    return cv;
+  }
   if (item.kind === 'bh') {
     const g = ctx.createRadialGradient(c0, c0, R * 0.3, c0, c0, R * 1.2);
     g.addColorStop(0, 'rgba(255,220,170,1)'); g.addColorStop(0.35, 'rgba(255,150,60,.9)'); g.addColorStop(1, 'rgba(255,90,20,0)');

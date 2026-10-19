@@ -28,6 +28,16 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 - (Fixed: labels behind Saturn are hidden.) Gravel from afar: fixed, the smooth sheet draws the rings there.
 - Testing note: iPhone Low Power Mode caps web pages at 30 fps (yellow battery icon).
 
+## Recreating the inspiration images (October 2026)
+
+- (Done) 1. Planet limb against a nebula: nebulae are a new kind of object (Create, the Orion Nebula among real
+  objects, book pages, info readouts, spectrum views, the classic view, soft gravity, no collisions or tides),
+  and the Stellar Nursery scenario frames a dusty world against one.
+- 2. Venus-like surface under a visible, sheared cloud deck.
+- 3. Desert sunset with dark storm clouds and a mesa.
+- 4. A solar eclipse seen from the ground.
+- 5. A red dwarf rising behind a red-lit rocky planet, its surface granulated.
+
 ## New list
 
 - **Challenges** (first set done, Scenarios sheet: a second moon for Earth, Kepler's two-year planet, weighing

@@ -73,6 +73,7 @@ export function generateName(kind) {
   if (kind === 'bh') return 'BH-' + (100 + Math.floor(Math.random() * 900));
   if (kind === 'ns') return 'PSR J' + (1000 + Math.floor(Math.random() * 8999));
   if (kind === 'wd') return 'WD ' + (100 + Math.floor(Math.random() * 900));
+  if (kind === 'nebula') return 'NGC ' + (1000 + Math.floor(Math.random() * 6800));
   return NAMES[Math.floor(Math.random() * NAMES.length)] + ' ' + nameCounter;
 }
 
@@ -95,6 +96,9 @@ export const CATALOG = [
   { id: 'bh', label: 'Black hole', kind: 'bh', m: 10 },
   { id: 'smbh', label: 'Super\u00admassive', kind: 'bh', m: 4.3e6 },
   { id: 'dust', label: 'Dust cloud', kind: 'dust', m: 0 },
+  // A stellar nursery the size of the Orion Nebula's bright core: ~1,000 M☉ of gas and dust, 3 light years
+  // across its glowing part (63,241 AU per light year).
+  { id: 'nebula', label: 'Nebula', kind: 'nebula', m: 1000, r: 1.5 * 63241, color: [235, 90, 110] },
 ];
 
 // Real objects for the Create gallery. Masses and mean radii: NASA planetary and satellite fact sheets
@@ -126,6 +130,8 @@ export const REAL_OBJECTS = [
   real('r-pluto', 'Pluto', 'rocky', 1.303e22, 1188.3, { compKey: 'Pluto', color: [214, 190, 160], style: 'pluto' }),
   real('r-charon', 'Charon', 'rocky', 1.586e21, 606, { compKey: 'icemoon', color: [170, 166, 160], style: 'moon' }),
   { id: 'r-proxima', label: 'Proxima Centauri', kind: 'star', m: 0.1221, named: true, real: true },
+  // M42: ~2,000 M☉ within ~12 light years (its glowing part; the molecular cloud behind is far bigger).
+  { id: 'r-orion', label: 'Orion Nebula', kind: 'nebula', m: 2000, r: 12 * 63241, color: [235, 90, 110], named: true, real: true },
   { id: 'r-sun', label: 'Sun', kind: 'star', m: 1, named: true, real: true },
   { id: 'r-sirius', label: 'Sirius A', kind: 'star', m: 2.063, named: true, real: true },
   { id: 'r-betelgeuse', label: 'Betelgeuse', kind: 'star', m: 18, named: true, real: true, ageFrac: 0.995 },
@@ -198,6 +204,9 @@ export function refresh(b) {
     b.r = schwarzschild(b.m);
   } else if (b.kind === 'core') {
     b.lum = 0; b.color = b.color || [255, 226, 180];
+  } else if (b.kind === 'nebula') {
+    // Its glow is drawn by the renderer (NEBULA_FS); as a light source for planets it is negligible.
+    b.lum = 0; b.temp = 10000; b.color = b.color || [235, 90, 110];
   } else {
     b.lum = 0;
   }
@@ -252,6 +261,7 @@ export function typeName(b) {
     case 'ns': return 'Neutron star';
     case 'bh': return b.m > 1e5 ? 'Supermassive black hole' : 'Black hole';
     case 'core': return 'Galaxy core';
+    case 'nebula': return 'Emission nebula';
     default: return b.kind;
   }
 }

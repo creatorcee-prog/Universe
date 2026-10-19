@@ -21,6 +21,7 @@ export function shownRadius(b, p, dpr, trueSize = false) {
     case 'star': case 'wd': case 'ns': return Math.max(R, 3 * dpr);
     case 'bh': return Math.max(R * 2.6, 4.5 * dpr);
     case 'core': return Math.min(Math.max(b.soft * p.s * 0.9, 6 * dpr) * 0.3, 14 * dpr);
+    case 'nebula': return Math.min(Math.max(R * 0.5, 6 * dpr), 14 * dpr);
     default: return R < 1.6 * dpr ? (b.m > 1e-7 ? 2.4 : 1.6) * dpr : R;
   }
 }
@@ -548,6 +549,7 @@ export class Renderer {
         case 'star': case 'wd': case 'ns': shown = this.drawStar(b, p, R, now); break;
         case 'bh': shown = this.drawBlackHole(b, p, R, up, upAng); break;
         case 'core': shown = this.drawCore(b, p); break;
+        case 'nebula': shown = this.drawNebula(b, p); break;
         default:
           if (b.comet) this.drawCometTail(b, p);
           shown = this.drawPlanet(b, p, R, upAng);
@@ -663,6 +665,21 @@ export class Renderer {
     ctx.fillStyle = g;
     ctx.fillRect(p.x - R, p.y - R, R * 2, R * 2);
     return Math.min(R * 0.3, 14 * dpr);
+  }
+
+  // A soft red cloud with a blue-green heart (hydrogen and oxygen light; see NEBULA_FS for the 3D view).
+  drawNebula(b, p) {
+    const { ctx, dpr } = this;
+    const R = Math.max(b.r * p.s, 8 * dpr);
+    ctx.globalCompositeOperation = 'lighter';
+    const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, R);
+    g.addColorStop(0, 'rgba(110,200,255,0.35)');
+    g.addColorStop(0.3, 'rgba(235,70,100,0.3)');
+    g.addColorStop(0.7, 'rgba(160,40,80,0.12)');
+    g.addColorStop(1, 'rgba(120,30,60,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(p.x - R, p.y - R, R * 2, R * 2);
+    return Math.min(Math.max(R * 0.5, 6 * dpr), 14 * dpr);
   }
 
   drawPlanet(b, p, R, upAng) {
@@ -881,7 +898,7 @@ export class Renderer {
       return pb - pa || b[0].m - a[0].m;
     });
     // Discs big enough to hide something behind them (a moon behind Saturn has no label showing through it).
-    const discs = entries.filter(([, p]) => p.R > 6 * dpr);
+    const discs = entries.filter(([c, p]) => p.R > 6 * dpr && c.kind !== 'nebula');   // (a nebula hides nothing)
     const hidden = (b, p) => discs.some(([c, q]) => c !== b && q.z < p.z && Math.hypot(p.x - q.x, p.y - q.y) < q.R * 0.98);
     let n = 0;
     for (const [b, p] of entries) {

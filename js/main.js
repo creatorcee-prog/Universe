@@ -321,7 +321,7 @@ class App {
     if (!body) return;
     this.state.selected = body;
     this.follow(body);
-    const frame = body.kind === 'core' ? body.soft * 8 : body.kind === 'bh' ? Math.max(body.r * 40, 0.01) : body.r * 25;
+    const frame = body.kind === 'core' ? body.soft * 8 : body.kind === 'nebula' ? body.r * 3 : body.kind === 'bh' ? Math.max(body.r * 40, 0.01) : body.r * 25;
     this.cam.zoomTo(frame);
     this.ui.showInfo(body);
   }
@@ -359,8 +359,8 @@ class App {
     // Frame the body nicely if we are far away from it.
     if (body) {
       const want = Math.max(body.r * 12, body.soft * 6);
-      if (body.kind !== 'core' && this.cam.distGoal > want * 4000) this.cam.zoomTo(Math.max(want, this.cam.distGoal / 50));
-      else if (this.cam.distGoal < body.r * 3) this.cam.zoomTo(body.r * 6);
+      if (body.kind !== 'core' && body.kind !== 'nebula' && this.cam.distGoal > want * 4000) this.cam.zoomTo(Math.max(want, this.cam.distGoal / 50));
+      else if (body.kind !== 'nebula' && this.cam.distGoal < body.r * 3) this.cam.zoomTo(body.r * 6);
     }
   }
 
@@ -532,11 +532,13 @@ class App {
     const b = makeBody({ kind: item.kind, m: item.m, r: item.r, color: item.color, band: item.band, atmo: item.atmo, comet: item.comet, compKey: item.compKey, name });
     if (item.ageFrac) b.age = lifetime(item.m) * item.ageFrac;
     b.x = x; b.y = y; b.z = z; b.vx = vx; b.vy = vy; b.vz = vz;
+    // A nebula is placed at rest beside whatever it was dropped near, not put in orbit like a planet.
+    if (b.kind === 'nebula') { const p = a.parent; b.vx = p ? p.vx : 0; b.vy = p ? p.vy : 0; b.vz = p ? p.vz : 0; }
     reclassify(b);
     this.world.addBody(b);
     // A new Saturn comes with its rings (A, B and C rings, 74,500-136,800 km, with the Cassini Division).
     if (item.rings) ring(this.world, b, km(74500), km(136800), 16000, 26.7, PK.ICE);
-    if (this.state.addMethod === 'binary') {
+    if (this.state.addMethod === 'binary' && b.kind !== 'nebula') {
       // A twin on a mutual circular orbit: separation ~20 radii for planets, ~0.1 AU·√M for stars,
       // kept inside a third of the pair's Hill sphere around whatever they orbit.
       const b2 = makeBody({ kind: item.kind, m: item.m, r: item.r, color: item.color, band: item.band, atmo: item.atmo, comet: item.comet, compKey: item.compKey, name: name ? `${name} B` : undefined });

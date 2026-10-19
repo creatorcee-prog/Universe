@@ -50,6 +50,7 @@ const pct = (f) => {
 function swatch(item) {
   if (item.kind === 'dust') return 'radial-gradient(circle at 50% 50%, rgba(220,190,150,.9) 0 1px, transparent 2px) 0 0/6px 6px, radial-gradient(circle, rgba(190,160,128,.45), transparent 70%)';
   if (item.kind === 'bh') return 'radial-gradient(circle, #000 0 38%, #ffd7a0 42%, rgba(255,140,60,.55) 52%, transparent 72%)';
+  if (item.kind === 'nebula') return 'radial-gradient(circle at 48% 50%, rgba(120,210,255,.8), transparent 26%), radial-gradient(ellipse 50% 40% at 44% 54%, rgba(240,70,110,.85), transparent 72%), radial-gradient(circle, rgba(170,40,90,.4), transparent 72%)';
   const b = makeBody({ kind: item.kind, m: item.m, r: item.r, color: item.color, band: item.band });
   reclassify(b);
   const [r, g, bl] = b.color;
@@ -540,13 +541,19 @@ export class UI {
     $('i-mass').textContent = formatMass(b.m);
     $('i-radius').textContent = b.kind === 'core' ? formatDistance(b.soft) + ' bulge' : formatDistance(b.r);
     let temp;
-    if (lum) temp = b.temp;
+    if (lum || b.kind === 'nebula') temp = b.temp;   // (a nebula: its ionised gas, ~10,000 K)
     else if (b.kind === 'bh' || b.kind === 'core') temp = null;
     else temp = b.th ? b.th.Ts : null;
     $('i-temp').textContent = temp == null ? '—' : formatTemp(temp);
-    $('i-temp-label').textContent = isLuminous(b) || temp == null ? 'Temperature' : 'Surface temp.';
+    $('i-temp-label').textContent = b.kind === 'nebula' ? 'Gas temperature' : isLuminous(b) || temp == null ? 'Temperature' : 'Surface temp.';
     const AU_M = 1.495978707e11, MSUN = 1.98847e30;
-    if (b.r > 0 && b.kind !== 'core' && b.kind !== 'bh') {
+    if (b.kind === 'nebula') {
+      // Atoms per cm³ (hydrogen, 1.67e-24 g each): a few hundred in a bright nebula, a near-perfect vacuum.
+      const n = (b.m * MSUN * 1000) / ((4 / 3) * Math.PI * (b.r * AU_M * 100) ** 3) / 1.67e-24;
+      $('i-density').textContent = `${n < 10 ? n.toPrecision(2) : Math.round(n).toLocaleString('en-US')} atoms/cm³`;
+      $('i-gravity').textContent = 'No surface';
+      $('i-vesc').textContent = formatSpeed(Math.sqrt((2 * G * b.m) / b.r));
+    } else if (b.r > 0 && b.kind !== 'core' && b.kind !== 'bh') {
       const rho = (b.m * MSUN) / ((4 / 3) * Math.PI * (b.r * AU_M) ** 3) / 1000;
       $('i-density').textContent = rho > 1e4 ? rho.toExponential(1).replace('e+', ' × 10^') + ' g/cm³' : rho.toPrecision(3) + ' g/cm³';
       const g = (6.674e-11 * b.m * MSUN) / (b.r * AU_M) ** 2;
