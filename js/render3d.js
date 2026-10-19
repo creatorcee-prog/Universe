@@ -538,6 +538,7 @@ export class Renderer3D {
       gl.uniform2f(px.u.uLow, p.W, p.H);
       gl.uniform1f(px.u.uScale, this.pixelScale);
       gl.uniform1f(px.u.uBloomK, bloom ? 0.4 : 0);
+      gl.uniform3fv(px.u.uWB, this.whiteBalance());
       gl.uniform1f(px.u.uLevels, 5);
       this.fullscreen(px, null, this.canvas.width, this.canvas.height);
     } else {
@@ -545,6 +546,7 @@ export class Renderer3D {
       this.bindTex(0, p.scene.tex, this.pComp.u.uScene);
       this.bindTex(1, p.up[0].tex, this.pComp.u.uBloom);
       gl.uniform1f(this.pComp.u.uBloomK, bloom ? (this.hdr ? 0.32 : 0.22) : 0);
+      gl.uniform3fv(this.pComp.u.uWB, this.whiteBalance());
       this.fullscreen(this.pComp, null, p.W, p.H);
     }
     gl.depthMask(true);
@@ -581,7 +583,7 @@ export class Renderer3D {
     // The eye adapts: dim, hazy worlds are shown brighter than their true daylight, but not all the way.
     // Also opens up a little at dusk.
     const el = sv.elev || 0;
-    const dusk = 1 + (1 / Math.sqrt(0.08 + 0.92 * Math.max(0, Math.sin(el))) - 1) * Math.max(0, Math.min(1, (el + 0.2) / 0.15));
+    const dusk = 1 + (1 / Math.sqrt(0.3 + 0.7 * Math.max(0, Math.sin(el))) - 1) * Math.max(0, Math.min(1, (el + 0.2) / 0.15));
     gl.uniform1f(u.uExpo, (22 * dusk) / Math.pow(Math.max(0.01, Math.min(1, optics ? optics.day : 1)), 0.6));
     gl.uniform1f(u.uSunPower, sv.sunPower);
     gl.uniform1f(u.uSunAng, sv.sunAng || 0.00465);
@@ -608,6 +610,19 @@ export class Renderer3D {
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.disable(gl.BLEND);
     gl.activeTexture(gl.TEXTURE0);
+  }
+
+  // White balance on the ground: the eye (or a camera) partly adapts to the colour of the light, so a sunset
+  // reads orange-gold rather than the deep red the light really is (at 1° up, red is ~4x green). A fifth-power
+  // root of the sunlight's colour, at most 1.6x on a channel, scaled to keep the brightness. In space: none.
+  whiteBalance() {
+    const g = this.surface && this.gLight && this.gLight.g;
+    if (!g) return [1, 1, 1];
+    const T = g.sunT, m = Math.max(T[0], T[1], T[2]);
+    if (!(m > 1e-6)) return [1, 1, 1];
+    const wb = T.map((v) => Math.min(1.6, Math.pow(Math.max(v / m, 1e-4), -0.2)));
+    const y = 0.3 * wb[0] + 0.55 * wb[1] + 0.15 * wb[2];
+    return wb.map((v) => v / y);
   }
 
   // How stormy it is where you stand: rain from thick cloud on a world with liquid water and real air (snow
@@ -969,7 +984,7 @@ export class Renderer3D {
     const now = performance.now();
     if (!this.gLight || now - this.gLight.t > 300 || this.gLight.b !== b) {
       const el = sv.elev || 0, day = optics ? optics.day : 1;
-      const dusk = 1 + (1 / Math.sqrt(0.08 + 0.92 * Math.max(0, Math.sin(el))) - 1) * Math.max(0, Math.min(1, (el + 0.2) / 0.15));
+      const dusk = 1 + (1 / Math.sqrt(0.3 + 0.7 * Math.max(0, Math.sin(el))) - 1) * Math.max(0, Math.min(1, (el + 0.2) / 0.15));
       const expo = (22 * dusk) / Math.pow(Math.max(0.01, Math.min(1, day)), 0.6);
       // Without air the eye adapts to the sunlit ground itself (as in the Apollo photographs).
       const adapt = optics ? expo / 22 : 1.4;
@@ -1041,6 +1056,11 @@ export class Renderer3D {
     gl.uniform3fv(u.uFogSun, g ? g.horSun : [0, 0, 0]);
     gl.uniform3fv(u.uFogAnti, g ? g.horAnti : [0, 0, 0]);
     gl.uniform3fv(u.uSkyZen, g ? g.zen : [0, 0, 0]);
+    // The clouds drawn for this frame's sky, for the water to mirror.
+    const tf = Math.tan(this.cam.fov / 2);
+    gl.uniform2f(u.uTan, tf * (this.canvas.width / this.canvas.height), tf);
+    gl.uniform1f(u.uCloudOn, this.cloudsNow && this.cloudRT ? 1 : 0);
+    if (this.cloudsNow && this.cloudRT) { this.bindTex(13, this.cloudRT.tex, u.uClouds); gl.activeTexture(gl.TEXTURE0); }
     // Haze and mist from how wet the world is (its ocean cover) and its air pressure. Humid haze: visibility
     // (3.9 / extinction) from ~100 km in dry air to ~20 km in humid air, 1.5 km deep. Valley mist: ~60 m deep,
     // pooled in valleys, thickest at dawn and dusk and where it is cool, none in thin air.

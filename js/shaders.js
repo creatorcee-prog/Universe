@@ -1199,6 +1199,9 @@ uniform vec3 uFogExt;                  // ground-level extinction per metre (per
 uniform float uFogH;                   // scale height of that haze (m)
 uniform vec3 uFogSun, uFogAnti, uSkyZen; // sky colour at the horizon toward / away from the sun, zenith
 uniform vec4 uHaze;                    // humid haze: extinction (per m), scale height (m); valley mist: extinction
+uniform sampler2D uClouds;             // the sky's cloud buffer this frame (premultiplied), mirrored by water
+uniform float uCloudOn;
+uniform vec2 uTan;                     // tangents of the half field of view (x, y), to find a direction on screen
 out vec4 outColor;
 // Optical depth along a straight ray from height h0 to h1 (m), length L (m), through a layer whose density
 // falls as k·exp(-(h - b)/S) (full below b): exact for the exponential, so long sloping rays are right.
@@ -1238,6 +1241,16 @@ void main() {
     vec3 Rh = R - uUpV * dot(R, uUpV), Sh = uL0 - uUpV * dot(uL0, uUpV);
     float az = dot(Rh, Rh) > 1e-8 && dot(Sh, Sh) > 1e-8 ? dot(normalize(Rh), normalize(Sh)) : 0.0;
     vec3 sky = mix(mix(uFogAnti, uFogSun, az * 0.5 + 0.5), uSkyZen, sqrt(up));
+    // The clouds in the mirror: where the reflected ray points on screen (view space), if it is on screen.
+    if (uCloudOn > 0.5 && R.z < 0.0) {
+      vec2 cuv = (R.xy / -R.z) / uTan * 0.5 + 0.5;
+      vec2 edge = min(cuv, 1.0 - cuv);
+      float on = smoothstep(0.0, 0.06, min(edge.x, edge.y));
+      if (on > 0.0) {
+        vec4 cl = texture(uClouds, clamp(cuv, 0.0, 1.0));
+        sky = mix(sky, sky * (1.0 - cl.a) + cl.rgb, on);
+      }
+    }
     float fres = 0.02 + 0.98 * pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 5.0);
     // Light scattered back up from inside the water: deep blue-green (open ocean reflects ~5-7%).
     vec3 deep = vec3(0.012, 0.05, 0.075) * (sunC * max(dot(uUpV, uL0), 0.0) + uAmb);
@@ -2020,14 +2033,17 @@ void main() {
 // The one tone curve, at the very end (composite and pixel view): the scene is in linear light, with
 // highlights up to ~10x white (the Sun, its glare, sunlit horizons, bright limbs). Below 0.75 it is untouched
 // (planets, rings and sprites were tuned in 0..1); above, a Reinhard shoulder on the excess keeps gradations to
-// ~10 instead of clipping at ~1.5, by the brightest channel so hues hold; light past ~3x turns towards white.
+// ~10 instead of clipping at ~1.5; light past ~3x turns towards white.
 const TONEMAP = `
+vec3 shoulder(vec3 v) { vec3 x = max(v - 0.75, 0.0); return min(v, vec3(0.75)) + x / (1.0 + x / 0.25); }
 vec3 tonemap(vec3 c) {
   float l = max(c.r, max(c.g, c.b));
   if (l > 0.75) {
     float x = l - 0.75, m = 0.75 + x / (1.0 + x / 0.25);
-    c *= m / l;
-    c = mix(c, vec3(m), clamp((l - 3.0) / 10.0, 0.0, 0.35));
+    // Half by the brightest channel (hue kept), half per channel, as film and camera sensors respond: a bright
+    // red sunset slides toward orange and gold instead of staying pure red.
+    c = mix(c * (m / l), shoulder(c), 0.5);
+    c = mix(c, vec3(max(c.r, max(c.g, c.b))), clamp((l - 3.0) / 10.0, 0.0, 0.35));
   }
   return c;
 }
@@ -2037,10 +2053,11 @@ export const COMPOSITE_FS = HEAD + FINITE + TONEMAP + `
 in vec2 vUV;
 uniform sampler2D uScene, uBloom;
 uniform float uBloomK;
+uniform vec3 uWB;            // white balance: the eye partly adapting to the light's colour (1 = none)
 out vec4 outColor;
 void main() {
   vec3 c = finite(texture(uScene, vUV).rgb) + finite(texture(uBloom, vUV).rgb) * uBloomK;
-  outColor = vec4(tonemap(c), 1.0);
+  outColor = vec4(tonemap(c * uWB), 1.0);
 }
 `;
 
@@ -2051,13 +2068,14 @@ in vec2 vUV;
 uniform sampler2D uScene, uBloom;
 uniform vec2 uLow;
 uniform float uScale, uBloomK, uLevels;
+uniform vec3 uWB;            // white balance (see COMPOSITE_FS)
 out vec4 outColor;
 const float BAYER[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
 void main() {
   vec2 p = floor(gl_FragCoord.xy / uScale);
   vec2 uv = (p + 0.5) / uLow;
   vec3 c = finite(texelFetch(uScene, ivec2(min(p, uLow - 1.0)), 0).rgb) + finite(texture(uBloom, uv).rgb) * uBloomK;
-  c = tonemap(c);
+  c = tonemap(c * uWB);
   int i = int(mod(p.y, 4.0)) * 4 + int(mod(p.x, 4.0));
   float d = BAYER[i] / 16.0; // 0..0.94: near-black stays black, so the sky has no dot grid
   c = pow(max(c, 0.0), vec3(0.85));
@@ -2153,7 +2171,8 @@ void main() {
   }
   vec3 Lall = L + Lring * ringA * T;
   vec3 col = skyTone(Lall * uExpo);
-  float alpha = clamp(max(col.r, max(col.g, col.b)) * 1.4, 0.0, 1.0);
+  // (How much the sky hides the stars behind it: a twilight sky at a tenth of daylight already hides most.)
+  float alpha = clamp(max(col.r, max(col.g, col.b)) * 5.0, 0.0, 1.0);
   alpha = max(alpha, ringA * dot(T, vec3(0.3333)));
   // The star's disc at its full brightness (dimmed once by the air in front of it), not squeezed by the curve
   // above: in the HDR buffer it is far brighter than the sky, so bloom spreads its glare (the composite's
@@ -2360,13 +2379,14 @@ void main() {
   float far = tIn * Rkm;                                          // km to the cloud base along the view
   float fade = exp(-far / 160.0) * smoothstep(0.0, 0.05, h);
   if (fade >= 0.01) {
-  // Light on the clouds: the sunlight that got through the air (orange-pink at sunset) and the skylight.
+  // Light on the clouds: the sunlight that reaches their height through the air (orange-gold at sunset, and
+  // still there after the Sun has set on the ground: tauToSun is blocked only by the planet itself), and the
+  // skylight.
   float e = dot(sun, up);
-  vec3 Tsun = uAir > 0.0 ? exp(-tauToSun(1.0 + zb, e)) : vec3(1.0);
-  vec3 Lc = Tsun * max(e, 0.0) + (1.0 - exp(-uTauS)) * 0.5 * max(e + 0.08, 0.0);
-  float m = max(Lc.r, max(Lc.g, Lc.b));
-  vec3 lightCol = m > 1e-4 ? Lc / m : vec3(1.0);
-  float sunK = smoothstep(-0.1, 0.15, e) * uSunPower * pow(max(m, 0.0), 0.25);
+  vec3 Tsun = uAir > 0.0 ? exp(-tauToSun(1.0 + zb, e)) : vec3(step(-0.05, e));
+  float m = max(Tsun.r, max(Tsun.g, Tsun.b));
+  vec3 lightCol = m > 1e-4 ? Tsun / m : vec3(1.0);
+  float sunK = uSunPower * pow(max(m, 0.0), 0.35);
   vec3 sunL = uCloudCol * lightCol * sunK * 1.25 * (1.0 - 0.75 * uStorm);
   vec3 skyL = uCloudCol * mix(vec3(0.5, 0.58, 0.75), lightCol, 0.4) * (0.1 + 0.55 * smoothstep(-0.15, 0.3, e)) * max(uSunPower, 0.15);
   float cs = dot(d, sun);
@@ -2403,6 +2423,32 @@ void main() {
     if (Tr < 0.02) break;
   }
   cur = vec4(C * fade, (1.0 - Tr) * fade);
+  }
+  // Cirrus: a thin high layer (~3.6x the deck's base, about 8 km on Earth) of fine streaks drawn out by the
+  // wind, behind the deck. Thin ice scatters strongly forward: it glows around the Sun and, lit from below at
+  // sunset, turns gold and red across the sky.
+  if (h > 0.0) {
+    float e = dot(sun, up), cs = dot(d, sun);
+    vec3 skyL = uCloudCol * vec3(0.5, 0.58, 0.75) * (0.1 + 0.55 * smoothstep(-0.15, 0.3, e)) * max(uSunPower, 0.15);
+    float zc = zb * 3.6;
+    float tc = SHELL(zc);
+    vec3 Pc = (up * r0 + d * tc) * Rkm;
+    float farC = tc * Rkm;
+    vec3 wc = Pc + vec3(uTime * 0.03, 0.0, uTime * 0.012);
+    vec3 warp = vec3(tfbm(wc * 0.01 + 3.0, 3), tfbm(wc * 0.01 + 9.0, 3), 0.0) - 0.5;
+    vec3 sq = vec3(wc.x * 0.008, wc.y * 0.11, wc.z * 0.11) + warp * vec3(0.8, 3.0, 3.0);   // stretched along the wind
+    float n = tfbm(sq, 5) + 0.25 * (tnoise(sq * vec3(1.0, 4.0, 4.0) + 7.0) - 0.5);           // fine fibres
+    float cov = clamp(uCloud * 1.6, 0.0, 1.0) * (1.0 - uStorm);
+    float ci = smoothstep(0.52 - 0.08 * cov, 0.62, n) * cov * 0.6 * exp(-farC / 450.0) * smoothstep(0.0, 0.04, h);
+    if (ci > 0.002) {
+      vec3 Ts2 = uAir > 0.0 ? exp(-tauToSun(1.0 + zc, e)) : vec3(step(-0.05, e));
+      float m2 = max(Ts2.r, max(Ts2.g, Ts2.b));
+      vec3 lc2 = m2 > 1e-4 ? Ts2 / m2 : vec3(1.0);
+      vec3 Lci = uCloudCol * lc2 * uSunPower * pow(max(m2, 0.0), 0.35) * (0.45 + 0.09 * hg(cs, 0.75)) + skyL * 0.8;
+      float trD = 1.0 - cur.a;                                        // what the deck lets through
+      cur.rgb += trD * Lci * ci;
+      cur.a = 1.0 - trD * (1.0 - ci);
+    }
   }
   // Temporal accumulation: in the planet's frame the camera only turns, so last frame's clouds are found by
   // direction. Each frame starts its steps at a different offset; blended, a dozen frames act as one march
