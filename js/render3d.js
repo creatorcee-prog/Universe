@@ -39,6 +39,7 @@ const PHOTO = [
 ];
 const photoImg = {};
 let contextGen = 0; // see Renderer3D's gen
+const gl0 = (gl, u) => gl.uniform4f(u.uFlare, 0, 0, 0, 1);   // lens flare off
 function loadImage(file, ext = 'jpg') {
   let e = photoImg[file];
   if (!e) {
@@ -539,6 +540,7 @@ export class Renderer3D {
       gl.uniform1f(px.u.uScale, this.pixelScale);
       gl.uniform1f(px.u.uBloomK, bloom ? 0.4 : 0);
       gl.uniform3fv(px.u.uWB, this.whiteBalance());
+      this.setFlare(px.u);
       gl.uniform1f(px.u.uLevels, 5);
       this.fullscreen(px, null, this.canvas.width, this.canvas.height);
     } else {
@@ -547,6 +549,7 @@ export class Renderer3D {
       this.bindTex(1, p.up[0].tex, this.pComp.u.uBloom);
       gl.uniform1f(this.pComp.u.uBloomK, bloom ? (this.hdr ? 0.32 : 0.22) : 0);
       gl.uniform3fv(this.pComp.u.uWB, this.whiteBalance());
+      this.setFlare(this.pComp.u);
       this.fullscreen(this.pComp, null, p.W, p.H);
     }
     gl.depthMask(true);
@@ -614,6 +617,35 @@ export class Renderer3D {
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.disable(gl.BLEND);
     gl.activeTexture(gl.TEXTURE0);
+  }
+
+  // Lens flare (COMPOSITE_FS lensFlare): where the brightest star is on screen, and how strong its flare is.
+  // Strength by how bright the star looks from here (the Sun from Earth: 1; from Neptune: ~0.2), off-screen
+  // stars none. Whether it is hidden is found by the shader from the scene itself.
+  setFlare(u) {
+    const S = this.surface ? this.surface.star : this.lumList && this.lumList[0];
+    if (this.settings.flare === false || !S || !S.alive) { gl0(this.gl, u); return; }
+    const vp = this.viewOf(S.x - this.ex, S.y - this.ey, S.z - this.ez);
+    if (vp[2] >= 0) { gl0(this.gl, u); return; }
+    const P = this.P, x = P[0] * vp[0] / -vp[2], y = P[5] * vp[1] / -vp[2];
+    if (Math.abs(x) > 1.3 || Math.abs(y) > 1.3) { gl0(this.gl, u); return; }
+    const d2 = vp[0] * vp[0] + vp[1] * vp[1] + vp[2] * vp[2];
+    let k = Math.min(1.2, Math.pow(Math.max(S.lum, 1e-6) / Math.max(d2, 1e-9), 0.25));
+    // In space: hidden by any body between us and the star (its disc over the star's centre).
+    if (!this.surface) {
+      const sd = Math.sqrt(d2), ux = (S.x - this.ex) / sd, uy = (S.y - this.ey) / sd, uz = (S.z - this.ez) / sd;
+      for (const b of this.world.bodies) {
+        if (b === S || !(b.r > 0) || isLuminous(b)) continue;
+        const bx = b.x - this.ex, by = b.y - this.ey, bz = b.z - this.ez, t = bx * ux + by * uy + bz * uz;
+        if (t <= 0 || t >= sd) continue;
+        const px = bx - ux * t, py = by - uy * t, pz = bz - uz * t;
+        if (px * px + py * py + pz * pz < b.r * b.r) { k = 0; break; }
+      }
+    }
+    this.gl.uniform1f(u.uFlareThr, this.surface ? 2.5 : 0.6);
+    if (!this.surface) k *= 0.3;   // (against black space a flare stands out far more than against a bright sky)
+    this.gl.uniform4f(u.uFlare, x * 0.5 + 0.5, y * 0.5 + 0.5, k, this.canvas.width / this.canvas.height);
+    this.gl.uniform3fv(u.uFlareCol, tempToRGB(S.temp || 5772).map((v) => v / 255));
   }
 
   // White balance on the ground: the eye (or a camera) partly adapts to the colour of the light, so a sunset

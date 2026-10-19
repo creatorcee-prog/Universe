@@ -71,7 +71,8 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
    brightness (capped at 16x white) and is dimmed by the air once, not twice; the sky keeps its curve. A full
    move to scene-linear output would mean retuning every shader (planets, rings, sprites are display-referred,
    tuned in 0..1). Per-channel transmittance needs dual-source blending (not in WebGL 2; optional in WebGPU).
-2. Lens flare (toggle next to Bloom): halo, starburst, ghosts along the Sun-to-centre line, faded by how much
+2. Done: lens flare (Settings toggle under Glow): starburst, halo ring, six ghosts through the centre, hidden
+   when the star is (sampled from the scene; in space also a ray test against bodies). Was: halo, starburst, ghosts along the Sun-to-centre line, faded by how much
    of the disc is visible (depth test) and by the air's transmittance.
 3. Higher-resolution Earth day map: Blue Marble Next Generation, 4096x2048 (8192 would take ~170 MB of GPU
    memory with mipmaps, risky on iPhone), mipmaps and anisotropic filtering, each file under 15 MB.

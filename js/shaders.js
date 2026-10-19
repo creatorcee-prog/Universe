@@ -2069,14 +2069,64 @@ vec3 tonemap(vec3 c) {
 }
 `;
 
+const FLARE = `
+uniform vec4 uFlare;         // lens flare: the star's position (uv), strength, aspect ratio (w/h); z 0 = off
+uniform vec3 uFlareCol;
+uniform float uFlareThr;     // brightness that counts as the star showing (the surface sky's Sun is far past white)
+// Lens flare, as a camera's lens makes it: a halo ring and a starburst around the star, and ghosts (images of
+// the aperture reflected between the lens's surfaces) strung along the line from the star through the centre,
+// tinted by the coatings. It fades with how much of the star is seen: the scene is sampled right at the star,
+// so a planet, a hill or a cloud in front of it hides the flare.
+vec3 lensFlare(vec2 uv) {
+  vec2 sp = uFlare.xy;
+  vec2 tx = 1.5 / vec2(textureSize(uScene, 0));
+  float vis = 0.0;
+  for (int i = 0; i < 5; i++) {
+    vec2 o = vec2(i == 1 ? 1.0 : i == 2 ? -1.0 : 0.0, i == 3 ? 1.0 : i == 4 ? -1.0 : 0.0);
+    vec3 s = finite(texture(uScene, sp + o * tx).rgb);
+    vis += smoothstep(uFlareThr * 0.4, uFlareThr, max(s.r, max(s.g, s.b))) * 0.2;
+  }
+  if (vis <= 0.0) return vec3(0.0);
+  vec2 asp = vec2(uFlare.w, 1.0);
+  vec2 d = (uv - sp) * asp;
+  float r = length(d);
+  vec3 c = vec3(0.0);
+  // Starburst: thin rays from the aperture's blades, and a soft core.
+  float ang = atan(d.y, d.x);
+  float rays = pow(abs(cos(ang * 3.0)), 60.0) + 0.6 * pow(abs(cos(ang * 3.0 + 1.0472)), 80.0);
+  // (Rays shorter in space: uFlareThr < 1 there; against a bright sky the faint outer part does not show anyway.)
+  c += uFlareCol * rays * exp(-r * (uFlareThr < 1.0 ? 14.0 : 5.0)) * 1.2;
+  c += uFlareCol * exp(-r * 14.0) * 0.8;
+  // Halo: a faint rainbow-edged ring.
+  float ring = exp(-pow((r - 0.32) / 0.012, 2.0));
+  c += vec3(0.25, 0.45, 0.9) * ring * 0.18 + vec3(0.9, 0.5, 0.3) * exp(-pow((r - 0.335) / 0.012, 2.0)) * 0.14;
+  // Ghosts along the line through the centre.
+  vec2 axis = vec2(0.5) - sp;
+  for (int i = 0; i < 6; i++) {
+    float k = i == 0 ? 0.45 : i == 1 ? 0.8 : i == 2 ? 1.15 : i == 3 ? 1.4 : i == 4 ? 1.75 : 2.2;
+    float sz = i == 0 ? 0.03 : i == 1 ? 0.06 : i == 2 ? 0.018 : i == 3 ? 0.09 : i == 4 ? 0.04 : 0.13;
+    vec3 tint = i == 0 ? vec3(0.9, 0.6, 0.3) : i == 1 ? vec3(0.3, 0.8, 0.5) : i == 2 ? vec3(1.0, 0.8, 0.5)
+              : i == 3 ? vec3(0.4, 0.5, 1.0) : i == 4 ? vec3(0.9, 0.4, 0.7) : vec3(0.5, 0.7, 1.0);
+    float gr = length((uv - (sp + axis * k)) * asp);
+    float disc = smoothstep(sz, sz * 0.75, gr) * (0.5 + 0.5 * smoothstep(sz * 0.4, sz, gr));   // brighter rim
+    c += tint * disc * (i == 5 ? 0.08 : 0.16);
+  }
+  // Weaker as the star nears the screen's edge (less light reaches the inner surfaces).
+  float edge = 1.0 - smoothstep(0.35, 0.75, length((sp - 0.5) * asp));
+  return c * vis * uFlare.z * (0.4 + 0.6 * edge);
+}
+`;
+
 export const COMPOSITE_FS = HEAD + FINITE + TONEMAP + `
 in vec2 vUV;
 uniform sampler2D uScene, uBloom;
 uniform float uBloomK;
 uniform vec3 uWB;            // white balance: the eye partly adapting to the light's colour (1 = none)
 out vec4 outColor;
+` + FLARE + `
 void main() {
   vec3 c = finite(texture(uScene, vUV).rgb) + finite(texture(uBloom, vUV).rgb) * uBloomK;
+  if (uFlare.z > 0.0) c += lensFlare(vUV);
   outColor = vec4(tonemap(c * uWB), 1.0);
 }
 `;
@@ -2090,11 +2140,13 @@ uniform vec2 uLow;
 uniform float uScale, uBloomK, uLevels;
 uniform vec3 uWB;            // white balance (see COMPOSITE_FS)
 out vec4 outColor;
+` + FLARE + `
 const float BAYER[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
 void main() {
   vec2 p = floor(gl_FragCoord.xy / uScale);
   vec2 uv = (p + 0.5) / uLow;
   vec3 c = finite(texelFetch(uScene, ivec2(min(p, uLow - 1.0)), 0).rgb) + finite(texture(uBloom, uv).rgb) * uBloomK;
+  if (uFlare.z > 0.0) c += lensFlare(uv);
   c = tonemap(c * uWB);
   int i = int(mod(p.y, 4.0)) * 4 + int(mod(p.x, 4.0));
   float d = BAYER[i] / 16.0; // 0..0.94: near-black stays black, so the sky has no dot grid
