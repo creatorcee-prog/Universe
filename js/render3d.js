@@ -1327,6 +1327,8 @@ export class Renderer3D {
     // between them and the Sun.
     const rockiness = !optics ? 1 : optics.P > 10 ? 0.9 : th && th.liquid > 0.05 ? 0.35 : th && th.ice > 0.5 ? 0.6 : 0.85;
     const rocksOn = rockiness > 0 && !(this.settings.rocks === false);
+    // Relief underfoot: small craters where nothing erodes them (no air), and how stony the soil is.
+    gl.uniform2f(u.uMicro, !optics ? 1 : 0, 0.05 + 0.15 * rockiness);
     const sh = this.shadowTarget();
     // (While drawing into the map, the program's map sampler holds something else: reading the texture being
     // drawn is a feedback loop WebGL refuses.)

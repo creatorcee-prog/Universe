@@ -1388,10 +1388,62 @@ in vec3 vLocalQ;
 // The rocks' shadow map (drawn from the Sun just before the ground; see drawTerrain): distance toward the Sun
 // spread over three channels so 8-bit and half-float targets both hold it finely enough.
 uniform float uShadowPass, uShOn;
+uniform vec2 uMicro;                   // small craters (1 on airless worlds), share of soil cells holding a stone
 uniform sampler2D uShTex;
 uniform vec3 uShU, uShV, uShL;
 uniform vec2 uShSize;
 float shDecode(vec4 c) { return c.r + c.g / 256.0 + c.b / 65536.0; }
+// Relief underfoot (m), shading only, within a few hundred metres: on airless worlds small craters from
+// secondary impacts (~0.3-8 m across: the regolith is saturated with them, mostly old and worn shallow); stones and gravel half-sunk in
+// the soil (30 and 11 cm cells, a share about uMicro.y holding one, in patches); sand ripples (~0.7 m apart, a few cm high,
+// steeper on the lee) and a little grit. Scales finer than ~3 pixels fade out. gStone: the stone here, 0..1.
+float gStone;
+float microH(vec2 pp, float res, float wRock, float wSand) {
+  float h = 0.0;
+  gStone = 0.0;
+  // (Against a visible grid: each scale is turned to its own angle and its cells warped, and how much of it
+  // there is varies in patches.)
+  vec2 wp = pp + 0.6 * vec2(vnoise(vec3(pp / 1.7, 56.0)), vnoise(vec3(pp / 1.7, 57.0)));
+  if (uMicro.x > 0.5) {
+    float cl = 8.0;
+    for (int i = 0; i < 3; i++) {
+      float f = smoothstep(res * 3.0, res * 8.0, cl);
+      if (f <= 0.0) break;
+      float a = float(i) * 2.17 + 0.6;
+      vec2 q = mat2(cos(a), sin(a), -sin(a), cos(a)) * (wp + cl * 0.35 * vec2(vnoise(vec3(pp / (cl * 2.3), 58.0 + float(i))), vnoise(vec3(pp / (cl * 2.3), 61.0 + float(i)))));
+      float clump = smoothstep(0.2, 0.8, vnoise(vec3(pp / (cl * 7.0), 64.0 + float(i))));
+      h += crater2(q / cl + float(i) * 23.0 + 5.0) * 0.06 * cl * f * (0.25 + 1.5 * clump);   // worn soft: most are old
+      cl *= 0.3;
+    }
+  }
+  float cs = 0.3;
+  for (int i = 0; i < 2; i++) {
+    float f = smoothstep(res * 2.0, res * 6.0, cs) * (1.0 - 0.7 * wSand);
+    if (f <= 0.0) break;
+    float a = float(i) * 1.31 + 0.4;
+    vec2 cp = (mat2(cos(a), sin(a), -sin(a), cos(a)) * wp) / cs + float(i) * 7.3, ci = floor(cp), cf = fract(cp) - 0.5;
+    float ph = hash(vec3(ci, 51.0 + float(i)));
+    float dens = uMicro.y * (1.0 + wRock) * smoothstep(0.15, 0.85, vnoise(vec3(pp / (cs * 12.0), 66.0 + float(i)))) * 2.0;
+    if (ph < dens) {
+      vec2 o = (vec2(hash(vec3(ci, 52.0)), hash(vec3(ci, 53.0))) - 0.5) * 0.6;
+      float s3 = hash(vec3(ci, 54.0)), rr = 0.08 + 0.3 * s3 * s3, b = ph * 40.0;
+      vec2 d2 = mat2(cos(b), sin(b), -sin(b), cos(b)) * (cf - o);
+      // an irregular outline, lumpy on top
+      float d = length(d2 * vec2(1.0, 1.2 + 0.6 * fract(ph * 7.1))) / rr + 0.35 * (vnoise(vec3(d2 * 9.0, ph * 30.0)) - 0.5);
+      float dome = sqrt(max(0.0, 1.0 - d * d));
+      h += cs * rr * 0.7 * dome * f;
+      gStone = max(gStone, step(0.0, 1.0 - d) * (0.2 + 0.8 * fract(ph * 13.7)) * f);
+    }
+    cs *= 0.37;
+  }
+  if (wSand > 0.0) {
+    float t = fract((pp.x * 0.92 + pp.y * 0.38) * 1.43 + 0.5 * vnoise(vec3(pp / 6.0, 35.0)));
+    float rip = t < 0.7 ? t / 0.7 : (1.0 - t) / 0.3;
+    h += wSand * 0.025 * rip * smoothstep(res * 2.0, res * 6.0, 0.7);
+  }
+  h += 0.006 * (vnoise(vec3(pp / 0.05, 55.0)) - 0.5) * smoothstep(res * 2.0, res * 6.0, 0.05);
+  return h;
+}
 void main() {
   if (uShadowPass > 0.5) {
     float dS = log2(vFragDepth);
@@ -1574,9 +1626,35 @@ void main() {
       float soilD = (1.0 + 0.25 * grit) * (1.0 + 0.3 * pebble * (ph - 0.86) * 6.0);
       // Sand: ripples across the wind, with a little meander.
       float rip = sin((pp.x * 0.92 + pp.y * 0.38) * 9.0 + 3.0 * vnoise(vec3(pp / 6.0, 35.0)));
-      float sandD = 1.0 + 0.12 * rip * smoothstep(res * 2.0, res * 6.0, 0.7);
+      float sandD = 1.0 + 0.06 * rip * smoothstep(res * 2.0, res * 6.0, 0.7);
       float detail = isRock * rockD + isSoil * soilD + isSand * sandD + snow;
       col *= mix(1.0, detail, near);
+      // Relief underfoot, lit: its slopes tilt the normal, stones are their own shade of rock, and where the
+      // Sun is low its bumps cast small shadows (is the relief a short way toward the Sun higher than the
+      // Sun's line from here?).
+      if (vRock < 0.5) {
+      float wR = isRock, wS = isSand * (1.0 - snow);
+      float ms = max(res, 0.004);
+      float m0 = microH(pp, res, wR, wS);
+      float stone = gStone;
+      float mx = microH(pp + vec2(ms, 0.0), res, wR, wS), my = microH(pp + vec2(0.0, ms), res, wR, wS);
+      vec3 Nm = normalize(N - (uEastV * (mx - m0) + uNorthV * (my - m0)) / ms);
+      N = normalize(mix(N, Nm, near));
+      col = mix(col, mix(rockBase, col, 0.6) * (0.85 + 0.4 * stone), step(0.001, stone) * near * (1.0 - snow) * 0.45);
+      vec2 ls = vec2(dot(uL0, uEastV), dot(uL0, uNorthV));
+      float lz = dot(uL0, uUpV), lh = length(ls);
+      if (lz > 0.0 && lh > 1e-3) {
+        vec2 ld = ls / lh;
+        float tanE = lz / lh, sh = 1.0, dd = 0.08;
+        for (int k = 0; k < 3; k++) {
+          float f = smoothstep(res * 2.0, res * 5.0, dd);
+          float rise = microH(pp + ld * dd, res, wR, wS) - m0 - dd * tanE;
+          sh = min(sh, 1.0 - f * smoothstep(0.0, 0.02 + 0.1 * dd, rise));
+          dd *= 4.0;
+        }
+        sunC *= mix(1.0, sh, near);
+      }
+      }
     }
     // Lambert with a little wrap, sky light from above, and the planet's own heat when molten.
     float ndl = max(dot(N, uL0), 0.0);

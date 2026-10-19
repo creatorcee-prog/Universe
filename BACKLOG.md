@@ -53,6 +53,9 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
   shadowed for real by a shadow map rendered from the Sun (rocks shade the ground, each other and themselves);
   no dunes on airless worlds. Fixed: the floor shook in Surface view (the camera was placed before the
   planet's spin advanced, so it lagged one frame).
+- (Done) Relief underfoot, lit and casting small shadows: worn small craters on airless worlds, stones and
+  gravel half-sunk in the soil (irregular, in patches), sand ripples as real relief; each scale turned and
+  warped so no grid shows.
 
 ## New list
 
