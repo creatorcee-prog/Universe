@@ -1361,8 +1361,11 @@ export class Renderer3D {
     // between them and the Sun.
     const rockiness = !optics ? 1 : optics.P > 10 ? 0.9 : th && th.liquid > 0.05 ? 0.35 : th && th.ice > 0.5 ? 0.6 : 0.85;
     const rocksOn = rockiness > 0 && !(this.settings.rocks === false);
-    // Relief underfoot: small craters where nothing erodes them (no air), and how stony the soil is.
-    gl.uniform2f(u.uMicro, !optics ? 1 : 0, 0.03 + 0.07 * rockiness);
+    // Relief underfoot: regolith and small craters where nothing erodes them (no air), and how stony the soil
+    // is. No small craters on Io (its volcanoes resurface it faster than impacts mark it: none are known) or
+    // on Europa's young, cracked ice (very few).
+    const youngSurface = l.volc || (l.lineae || 0) >= 1;
+    gl.uniform3f(u.uMicro, !optics ? 1 : 0, 0.03 + 0.07 * rockiness, !optics && !youngSurface ? 1 : 0);
     const gm = this.groundMats();
     GROUND_MATS.forEach((k, i) => this.bindTex(GROUND_UNITS[i], gm ? gm[i] : this.cloudNoise(), u['uG' + k[0].toUpperCase() + k.slice(1)]));
     gl.uniform1f(u.uGroundOn, gm ? 1 : 0);

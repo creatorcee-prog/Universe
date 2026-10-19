@@ -1388,7 +1388,7 @@ in vec3 vLocalQ;
 // The rocks' shadow map (drawn from the Sun just before the ground; see drawTerrain): distance toward the Sun
 // spread over three channels so 8-bit and half-float targets both hold it finely enough.
 uniform float uShadowPass, uShOn;
-uniform vec2 uMicro;                   // small craters (1 on airless worlds), share of soil cells holding a stone
+uniform vec3 uMicro;                   // airless (1: regolith), share of soil cells holding a stone, small craters (1 where impacts mark the ground)
 uniform sampler2D uGSoil, uGSand, uGRock, uGRegolith, uGGrass;   // photographed ground: colour, height in alpha
 uniform float uGroundOn;
 uniform sampler2D uShTex;
@@ -1417,7 +1417,7 @@ float microH(vec2 pp, float res, float wRock, float wSand) {
   // (Against a visible grid: each scale is turned to its own angle and its cells warped, and how much of it
   // there is varies in patches.)
   vec2 wp = pp + 0.6 * vec2(vnoise(vec3(pp / 1.7, 56.0)), vnoise(vec3(pp / 1.7, 57.0)));
-  if (uMicro.x > 0.5) {
+  if (uMicro.z > 0.5) {
     float cl = 8.0;
     for (int i = 0; i < 3; i++) {
       float f = smoothstep(res * 3.0, res * 8.0, cl);
