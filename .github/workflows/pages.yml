@@ -30,7 +30,7 @@ jobs:
       - name: Assemble site
         run: |
           mkdir -p _site
-          cp -r index.html manifest.webmanifest sw.js css js icons _site/
+          cp -r index.html manifest.webmanifest sw.js css js icons assets _site/
           node tools/build-single.mjs _site/pocket-universe.html
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
