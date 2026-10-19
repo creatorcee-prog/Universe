@@ -116,6 +116,19 @@ const DWARFS = [
   ['Sedna', 543.719529, 0.859882, 11.9253, 144.5062, 311.0988, 357.845, 69.8, 498, [192, 92, 62], 10.27, 30],
 ];
 
+// Famous comets on their real orbits (JPL Small-Body Database elements, ecliptic J2000, rounded; mean anomaly
+// carried back to J2000 from the perihelion date): name, a (AU), e, i, Ω, ω, M (deg), nucleus radius (km).
+// Masses from the radius at ~500 kg/m³ (67P: 1.0e13 kg measured by Rosetta, Pätzold et al. 2016).
+const COMETS = [
+  ['Encke', 2.2152, 0.8471, 11.78, 334.57, 186.54, 284.7, 2.4],
+  ['67P/Churyumov–Gerasimenko', 3.4630, 0.6410, 7.04, 50.14, 12.78, 213.0, 1.65],
+  ['Tempel 1', 3.1246, 0.5175, 10.47, 68.94, 178.84, 359.7, 3.0],
+  ['Wild 2', 3.4509, 0.5378, 3.24, 136.10, 41.70, 149.4, 2.0],
+  ['Hartley 2', 3.4723, 0.6938, 13.62, 219.76, 181.21, 113.0, 0.6],
+  ['Swift–Tuttle', 26.092, 0.9632, 113.45, 139.38, 152.98, 19.0, 13],
+  ['Hale–Bopp', 186.0, 0.99509, 89.43, 282.47, 130.59, 0.39, 30],
+];
+
 // Moons of the dwarf planets, in their planet's equator (the planets' tilts above are set to the moons'
 // orbit planes): [planet, name, a (km), e, i, node, ω, M, 'Q', 0, GM (km³/s²), radius (km)].
 // Dysnomia: Holler et al. 2021, Brown & Butler 2023; Hiʻiaka and Namaka: Ragozzine & Brown 2009; Weywot:
@@ -219,6 +232,13 @@ function solarSystem(world, { belts = true, moon = true, moons = true } = {}) {
     b.minor = true; b.host = s;
   }
   if (moons) addMoons(world, made);
+  // The comets ride on the Sun the same way (planets' tides as kicks).
+  for (const [name, a, e, i, O, w, M, rkm] of COMETS) {
+    const r = rkm * 1e3, mass = (4 / 3) * Math.PI * r * r * r * 500 / 1.98847e30;
+    const c = makeBody({ name, kind: 'rocky', comet: true, compKey: 'comet', m: name.startsWith('67P') ? 1.0e13 / 1.98847e30 : mass, r: km(rkm), color: [196, 204, 214] });
+    orbit(world, s, c, a, e, i, O, w, M);
+    c.minor = true; c.host = s;
+  }
   // Halley's real orbit (retrograde, i = 162°), placed shortly before perihelion so its tail is on show.
   const halley = makeBody({ name: "Halley's Comet", kind: 'rocky', comet: true, m: 1.1e-16, r: km(5.5), color: [196, 204, 214] });
   orbit(world, s, halley, 17.83, 0.967, 162.3, 58.4, 111.3, 357);
@@ -268,7 +288,7 @@ function galaxy(world, name, cx, cy, cz, vx, vy, vz, tiltX, tiltZ, n, spin, pale
 export const PRESETS = [
   {
     id: 'solar', name: 'Solar System',
-    blurb: 'The Sun, eight planets, nine dwarf planets, all 175 named moons, Saturn\'s rings and both asteroid belts.',
+    blurb: 'The Sun, eight planets, nine dwarf planets, all 175 named moons, eight famous comets, Saturn\'s rings and both asteroid belts.',
     speed: 1 / 12,
     camera: { follow: 'Sun', dist: 3.4, pitch: 0.55, yaw: 0.4 },
     build(w) { solarSystem(w); },

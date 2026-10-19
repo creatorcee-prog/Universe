@@ -39,7 +39,7 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
   than the 2.7 K microwave background, so a stellar black hole absorbs more than it emits. The heat
   and X-rays come from the gas falling in (accretion disks reach millions of K). Model that disk as a
   heat and light source.
-- **More comets**: a curated set (Hale–Bopp, Encke, 67P, Shoemaker–Levy 9's parent orbit…). The named moons
+- **More comets** (done: Encke, 67P, Tempel 1, Wild 2, Hartley 2, Swift–Tuttle, Hale–Bopp beside Halley). Was: a curated set (Hale–Bopp, Encke, 67P, Shoemaker–Levy 9's parent orbit…). The named moons
   and dwarf planets are done.
 - **Janus and Epimetheus swapping orbits** needs the planets' flattening (J2) in the moon integrator.
 - **Speculative life beyond Earth-like worlds**: Sagan & Salpeter's (1976, ApJS 32, 737)
