@@ -2071,7 +2071,9 @@ export class Renderer3D {
     // Rings drawn by the ring layer inside this frame (WebGPU renderer: same target, same depth buffer).
     if (ring && shownPx > 2 && this.ringHook && this.gpuHosts && this.gpuHosts.has(b)) glows.push(() => this.ringHook(b));
     // Rings as a smooth sheet (the particles are shown too when the camera is among them).
-    if (ring && shownPx > 2 && !(this.gpuHosts && this.gpuHosts.has(b))) {
+    // With the GPU chunks it fills in only close up, where they fade (uChunkPx).
+    const chunkR = this.gpuHosts && this.gpuHosts.has(b) && this.chunkR ? this.chunkR.get(b) || 0 : 0;
+    if (ring && shownPx > 2 && (!(this.gpuHosts && this.gpuHosts.has(b)) || chunkR > 0)) {
       glows.push(() => {
         const rp = this.pRing, ru = rp.u, n = ring.n;
         const a0 = Math.abs(n[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
@@ -2108,6 +2110,7 @@ export class Renderer3D {
         }
         gl.uniform4fv(ru.uMoonS, ms);
         gl.uniform1i(ru.uMoonN, Math.min(4, moons.length));
+        gl.uniform1f(ru.uChunkPx, (chunkR * this.F) / this.dpr);
         gl.uniform1f(ru.uLogDepthFC, this.logFC);
         gl.bindVertexArray(this.quad);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);

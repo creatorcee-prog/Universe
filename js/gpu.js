@@ -88,7 +88,11 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VO {
   if (swR > 0.0) { near = smoothstep(swR * 0.55, swR * 0.95, length(po.xy - u.eyeO.xy)); if (near <= 0.0) { return o; } }
   let rad = u.bn.w * s.z;                              // chunk radius, planet radii
   let spx = rad * R * u.vp.x / (-pv.z);               // its radius on screen (px)
-  var a = 1.0;
+  // Chunks stand in for far smaller ring particles, so close up they would show as flat coins tens of km
+  // wide: past ~3-8 px they fade, and the smooth ring sheet fills in there (RING_FS uChunkPx).
+  let big = 1.0 - smoothstep(3.0 * u.vp.w, 8.0 * u.vp.w, spx);
+  if (big <= 0.0) { return o; }
+  var a = big;
   var clip: vec4f;
   let DOT = 1.6 * u.vp.w;                             // smallest drawn dot (px): wide enough to blend smoothly
   if (spx >= DOT) {
@@ -99,7 +103,7 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VO {
     // overlapping dots average into a smooth ring instead of speckle.
     clip = u.proj * vec4f(pv, 1.0);
     let cosv = abs(dot(u.bn.xyz, d));
-    a = min(1.0, spx * spx * max(cosv, 0.02) / (DOT * DOT * 0.5));
+    a = min(1.0, spx * spx * max(cosv, 0.02) / (DOT * DOT * 0.5)) * big;
     clip = vec4f(clip.xy + c * DOT * 2.0 / u.vp.yz * clip.w, clip.zw);
   }
   if (clip.w <= 0.0) { return o; }
@@ -529,6 +533,7 @@ export class GPULayer {
       d.set([...r3d.viewOf(...ux), 0], 20);
       d.set([...r3d.viewOf(...wx), 0], 24);
       d.set([...r3d.viewOf(...n), ring.sRad], 28);
+      (r3d.chunkR || (r3d.chunkR = new Map())).set(h, ring.sRad * R);   // mean chunk radius (AU), for the sheet's hand-over
       const S = r3d.lumList && r3d.lumList[0];
       let sunO = [0, 0, 1], sunC = [0, 0, 0];
       if (S) {

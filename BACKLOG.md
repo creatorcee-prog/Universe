@@ -24,8 +24,7 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 - From afar the chunks look like gravel; at that range draw a smooth, detailed ring sheet and blend the
   chunks and the rock swarm in only up close (real ring particles are cm to house-sized).
 - (Fixed: the close-up rocks are lit, 3D since "Saturn's rings: 3D rocks close up"; checked headless in WebGPU.)
-- Fish-scale ovals: from ~0.1 radii above the ring plane (the swarm only runs within 0.08) the chunks are drawn
-  as flat coins tens of km wide. Still to do: fade big chunks into the smooth sheet there.
+- (Fixed: fish-scale ovals. Chunks bigger than ~3-8 px on screen fade out and the smooth sheet fills in there.)
 - (Fixed: labels behind Saturn are hidden.) Gravel from afar: fixed, the smooth sheet draws the rings there.
 - Testing note: iPhone Low Power Mode caps web pages at 30 fps (yellow battery icon).
 

@@ -824,12 +824,15 @@ export class World {
     const LEVELS = 11; // up to 1024 sub-steps for particles in tight orbits or diving at compact objects
     if (!this.samp || this.samp.length < 2048 * MAX_ATTRACTORS * 4) this.samp = new Float64Array(2048 * MAX_ATTRACTORS * 4);
     const samp = this.samp;
+    // Each level's samples are interpolated the first time a particle needs that level (most frames need
+    // only the first few of the 2,047).
     const levelOff = [];
-    let off = 0, seg = 0;
-    for (let L = 0; L < LEVELS; L++) {
-      levelOff.push(off);
+    for (let L = 0, o = 0; L < LEVELS; L++) { levelOff.push(o); o += (1 << L) * na * 4; }
+    const ready = new Uint8Array(LEVELS);
+    const level = (L) => {
+      ready[L] = 1;
       const ns = 1 << L;
-      seg = 0;
+      let off = levelOff[L], seg = 0;
       for (let k = 0; k < ns; k++) {
         const tt = t0 + ((k + 0.5) / ns) * span;
         while (seg < steps - 1 && cpT[seg + 1] < tt) seg++;
@@ -847,11 +850,11 @@ export class World {
         }
         off += na * 4;
       }
-    }
-    const cap2 = new Float64Array(na), soft2 = new Float64Array(na);
+    };
+    const cap2 = new Float64Array(na), cap = new Float64Array(na), soft2 = new Float64Array(na);
     for (let a = 0; a < na; a++) {
       const c = captureRadius(att[a]);
-      cap2[a] = c * c;
+      cap2[a] = c * c; cap[a] = c;
       soft2[a] = att[a].soft * att[a].soft + 1e-30;
     }
     // Compact objects (black holes, neutron stars, white dwarfs) get the finest sub-steps,
@@ -888,6 +891,7 @@ export class World {
         if (dx * dx + dy * dy + dz * dz < cap2[a] * 4e6) { Lmax = LEVELS - 1; break; }
       }
       if (L > Lmax) L = Lmax;
+      if (!ready[L]) level(L);
       const ns = 1 << L, hh = span / ns;
       let minT2 = Infinity, hitA = -1;
       // First sub-step sums every attractor and notes the dominant one (the "host").
@@ -914,8 +918,7 @@ export class World {
             const f = (G * m) / (d2 * d);
             ax += dx * f; ay += dy * f; az += dz * f;
             if (f * d > best) { best = f * d; host = a; hx = dx * f; hy = dy * f; hz = dz * f; }
-            const t2 = (d2 * d) / (G * m);
-            if (t2 < minT2) minT2 = t2;
+            if (d2 * d < minT2 * G * m) minT2 = (d2 * d) / (G * m);
           }
           extx = ax - hx; exty = ay - hy; extz = az - hz;
         } else {
@@ -929,20 +932,24 @@ export class World {
             const d = Math.sqrt(d2);
             const f = (G * m) / (d2 * d);
             ax = dx * f + extx; ay = dy * f + exty; az = dz * f + extz;
-            const t2 = (d2 * d) / (G * m);
-            if (t2 < minT2) minT2 = t2;
+            if (d2 * d < minT2 * G * m) minT2 = (d2 * d) / (G * m);
           } else { ax = extx; ay = exty; az = extz; }
         }
         // Two-body energy about the host before this sub-step (used below when the step is too coarse).
+        // (Skipped when the host is far more than a few sub-steps' travel away, start and middle of the step:
+        // the correction below only acts on passes closer than 2.5 sub-steps' travel.)
         let e0 = NaN, e0r = 0, e0w = 0, hq = -1;
         if (host >= 0) {
           hq = base + host * 4;
           const hm = samp[hq + 3];
-          if (hm !== 0) {
-            const at = att[host];
-            const rx = sx - samp[hq], ry = sy - samp[hq + 1], rz = sz - samp[hq + 2];
-            const wx = ux - at.vx, wy = uy - at.vy, wz = uz - at.vz;
-            const r = Math.sqrt(rx * rx + ry * ry + rz * rz), w2 = wx * wx + wy * wy + wz * wz;
+          const at = att[host];
+          const rx = sx - samp[hq], ry = sy - samp[hq + 1], rz = sz - samp[hq + 2];
+          const wx = ux - at.vx, wy = uy - at.vy, wz = uz - at.vz;
+          const r2s = rx * rx + ry * ry + rz * rz, w2 = wx * wx + wy * wy + wz * wz;
+          const qx = mx - samp[hq], qy = my - samp[hq + 1], qz = mz - samp[hq + 2];
+          const lim = 36 * hh * hh * (w2 + (ax * ax + ay * ay + az * az) * hh * hh * 4);
+          if (hm !== 0 && (r2s < lim || qx * qx + qy * qy + qz * qz < lim)) {
+            const r = Math.sqrt(r2s);
             e0 = w2 / 2 - (G * hm) / Math.sqrt(r * r + soft2[host]);
             e0r = r; e0w = Math.sqrt(w2);
           }
@@ -974,6 +981,7 @@ export class World {
         // sub-step, any attractor)? Without this, fast particles skip over small black holes.
         if (hitA < 0) {
           const a0 = k === 0 || host < 0 ? 0 : host, a1 = k === 0 || host < 0 ? na : host + 1;
+          const step = Math.sqrt(ux * ux + uy * uy + uz * uz) * hh;
           for (let a = a0; a < a1 && hitA < 0; a++) {
             const q = base + a * 4;
             const m = samp[q + 3];
@@ -981,7 +989,7 @@ export class World {
             const hx = samp[q], hy = samp[q + 1], hz = samp[q + 2];
             // Cheap reject: nothing to hit if the target is further away than this step can travel.
             const qx = mx - hx, qy = my - hy, qz = mz - hz;
-            const reach = Math.sqrt(ux * ux + uy * uy + uz * uz) * hh + Math.sqrt(cap2[a]);
+            const reach = step + cap[a];
             if (qx * qx + qy * qy + qz * qz > 4 * reach * reach && qx * qx + qy * qy + qz * qz > cap2[a] * 1e6) continue;
             // Both legs of the kick-drift-kick path.
             if (segHit(sx, sy, sz, mx, my, mz, hx, hy, hz, cap2[a]) || segHit(mx, my, mz, x, y, z, hx, hy, hz, cap2[a])) { hitA = a; break; }

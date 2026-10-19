@@ -69,7 +69,7 @@ export const IAS15_NODES = H;
 // bodies in the test-particle limit:
 //   a = GM/(c² r³) [ (4GM/r − v²) r + 4 (r·v) v ]
 // which gives Mercury's extra 43"/century perihelion advance (as used in e.g. REBOUNDx "gr").
-let GRF = null, CPT = null;
+let GRF = null, CPT = null, MS = null, RS = null, SS = null;   // per-body flags; mass, radius, softening²
 export function accelerations(bs, x, v, a, grOn = true) {
   const n = bs.length;
   a.fill(0, 0, 3 * n);
@@ -77,28 +77,36 @@ export function accelerations(bs, x, v, a, grOn = true) {
   const c2 = C_AU_YR * C_AU_YR;
   if (!GRF || GRF.length < n) GRF = new Uint8Array(Math.max(64, n * 2));
   if (!CPT || CPT.length < n) CPT = new Uint8Array(Math.max(64, n * 2));
-  for (let i = 0; i < n; i++) { const k = bs[i].kind; GRF[i] = grOn && (k === 'star' || k === 'wd' || k === 'ns' || k === 'bh') ? 1 : 0; CPT[i] = grOn && (k === 'ns' || k === 'bh') ? 1 : 0; }
+  if (!MS || MS.length < n) { const k = Math.max(64, n * 2); MS = new Float64Array(k); RS = new Float64Array(k); SS = new Float64Array(k); }
+  // Flat copies of what the pair loop reads (object property reads there cost more than the arithmetic,
+  // above all in Safari's JavaScriptCore).
   for (let i = 0; i < n; i++) {
-    const bi = bs[i], i3 = 3 * i;
+    const b = bs[i], k = b.kind;
+    GRF[i] = grOn && (k === 'star' || k === 'wd' || k === 'ns' || k === 'bh') ? 1 : 0; CPT[i] = grOn && (k === 'ns' || k === 'bh') ? 1 : 0;
+    MS[i] = b.m; RS[i] = b.r; SS[i] = b.soft * b.soft;
+  }
+  for (let i = 0; i < n; i++) {
+    const i3 = 3 * i;
     const xi = x[i3], yi = x[i3 + 1], zi = x[i3 + 2];
-    const mi = bi.m, si2 = bi.soft * bi.soft, ri = bi.r;
+    const mi = MS[i], si2 = SS[i], ri = RS[i], Gmi = G * mi;
     let ax = 0, ay = 0, az = 0;
     for (let j = i + 1; j < n; j++) {
-      const bj = bs[j], j3 = 3 * j;
+      const j3 = 3 * j, mj = MS[j];
       const dx = x[j3] - xi, dy = x[j3 + 1] - yi, dz = x[j3 + 2] - zi;
-      const rr = ri + bj.r;
-      const d2 = dx * dx + dy * dy + dz * dz + si2 + bj.soft * bj.soft + 1e-300;
+      const rr = ri + RS[j];
+      const d2 = dx * dx + dy * dy + dz * dz + si2 + SS[j] + 1e-300;
       const d = Math.sqrt(d2);
       const inv3 = d >= rr ? 1 / (d2 * d) : 1 / (rr * rr * rr);
-      const fi = G * bj.m * inv3, fj = G * mi * inv3;
+      const fi = G * mj * inv3, fj = Gmi * inv3;
       ax += dx * fi; ay += dy * fi; az += dz * fi;
       a[j3] -= dx * fj; a[j3 + 1] -= dy * fj; a[j3 + 2] -= dz * fj;
-      const t2 = (d2 * d) / (G * (mi + bj.m) || 1e-300);
-      if (t2 < minT2) minT2 = t2;
+      // Shortest pairwise timescale² r³/G(m1+m2), compared without dividing (a division per pair adds up).
+      const d3 = d2 * d, gm = Gmi + G * mj;
+      if (d3 < minT2 * gm) minT2 = d3 / (gm || 1e-300);
       // 1PN correction around the heavier of the pair when it is a star or compact object.
-      if ((GRF[i] || GRF[j]) && d >= rr && bi.soft === 0 && bj.soft === 0) {
-        const heavyI = mi >= bj.m;
-        const M = heavyI ? mi : bj.m, mt = heavyI ? bj.m : mi;
+      if ((GRF[i] || GRF[j]) && d >= rr && si2 === 0 && SS[j] === 0) {
+        const heavyI = mi >= mj;
+        const M = heavyI ? mi : mj, mt = heavyI ? mj : mi;
         // r and v of the light body relative to the heavy one
         const s = heavyI ? 1 : -1;
         const rx = dx * s, ry = dy * s, rz = dz * s;
@@ -112,7 +120,7 @@ export function accelerations(bs, x, v, a, grOn = true) {
         // with M the total mass and η = m₁m₂/M². It drains orbital energy at the rate in Peters (1964), so
         // close binaries spiral together and merge.
         if (CPT[i] && CPT[j]) {
-          const Mt = mi + bj.m, eta = (mi * bj.m) / (Mt * Mt), GMt = G * Mt;
+          const Mt = mi + mj, eta = (mi * mj) / (Mt * Mt), GMt = G * Mt;
           const rdot = rv / d, u = GMt / d;
           const kr = (1.6 * eta * GMt * GMt) / (c2 * c2 * C_AU_YR * d2 * d);
           const cn = (18 * v2 + (2 / 3) * u - 25 * rdot * rdot) * rdot / d, cv = -(6 * v2 - 2 * u - 15 * rdot * rdot);

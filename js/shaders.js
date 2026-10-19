@@ -1786,6 +1786,7 @@ uniform float uProf[16];
 uniform vec3 uTint;
 uniform float uSaturn;                      // 1: Saturn's C/B/A ring colours
 uniform vec4 uMoonS[4];                     // the biggest moons nearby: centre (view space), radius
+uniform float uChunkPx;                     // with GPU ring chunks: their mean radius × focal length / pixel ratio
 uniform int uMoonN;
 out vec4 outColor;
 // Shadows of moons on the rings: a moon between the point and the Sun, softened over the penumbra the Sun's
@@ -1812,6 +1813,8 @@ void main() {
   // Ringlets: many narrow bands of slightly different density.
   op *= 0.75 + 0.25 * vnoise(vec3(f * 260.0, 0.5, 0.0)) + 0.1 * (vnoise(vec3(f * 900.0, 1.5, 0.0)) - 0.5);
   op *= smoothstep(0.0, 0.01, f) * smoothstep(1.0, 0.99, f);
+  // Alongside the GPU chunks the sheet shows only where they are too big on screen and fade (gpu.js).
+  if (uChunkPx > 0.0) op *= smoothstep(3.0, 8.0, uChunkPx / max(-vViewPos.z, 1e-30));
   vec3 col = uTint;
   if (uSaturn > 0.5) {
     // C ring dusky grey, B ring bright and slightly warm, A ring a little darker.
