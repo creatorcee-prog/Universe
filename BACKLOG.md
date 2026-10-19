@@ -46,9 +46,11 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 - **Janus and Epimetheus swapping orbits** (done: planets' flattening J2 in the moon integrator, and moons down to
   Epimetheus's mass pull on their neighbours; they swap about every 2.3 yr against the real 4 yr, because the
   starting orbits ignore J2 and sit ~60–100 km apart instead of ~50 km).
-- **Speculative life beyond Earth-like worlds**: Sagan & Salpeter's (1976, ApJS 32, 737)
-  "floaters, sinkers and hunters" in Jupiter's clouds, and other plausible ideas from speculative
-  evolution, shown as a separate "exotic life" verdict next to the Earth-like checklist.
+- **Speculative life beyond Earth-like worlds** (done: an "Exotic life" line under the habitability verdict and
+  a "Life as we don't know it" section with sources in the book's live page: Sagan & Salpeter's floaters,
+  sinkers and hunters in giant planets, floaters in cold brown dwarfs, Venus cloud microbes, Titan's methane
+  life (azotosomes, with the later doubts), oceans under the ice of moons, microbes deep under Mars-like
+  worlds, and Forward's Cheela on neutron stars, labelled as fiction).
 
 ## Performance notes (iPhone)
 
