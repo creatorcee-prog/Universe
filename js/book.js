@@ -3,7 +3,7 @@ import { typeName, isLuminous } from './bodies.js';
 import { orbitOf } from './physics.js';
 import { ENTRIES, TYPES, CONTENTS, typeKey } from './facts.js';
 import { lifetime } from './stellar.js';
-import { listReasons } from './thermal.js';
+import { listReasons, exoticLife } from './thermal.js';
 
 const MSUN_KG = 1.98847e30, AU_M = 1.495978707e11, G_SI = 6.674e-11;
 const $ = (id) => document.getElementById(id);
@@ -311,6 +311,12 @@ export class Book {
       const why = h.reasons && h.reasons.length ? ': ' + listReasons(h.reasons) : '';
       rows.push(['Can life exist here?', `${h.verdict}${why}${b.life ? ' · life present' : ''}`]);
       for (const [label, ok, detail] of h.checks) rows.push([`${ok ? '✓' : '✗'} ${label}`, detail]);
+    }
+    // Life as we don't know it: hypotheses, with their sources.
+    const ex = exoticLife(b);
+    if (ex) {
+      rows.push(['Life as we don\'t know it', ex.verdict === 'Science fiction' ? 'From fiction, not science:' : `${ex.verdict}. Ideas put forward by scientists, none of them tested:`]);
+      for (const [name, text, src] of ex.ideas) rows.push([name, `${text} (${src})`]);
     }
     const lEl = $('live-lede'), fEl = $('live-facts');
     if (!lEl || !fEl) return;

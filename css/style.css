@@ -100,6 +100,7 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .info-head .hab { margin: 3px 0 0; font-size: 13px; letter-spacing: .02em; text-transform: none; font-weight: 600; color: var(--muted); }
 .hab.good { color: #7fe0a0; }
 .hab.mid { color: var(--accent); }
+.hab.exotic { color: #c7a8ff; font-weight: 500; }
 .book-btn { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px 0 10px; border-radius: 999px; border: 1px solid rgba(255,184,92,.45); background: rgba(255,184,92,.12); color: var(--accent); font-weight: 600; font-size: 14px; cursor: pointer; flex: none; }
 .book-btn svg { width: 18px; height: 18px; }
 .info-actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }

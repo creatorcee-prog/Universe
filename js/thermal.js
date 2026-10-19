@@ -324,6 +324,43 @@ export function habitability(b) {
   return { verdict, score: ok / checks.length, checks, reasons };
 }
 
+// Life as we don't know it: ideas scientists have put forward for places the checklist above rules out, kept
+// apart from it because none is more than a hypothesis. Returns { verdict, ideas: [[name, text, source]] }
+// or null when no idea applies.
+const ME_THERMAL = 3.003e-6, MJ_THERMAL = 9.546e-4;
+export function exoticLife(b) {
+  const th = b.th, ideas = [];
+  let verdict = 'Speculative';
+  if (b.kind === 'ns') {
+    return { verdict: 'Science fiction', ideas: [['Cheela', 'Tiny, fast-living creatures built from nuclear matter on the crust, living a lifetime in minutes: an invented biology, not a scientific proposal.', 'Robert L. Forward, Dragon\'s Egg (1980)']] };
+  }
+  if (!th) return null;
+  if (b.kind === 'gas') {
+    if (b.m > 13 * MJ_THERMAL) {
+      if (th.Ts < 600) ideas.push(['Floaters in a cold brown dwarf', 'The coolest brown dwarfs have a layer of temperate air, kept warm from below, where gas-bag organisms could stay aloft for good.', 'Yates et al. 2017, ApJ 836, 184']);
+    } else if (th.Ts < 400) {
+      ideas.push(['Floaters, sinkers and hunters', 'Gas-bag organisms kilometres across drifting in the water-cloud layer, where the air is near room temperature: sinkers small enough to fall and breed fast, floaters that keep themselves aloft, hunters that eat them. Convection carries anything that sinks too deep down to be cooked.', 'Sagan & Salpeter 1976, ApJS 32, 737']);
+    }
+  } else if (b.kind === 'rocky') {
+    const g = (b.atm && b.atm.gases) || {}, P = (b.atm ? b.atm.p : 0) + th.steam, c = b.comp || {};
+    const icy = (c.water || 0) > 0.05 && th.Ts < 200;   // a water-rich world this cold is ice on the outside
+    if (P > 10 && th.Ts > 450) {
+      ideas.push(['Microbes in the clouds', 'High in the cloud deck, 50-60 km up on Venus, the air is 30-70 °C at about Earth\'s pressure: droplets of concentrated sulphuric acid could host hardy microbes. A claimed sign of them, phosphine, is disputed.', 'Morowitz & Sagan 1967, Nature 215, 1259; Seager et al. 2021, Astrobiology 21, 1206']);
+    }
+    if ((g.ch4 || 0) / Math.max(P, 1e-9) > 0.01 && th.Ts > 80 && th.Ts < 125 && P > 0.3) {
+      ideas.push(['Life in liquid methane', 'Cells with membranes of acrylonitrile (azotosomes) instead of fats, living in methane lakes at -180 °C. Later modelling found such membranes would not form on their own.', 'Stevenson, Lunine & Clancy 2015, Sci. Adv. 1, e1400067; Sandström & Rahm 2020, Sci. Adv. 6, eaax0272']);
+    }
+    if (icy && b.host && b.host.kind === 'gas' && b.m > 1e-5 * ME_THERMAL) {
+      verdict = 'Possible beneath the ice';
+      ideas.push(['An ocean under the ice', 'Tides from its planet can keep a salty ocean liquid under the shell, in contact with rock: microbes could live off the chemistry of hydrothermal vents, as they do in Earth\'s deep sea. Enceladus\'s plume carries the hydrogen such life could feed on.', 'Waite et al. 2017, Science 356, 155; Hand et al. 2020, Space Sci. Rev. 216, 81']);
+    }
+    if (!icy && (c.water || 0) > 0 && P > 1e-3 && P < 0.1 && th.Ts > 150 && th.Ts < 250) {
+      ideas.push(['Microbes deep underground', 'Below a cold, thin-aired surface, rock warmed from within can hold briny groundwater; radar has hinted at salty lakes under Mars\'s south polar ice, though that reading is disputed.', 'Orosei et al. 2018, Science 361, 490']);
+    }
+  }
+  return ideas.length ? { verdict, ideas } : null;
+}
+
 // Reasons as one phrase: "too cold, air too thin and no water".
 export function listReasons(r) {
   return r.length <= 1 ? r.join('') : r.slice(0, -1).join(', ') + ' and ' + r[r.length - 1];

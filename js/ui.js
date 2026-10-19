@@ -3,7 +3,7 @@ import { CATALOG, REAL_OBJECTS, typeName, isLuminous, makeBody, reclassify } fro
 import { orbitOf } from './physics.js';
 import { PRESETS } from './presets.js';
 import { Book } from './book.js';
-import { tempZones, localTemp, localHab, listReasons } from './thermal.js';
+import { tempZones, localTemp, localHab, listReasons, exoticLife } from './thermal.js';
 import { lifetime } from './stellar.js';
 import { atmosphereOptics } from './optics.js';
 import { renderThumb, category } from './thumbs.js';
@@ -570,6 +570,10 @@ export class UI {
       hab.textContent = (hv.verdict === 'Uninhabitable' ? 'Uninhabitable' : `${hv.verdict} for life`) + why + (b.life ? ' · life present' : '');
       hab.className = 'hab ' + (hv.verdict === 'Habitable' ? 'good' : hv.verdict === 'Marginal' ? 'mid' : '');
     }
+    // Life as we don't know it, kept apart from the checklist (details in the book's live page).
+    const ex = hv && hv.verdict === 'Habitable' ? null : exoticLife(b), exEl = $('i-exotic');
+    exEl.hidden = !ex;
+    if (ex) exEl.textContent = `Exotic life: ${ex.verdict.toLowerCase()} · ${ex.ideas.map((x) => x[0].toLowerCase()).join(', ')}`;
     $('i-stand').hidden = b.kind !== 'rocky';
     $('i-rings').hidden = !(b.kind === 'rocky' || b.kind === 'gas') || app.world.ringOuter.has(b);
     // Any heat source whose zones reach beyond its own surface can show them.
