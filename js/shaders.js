@@ -2079,6 +2079,8 @@ uniform vec3 uRingCol;
 uniform sampler2D uClouds;   // the cloud deck drawn by SURFACE_CLOUD_FS at a quarter of the resolution
 uniform float uCloudBuf;     // 1 when it was drawn this frame
 uniform float uVeil;         // 1: compositing the planets and moons in the sky (see the end)
+uniform vec4 uFlash;         // lightning: direction of the bolt's top (world), brightness: lights the clouds
+uniform vec2 uRes;           // target size (px), for the bolt's width
 uniform sampler2D uBodies;   // ... drawn on their own: light (rgb) and where they are solid (a)
 out vec4 outColor;
 // Catmull-Rom bicubic upscaling in 9 bilinear reads (the weights of each pair folded into one offset read).
@@ -2156,6 +2158,7 @@ void main() {
     cl.rgb = min(cl.rgb, vec3(4.0));
     col = col * (1.0 - cl.a) + cl.rgb;
     alpha = alpha * (1.0 - cl.a) + cl.a;
+    if (uFlash.w > 0.0) col += cl.a * vec3(0.75, 0.8, 1.0) * uFlash.w * (0.15 + 0.6 * exp((dot(d, normalize(uFlash.xyz)) - 1.0) / 0.03));
     sunHDR *= pow(max(1.0 - cl.a, 0.0), 8.0);   // (16x white: a thick cloud must hide it, not just dim it)
   }
   // Fallback: a flat layer seen in perspective, drifting with the wind, lit by the sunlight that got through
@@ -2177,6 +2180,28 @@ void main() {
     alpha = alpha * (1.0 - c) + c;
     sunHDR *= pow(1.0 - c, 8.0);
   }
+  // Lightning: a jagged channel from the cloud base (uFlash.xyz points at its top) down to the ground, with a
+  // fork, in front of the clouds; bright enough for bloom. The ground drawn after hides its foot behind hills.
+  if (uFlash.w > 0.0 && uVeil < 0.5) {
+    vec3 east = normalize(cross(uNorth, uUp));
+    vec3 f = normalize(uFlash.xyz);
+    float el = asin(clamp(h, -1.0, 1.0)), az = atan(dot(d, east), dot(d, uNorth));
+    float el0 = asin(clamp(dot(f, uUp), -1.0, 1.0)), az0 = atan(dot(f, east), dot(f, uNorth));
+    float px = 2.0 * uTan.y / uRes.y;
+    float t = clamp(el / max(el0, 1e-3), 0.0, 1.0);
+    float w0 = el0 * 0.35;                                          // wander scales with the bolt's size
+    float x = az0 + w0 * (fbm(vec3(el / el0 * 6.0, f.x * 40.0, 1.0), 4) - 0.5) + w0 * 0.25 * (vnoise(vec3(el / el0 * 60.0, f.y * 30.0, 2.0)) - 0.5);
+    float dist = abs(atan(sin(az - x), cos(az - x))) * cos(el) / px;
+    float inside = smoothstep(-0.02, 0.0, el) * (1.0 - smoothstep(el0 * 0.97, el0, el));
+    float bolt = exp(-dist * dist / 1.2) * 6.0 + exp(-dist / 5.0) * 0.4;
+    // A fork: leaves the channel two thirds of the way down and wanders off to one side.
+    float xf = x + w0 * 0.8 * (0.66 - t) * sign(f.z - 0.0001) + w0 * 0.2 * (vnoise(vec3(el / el0 * 40.0, 7.0, 3.0)) - 0.5);
+    float df = abs(atan(sin(az - xf), cos(az - xf))) * cos(el) / px;
+    bolt += exp(-df * df / 0.8) * 1.6 * smoothstep(0.66, 0.6, t) * smoothstep(0.25, 0.4, t);
+    vec3 bc = vec3(0.85, 0.88, 1.0) * uFlash.w * bolt * inside * 2.5;
+    col += bc;
+    alpha = max(alpha, clamp(max(bc.r, max(bc.g, bc.b)), 0.0, 1.0));
+  }
   // The veil: the planets and moons in the sky, seen through the air. Where one is solid, the sky behind it
   // gives way to the air's own light in front of it (and the clouds), plus the body dimmed by the air's
   // transmittance: a pale Moon by day, a giant planet fading into the blue, a reddened Moon low down. Light
@@ -2196,6 +2221,58 @@ void main() {
 }
 `;
 
+// Weather from the ground, over everything (render3d.js drawWeather): falling rain (or snow) as streaks in
+// four depth layers, from big near drops to fine far ones, slanted by the wind, lit by the sky; a grey veil of
+// rain in the distance; and the scene lit up by a lightning flash.
+export const WEATHER_FS = HEAD + NOISE + `
+in vec2 vUV;
+uniform mat3 uView;
+uniform vec2 uTan, uRes;
+uniform vec3 uUp, uNorth;
+uniform float uTime, uRain, uSnow;
+uniform vec3 uLightC;       // light on the drops (the sky's light)
+uniform vec4 uFlash;        // lightning: direction of the bolt's top (world), brightness 0..1
+out vec4 outColor;
+float h1(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+void main() {
+  vec3 dv = normalize(vec3((vUV.x * 2.0 - 1.0) * uTan.x, (vUV.y * 2.0 - 1.0) * uTan.y, -1.0));
+  vec3 d = transpose(uView) * dv;
+  vec3 east = normalize(cross(uNorth, uUp));
+  float el = asin(clamp(dot(d, uUp), -1.0, 1.0));
+  float az = atan(dot(d, east), dot(d, uNorth));
+  float px = 2.0 * uTan.y / uRes.y;                 // radians per pixel
+  float acc = 0.0;
+  for (int i = 0; i < 4; i++) {
+    float k = float(i) / 3.0;
+    float colW = px * mix(46.0, 9.0, k);             // spacing of the columns of drops
+    float wid = px * mix(2.6, 1.0, k) * (uSnow > 0.5 ? 1.6 : 1.0);   // streak (or flake) width
+    float len = uSnow > 0.5 ? wid * 1.6 : px * mix(110.0, 16.0, k);   // streak length
+    float speed = uSnow > 0.5 ? px * mix(110.0, 30.0, k) : len * 9.0;  // fall (rad/s)
+    float u = (az * cos(el) + el * (uSnow > 0.5 ? 0.05 : 0.14)) / colW + k * 17.0;
+    float c = floor(u);
+    float y = (el + uTime * speed) / (len * 3.2) + h1(vec2(c, k * 9.0)) * 50.0;
+    float r = floor(y), fy = fract(y) * 3.2;
+    if (h1(vec2(c * 1.7 + r, k)) > uRain * mix(0.7, 1.0, k) * (uSnow > 0.5 ? 0.45 : 1.0)) continue;
+    float x0 = 0.2 + 0.6 * h1(vec2(c, r + 3.0));
+    if (uSnow > 0.5) x0 += 0.12 * sin(uTime * 1.7 + r * 4.0 + c);
+    float dx = (fract(u) - x0) * colW;
+    float along = uSnow > 0.5 ? (fy - 0.5) * len * 3.2 / max(len, 1e-6) : fy;
+    float shape = uSnow > 0.5 ? exp(-(dx * dx) / (wid * wid) - along * along * 0.5)
+                              : exp(-(dx * dx) / (wid * wid)) * smoothstep(0.0, 0.2, fy) * (1.0 - smoothstep(0.6, 1.0, fy));
+    acc += shape * mix(0.55, 0.3, k);
+  }
+  acc *= 1.0 - smoothstep(0.9, 1.3, abs(el));       // (the azimuth mapping breaks down overhead)
+  vec3 grey = vec3(dot(uLightC, vec3(0.33)));
+  vec3 dropC = uSnow > 0.5 ? mix(uLightC, grey, 0.8) * 1.6 : mix(uLightC, grey, 0.6) * 0.38;
+  float veil = uRain * 0.28 * (1.0 - smoothstep(0.0, 0.5, abs(el)));
+  vec3 col = dropC * acc + uLightC * 0.55 * veil;
+  float a = clamp(veil + acc * 0.25, 0.0, 1.0);
+  // The whole scene lit up by the flash (the bolt itself is drawn by the sky, behind the hills).
+  if (uFlash.w > 0.0) col += vec3(0.85, 0.88, 1.0) * uFlash.w * 0.1;
+  outColor = vec4(col, a);
+}
+`;
+
 // The cloud deck seen from the ground, at a quarter of the screen's resolution (render3d.js drawSurfaceSky):
 // a layer between uCloudH.x and uCloudH.x + uCloudH.y above the ground (radii; on Earth about 2 to 4.5 km),
 // on the curved shell, marched through its thickness (6 steps a frame, accumulated over frames). Its density is a wind-blown fractal coverage field,
@@ -2210,6 +2287,7 @@ uniform vec2 uTan;
 uniform vec3 uUp, uSun, uNorth;
 uniform float uAir, uSunPower, uCloud, uTime;
 uniform vec3 uCloudCol;
+uniform float uStorm;       // 0..1: rain; the deck closes into thick, dark overcast
 uniform vec3 uCloudH;       // base height, thickness (radii), planet radius (km)
 uniform sampler2D uPrev;    // last frame's result, blended in (see the end)
 uniform mat3 uPrevView;     // last frame's rotation from the planet's frame to its view
@@ -2246,7 +2324,7 @@ float dens(vec3 P, float z) {
   vec3 w = (P + vec3(uTime * 0.015, 0.0, uTime * 0.006)) * 0.22;
   float field = tfbm(P * 0.03 + 5.0, 2);
   float cov = tfbm(w, 4) + 0.12 * (tnoise(w * 4.0 + 3.0) - 0.5) + (field - 0.5) * 0.5;
-  float thr = 0.64 - clamp(uCloud, 0.0, 1.0) * 0.36;
+  float thr = 0.64 - clamp(uCloud, 0.0, 1.0) * 0.36 - uStorm * 0.3;
   float base = smoothstep(thr, thr + 0.16, cov);
   float top = 0.3 + 0.7 * base;                                   // thick where the cover is dense
   float prof = smoothstep(0.0, 0.07, z) * (1.0 - smoothstep(top * 0.55, top, z));
@@ -2276,7 +2354,7 @@ void main() {
   float m = max(Lc.r, max(Lc.g, Lc.b));
   vec3 lightCol = m > 1e-4 ? Lc / m : vec3(1.0);
   float sunK = smoothstep(-0.1, 0.15, e) * uSunPower * pow(max(m, 0.0), 0.25);
-  vec3 sunL = uCloudCol * lightCol * sunK * 1.25;
+  vec3 sunL = uCloudCol * lightCol * sunK * 1.25 * (1.0 - 0.75 * uStorm);
   vec3 skyL = uCloudCol * mix(vec3(0.5, 0.58, 0.75), lightCol, 0.4) * (0.1 + 0.55 * smoothstep(-0.15, 0.3, e)) * max(uSunPower, 0.15);
   float cs = dot(d, sun);
   float ph = mix(hg(cs, 0.6), hg(cs, -0.15), 0.35) * 0.55;
@@ -2288,7 +2366,7 @@ void main() {
   float jit = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))) + uFrame * 0.618034);
   vec3 C = vec3(0.0);
   float Tr = 1.0;
-  const float SIG = 1.1;                                          // extinction per km at full density
+  float SIG = 1.1 * (1.0 + 1.5 * uStorm);                         // extinction per km at full density
   float lstep = 0.35 / Rkm;                                       // light-march step (radii)
   for (int i = 0; i < N; i++) {
     float t = tIn + (float(i) + jit) * ds;

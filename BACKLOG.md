@@ -99,5 +99,8 @@ on the phone.
   skylight on shaded ground (it went black at dawn). To refine: mist could drift and thin with the wind.
 - S3 done: planets and moons in the sky are drawn into their own layer and composited through the air (dimmed
   by its transmittance, the air's light in front, clouds in front).
-- S4: weather: rain streaks under thick warm cloud, lightning glowing inside the deck.
+- S4 done: rain (snow below freezing) under thick cloud on worlds with water and air: streaks in four depth
+  layers, the deck closing into dark overcast, dimmer sunlight, visibility down to a few km; lightning every
+  few to ~20 s in warm heavy rain: a jagged forked bolt from the cloud base, the deck lit around it, the scene
+  flashing, thunder after the distance's delay. To refine: splashes and wet ground, a rain sound.
 - S5: ground detail textures and sharper mountains (items 4 and 8 above).

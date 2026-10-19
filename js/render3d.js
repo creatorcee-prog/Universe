@@ -2,7 +2,7 @@ import { PK } from './physics.js';
 import { isLuminous, tempToRGB, schwarzschild } from './bodies.js';
 import { transientLum } from './stellar.js';
 import { EARTH_MASS } from './units.js';
-import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS, RIM_FS, TERRAIN_VS, TERRAIN_FS, RING_FS, CLOUD_FS, GEN_FS, SURFACE_CLOUD_FS } from './shaders.js';
+import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS, RIM_FS, TERRAIN_VS, TERRAIN_FS, RING_FS, CLOUD_FS, GEN_FS, SURFACE_CLOUD_FS, WEATHER_FS } from './shaders.js';
 import { atmosphereOptics, setOpticsUniforms, stretchOptics, atmosphereTop, groundLight } from './optics.js';
 import { heatOutput } from './thermal.js';
 import { earthMap, moonMap } from './geography.js';
@@ -414,6 +414,7 @@ export class Renderer3D {
     this.pField = this.program(FULL_VS, TEMP_FIELD_FS);
     this.pGen = this.program(FULL_VS, GEN_FS);
     this.pSurfCloud = this.program(FULL_VS, SURFACE_CLOUD_FS);
+    this.pWeather = this.program(FULL_VS, WEATHER_FS);
     this.hdr = !!gl.getExtension('EXT_color_buffer_float');
     this.post = null;
   }
@@ -564,6 +565,7 @@ export class Renderer3D {
     const t = Math.tan(cam.fov / 2);
     // Under a thick haze (Venus, Titan) the sky is a uniform overcast: no separate cloud deck.
     const cover = th && !(optics && optics.tauM > 3) ? th.cloud : 0;
+    if (!veil) this.updateWeather(sv, performance.now());
     const clouds = veil ? this.cloudsNow : cover > 0.001 && this.drawSurfaceClouds(sv, optics, cover, t);
     this.cloudsNow = clouds;
     gl.disable(gl.DEPTH_TEST);
@@ -589,6 +591,9 @@ export class Renderer3D {
     if (clouds) this.bindTex(13, this.cloudRT.tex, u.uClouds);
     gl.uniform1f(u.uVeil, veil ? 1 : 0);
     if (veil) this.bindTex(12, this.skyLayer.tex, u.uBodies);
+    const fl = this.weather && this.weather.flashI > 0 ? this.weather : null;
+    gl.uniform4f(u.uFlash, fl ? fl.dir[0] : 0, fl ? fl.dir[1] : 1, fl ? fl.dir[2] : 0, fl ? fl.flashI : 0);
+    gl.uniform2f(u.uRes, this.sceneW, this.sceneH);
     gl.uniform3fv(u.uCloudCol, this.look(b).colC || [0.95, 0.96, 1]);
     gl.uniform1f(u.uTime, performance.now() / 1000);
     gl.uniform3fv(u.uNorth, sv.north || [0, 0, 1]);
@@ -603,6 +608,70 @@ export class Renderer3D {
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.disable(gl.BLEND);
     gl.activeTexture(gl.TEXTURE0);
+  }
+
+  // How stormy it is where you stand: rain from thick cloud on a world with liquid water and real air (snow
+  // below freezing), and in warm, heavy rain, lightning every few to ~20 s, with thunder after the light (sound
+  // travels ~3 s per km). Updated every frame from the climate (render3d's weather; the sky and the ground
+  // read it too).
+  updateWeather(sv, now) {
+    const b = sv.body, th = b.th, optics = atmosphereOptics(b);
+    const P = optics ? optics.P : 0, cover = th && !(optics && optics.tauM > 3) ? th.cloud : 0;
+    const wet = th && th.liquid > 0.005 && P > 0.05;
+    const T = sv.localT || (th ? th.Ts : 0);
+    const rain = wet ? Math.max(0, Math.min(1, (cover - 0.55) / 0.3)) : 0;
+    const w = (this.weather ||= { next: now + 4000, flash: null, flashI: 0, dir: [0, 1, 0] });
+    w.rain = rain; w.snow = T < 272;
+    w.flashI = 0;
+    if (rain > 0.6 && T > 283) {
+      if (!w.flash && now > w.next) {
+        // Its top where the cloud base (~2 km up) is, seen from 1 to 10 km away.
+        const km = 1 + Math.random() * 9, az = Math.random() * Math.PI * 2, el = Math.atan2(2, km);
+        const n = sv.up, N = sv.north || [0, 0, 1];
+        const E = [N[1] * n[2] - N[2] * n[1], N[2] * n[0] - N[0] * n[2], N[0] * n[1] - N[1] * n[0]];
+        const c = Math.cos(el);
+        w.dir = [0, 1, 2].map((i) => n[i] * Math.sin(el) + c * (Math.cos(az) * N[i] + Math.sin(az) * E[i]));
+        w.flash = { t0: now, km };
+        w.next = now + 3000 + Math.random() * 15000 / rain;
+        const a = typeof window !== 'undefined' && window.app ? window.app.audio : null;
+        if (a) setTimeout(() => a.rumble(Math.random() < 0.5 ? 'rumble1' : 'rumble4', 0.7 / Math.sqrt(km), 0.55 + Math.random() * 0.2, 6), km * 2900);
+      }
+    }
+    if (w.flash) {
+      const t = (now - w.flash.t0) / 1000;
+      // A stroke and its return strokes: two or three flickers within half a second.
+      w.flashI = Math.exp(-(((t - 0.02) / 0.035) ** 2)) + 0.75 * Math.exp(-(((t - 0.13) / 0.03) ** 2)) + 0.5 * Math.exp(-(((t - 0.3) / 0.05) ** 2));
+      if (t > 0.6) w.flash = null;
+    }
+    return w;
+  }
+
+  // Rain, snow and lightning over the surface view (WEATHER_FS).
+  drawWeather(sv, now) {
+    const w = this.weather;
+    if (!w) return;
+    if (!(w.rain > 0.01) && !(w.flashI > 0.01)) return;
+    const gl = this.gl, p = this.pWeather, u = p.u, t = Math.tan(this.cam.fov / 2);
+    gl.disable(gl.DEPTH_TEST);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.useProgram(p.p);
+    gl.uniformMatrix3fv(u.uView, false, this.V);
+    gl.uniform2f(u.uTan, t * (this.canvas.width / this.canvas.height), t);
+    gl.uniform2f(u.uRes, this.sceneW, this.sceneH);
+    gl.uniform3fv(u.uUp, sv.up);
+    gl.uniform3fv(u.uNorth, sv.north || [0, 0, 1]);
+    gl.uniform1f(u.uTime, now / 1000);
+    gl.uniform1f(u.uRain, w.rain);
+    gl.uniform1f(u.uSnow, w.snow ? 1 : 0);
+    const g = this.gLight && this.gLight.g;
+    const sky = g ? g.zen.map((v, i) => 0.6 * v + 0.4 * g.horAnti[i]) : [0.2, 0.2, 0.22];
+    gl.uniform3fv(u.uLightC, sky.map((v) => Math.max(v, 0.03) + 0.4 * w.flashI));
+    gl.uniform4f(u.uFlash, w.dir[0], w.dir[1], w.dir[2], w.flashI);
+    gl.bindVertexArray(this.quad);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.disable(gl.BLEND);
+    gl.enable(gl.DEPTH_TEST);
   }
 
   // The planets and moons in the sky, seen from the ground, are drawn into their own buffer (with its own
@@ -692,6 +761,7 @@ export class Renderer3D {
     gl.uniform1f(u.uTime, performance.now() / 1000);
     gl.uniform3fv(u.uCloudCol, this.look(b).colC || [0.95, 0.96, 1]);
     gl.uniform3f(u.uCloudH, (0.24 * Hkm) / Rkm, (0.3 * Hkm) / Rkm, Rkm);
+    gl.uniform1f(u.uStorm, this.weather ? this.weather.rain || 0 : 0);
     gl.uniform1f(u.uFrame, this.cloudFrame % 1000);
     gl.uniform1f(u.uHist, hist ? 1 : 0);
     gl.uniformMatrix3fv(u.uPrevView, false, hist ? H0.VB : VB);
@@ -908,7 +978,9 @@ export class Renderer3D {
     }
     const { g, adapt } = this.gLight;
     const sunT = g ? g.sunT : [1, 1, 1];
-    const sunCol = [0, 1, 2].map((i) => ld[1][i] * sunT[i] * adapt * (sunUp > -0.02 ? 1 : 0));
+    // (Under the overcast of rain little direct sunlight gets through.)
+    const storm = this.weather ? this.weather.rain || 0 : 0;
+    const sunCol = [0, 1, 2].map((i) => ld[1][i] * sunT[i] * adapt * (sunUp > -0.02 ? 1 : 0) * (1 - 0.85 * storm));
     // Sky light: from the model, or (airless) only faint light from the stars and the ground around.
     // (The model's eight-direction sky average comes out dim, most of all with a low Sun, when shaded slopes go
     // black; measured skylight at sunrise is ~5-10% of noon sunlight, and the eye adapts to it. Boosted to
@@ -976,7 +1048,8 @@ export class Renderer3D {
     const airK = Math.min(1.5, Math.sqrt(Math.max(Pbar, 0)));
     const dawn = 0.35 + 0.65 * Math.max(0, Math.min(1, (0.4 - Math.sin(sv.elev || 0)) / 0.35));
     const cool = th ? Math.max(0, Math.min(1, (305 - temp) / 25)) : 0;
-    gl.uniform4f(u.uHaze, 4e-5 * (0.3 + 1.7 * humid) * airK, 1500, Pbar > 0.05 ? 1.2e-3 * humid * dawn * (0.3 + 0.7 * cool) * airK : 0, 0);
+    const rainK = this.weather ? this.weather.rain || 0 : 0;   // (rain cuts visibility to a few km)
+    gl.uniform4f(u.uHaze, 4e-5 * (0.3 + 1.7 * humid) * airK * (1 + 12 * rainK), 1500, Pbar > 0.05 ? 1.2e-3 * humid * dawn * (0.3 + 0.7 * cool) * airK : 0, 0);
     if (window.__tdbg) window.__tdbg = { n, eyeH, wr, br: b.r, upWorld: [rot[0] * n[0] + rot[3] * n[1] + rot[6] * n[2], rot[1] * n[0] + rot[4] * n[1] + rot[7] * n[2], rot[2] * n[0] + rot[5] * n[1] + rot[8] * n[2]], svUp: sv.up, upV, ex: [this.ex, this.ey, this.ez], b: [b.x, b.y, b.z] };
     const m = this.terrainMesh();
     gl.disable(gl.CULL_FACE);
@@ -1394,6 +1467,7 @@ export class Renderer3D {
       gl.enable(gl.DEPTH_TEST);
       gl.depthFunc(gl.LEQUAL);
       this.drawBody(ground, now, glows);
+      this.drawWeather(this.surface, now);
     }
     // Supernova light: a blinding point that fades over weeks.
     for (const t of world.transients) {

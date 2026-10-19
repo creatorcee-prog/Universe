@@ -4,7 +4,8 @@
 // BODY=<name> stands on that Solar System world (default Earth). GIANT=1 (with TERRA) puts a gas giant in Terra's sky. TERRA=<compKey> stands on a made-up world (Terra, 1 AU from a star) instead of Earth; with MOUNTAIN=1, in its
 // most mountainous land (MOUNTAIN=high: its highest). CLOUD=<0..1> overrides
 // its cloud cover. WEBGPU=1 uses the WebGPU renderer. SETTLE=<ms> waits longer before the picture (the clouds
-// accumulate over frames, and software rendering here is slow). LOOKAT=<name> stands where that body is ~30° up
+// accumulate over frames, and software rendering here is slow). FLASH=1 shows a lightning flash ahead (NOFLASH=1: none).
+// LOOKAT=<name> stands where that body is ~30° up
 // in daylight (NIGHT=1: at night) and faces it.
 import { chromium, devices } from 'playwright';
 import { writeFileSync } from 'fs';
@@ -17,6 +18,7 @@ const ctx = await browser.newContext({ ...devices['iPhone 13'], deviceScaleFacto
 if (webgpu) await ctx.addInitScript('window.__TEST_WEBGPU = true; window.__TEST_OFFSCREEN = true;');
 const page = await ctx.newPage(); const errs = [];
 page.on('pageerror', (e) => errs.push(e.message));
+page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text().slice(0, 300)); });
 await page.goto('http://localhost:8080/');
 await page.waitForTimeout(3000);
 if (webgpu) await page.waitForFunction(() => app.r3d && app.r3d.webgpu, null, { timeout: 60000 });
@@ -114,10 +116,25 @@ const info = await page.evaluate(([yaw, pitch, look]) => {
   }
   return { sunElev: Math.asin(dot(s, n)) * 180 / Math.PI };
 }, [+yawS, +pitchS, process.env.LOOKAT || '']);
+// SNOW=1: snow instead of rain (as below freezing).
+if (process.env.SNOW) await page.evaluate(() => { const r = app.r3d, upd = r.updateWeather.bind(r); r.updateWeather = (a, b) => { const x = upd(a, b); x.snow = true; x.flash = null; x.flashI = 0; x.next = Infinity; return x; }; });
+// NOFLASH=1: no lightning.
+if (process.env.NOFLASH) await page.evaluate(() => { const r = app.r3d, upd = r.updateWeather.bind(r); r.updateWeather = (a, b) => { const x = upd(a, b); x.flash = null; x.flashI = 0; x.next = Infinity; return x; }; });
+// FLASH=1: strike lightning now, ahead of the camera (the picture is taken during the flash).
+if (process.env.FLASH) await page.waitForTimeout(3000);   // (the camera takes the new direction on the next frame)
+if (process.env.FLASH) await page.evaluate(() => {
+  const r = app.r3d, w = r.weather || (r.weather = { next: 0, flash: null, flashI: 0, dir: [0, 1, 0] });
+  const sv = app.surface, f = app.cam.override.f, n = sv.up;
+  const h = f.map((v, i) => v - n[i] * (f[0] * n[0] + f[1] * n[1] + f[2] * n[2])), hl = Math.hypot(...h);
+  const D = h.map((v, i) => (v / hl) * Math.cos(0.38) + n[i] * Math.sin(0.38));   // (2 km up, 5 km away)
+  // Freeze the flash at its peak for the picture (and keep the app's own strikes away).
+  const upd = r.updateWeather.bind(r);
+  r.updateWeather = (sv2, now) => { const x = upd(sv2, now); x.flash = null; x.next = Infinity; x.flashI = 1; x.dir = D; return x; };
+});
 await page.waitForTimeout(+(process.env.SETTLE || (webgpu ? 15000 : 6000)));
 const png = webgpu
   ? await page.evaluate(async () => { const { w, h, data } = await app.r3d.gl.readDefault(); const c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(data), w, h), 0, 0); return c.toDataURL('image/png'); })
   : await page.evaluate(() => new Promise((ok) => requestAnimationFrame(() => ok(app.r3d.canvas.toDataURL('image/png')))));
 writeFileSync(out, Buffer.from(png.split(',')[1], 'base64'));
-console.log(JSON.stringify(info), errs.slice(0, 3));
+console.log(JSON.stringify(info), errs.slice(0, 3), process.env.DBG ? await page.evaluate(() => JSON.stringify({ w: app.r3d.weather, clouds: app.r3d.cloudsNow, ang: (() => { const f = app.cam.override.f, d = app.r3d.weather.dir, n = app.surface.up; return [Math.acos(f[0]*d[0]+f[1]*d[1]+f[2]*d[2]) * 57.3, Math.asin(d[0]*n[0]+d[1]*n[1]+d[2]*n[2]) * 57.3, Math.asin(f[0]*n[0]+f[1]*n[1]+f[2]*n[2]) * 57.3]; })(), uf: (() => { const r = app.r3d, g = r.gl; g.useProgram(r.pSurfSky.p); return [r.pSurfSky.u.uFlash ? Array.from(g.getUniform(r.pSurfSky.p, r.pSurfSky.u.uFlash)) : 'noloc', r.pSurfSky.u.uRes ? Array.from(g.getUniform(r.pSurfSky.p, r.pSurfSky.u.uRes)) : 'noloc']; })(), T: app.surface.localT, th: { c: window.__b.th.cloud, l: window.__b.th.liquid } })) : '');
 await browser.close();
