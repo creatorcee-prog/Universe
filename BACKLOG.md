@@ -31,8 +31,10 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 
 ## New list
 
-- **Challenges** inspired by Universe Sandbox's, then famous experiments and calculations
-  (e.g. Cavendish, Eratosthenes, Kepler's third law, the Roche limit, a slingshot, the Shoemaker–Levy 9 breakup).
+- **Challenges** (first set done, Scenarios sheet: a second moon for Earth, Kepler's two-year planet, weighing
+  Jupiter from Io as Newton did, tearing the Moon apart at the Roche limit, Shoemaker-Levy 9's breakup, a second
+  habitable world, destroying the Earth; each with a hint, live progress and the real science with a source).
+  Still to do: Eratosthenes (Earth's size from shadows in Surface view), a gravity slingshot, Cavendish.
 - **Spectrum views** (done, first version: Settings, Light seen: infrared thermal / 5-micron giants, UV, X-ray coronae). Was: infrared (thermal glow), ultraviolet, X-ray and gamma. Most of these can come from
   per-body emission models: blackbody heat, hot coronae, accretion disks and pulsars.
 - **Clearer info pages** (done: an "In the book" card on the overview with the entry's first line and a chip

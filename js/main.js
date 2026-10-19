@@ -12,6 +12,7 @@ import { GLonGPU } from './glgpu.js';
 import { Input } from './input.js';
 import { Sound } from './audio.js';
 import { UI } from './ui.js';
+import { Challenges } from './challenges.js';
 
 const SETTINGS_KEY = 'universe-pocket-settings';
 
@@ -40,6 +41,7 @@ class App {
     this.adding = null;
     this.rate = 0;
     this.audio = new Sound(this.settings);
+    this.challenges = new Challenges(this);
     this.ui = new UI(this);
     this.input = new Input(this.canvas, this);
     this.glCanvas = document.getElementById('gl');
@@ -272,6 +274,7 @@ class App {
   }
 
   loadPreset(id) {
+    if (this.challenges && !this.challenges.starting && this.challenges.active) this.challenges.stop();   // (another scenario ends a challenge)
     this.impactSped = false;
     this.zones.clear();
     this.gzones.clear();
@@ -840,7 +843,8 @@ class App {
       const r = w.resolve(this.state.selected);
       this.select(r, true);
     }
-    while (w.events.length) { const ev = w.events.shift(); this.audio.event(ev, this.cam); this.ui.event(ev); }
+    while (w.events.length) { const ev = w.events.shift(); this.audio.event(ev, this.cam); this.ui.event(ev); this.challenges.event(ev); }
+    this.challenges.tick(performance.now());
     // Moon-forming impact: once Theia has hit, speed up so the disk can be watched clumping into the Moon
     // (about two weeks), at a rate where the debris orbits are still followed accurately.
     if (this.state.preset && this.state.preset.id === 'impact' && !this.impactSped && !w.findByName('Theia')) {

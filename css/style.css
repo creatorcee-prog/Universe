@@ -198,6 +198,25 @@ input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border-radius: 
 .sheet h2 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
 
 .scenario-list { display: grid; gap: 8px; }
+.sheet-sub { margin: 14px 0 8px; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.challenge .scn-meta { color: var(--accent); opacity: 1; }
+.challenge.done .scn-title::after { content: ' ✓'; color: #7fe0a0; }
+.chal { background: var(--panel); border: 1px solid rgba(255,184,92,.4); border-radius: 14px; padding: 8px 10px 10px 12px; -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); display: grid; gap: 4px; max-height: 42vh; overflow-y: auto; }
+.chal.won { border-color: rgba(90,220,120,.6); }
+.chal.lost { border-color: rgba(255,122,102,.6); }
+.chal-top { display: flex; align-items: center; gap: 8px; }
+.chal-top b { flex: 1; font-size: 15px; }
+.chal-tag { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+.chal-goal, .chal-prog, .chal-more { margin: 0; font-size: 13px; line-height: 1.4; }
+.chal-prog { font: 500 12px var(--font-data); color: var(--muted); }
+.chal.won .chal-prog { color: #7fe0a0; font-weight: 600; }
+.chal.lost .chal-prog { color: #ffb3a6; }
+.chal-more { color: rgba(236,232,222,.86); }
+.chal-more a { color: var(--accent); }
+.chal-answer { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); }
+.chal-answer input { width: 7em; height: 32px; border-radius: 8px; border: 1px solid var(--line-strong); background: rgba(255,255,255,.05); color: var(--ink); padding: 0 8px; font: 500 14px var(--font-data); }
+.chal-answer button, .chal-btns button { height: 30px; padding: 0 12px; border-radius: 999px; border: 1px solid rgba(255,184,92,.35); background: rgba(255,184,92,.08); color: #f3d6a8; font-weight: 600; font-size: 13px; cursor: pointer; }
+.chal-btns { display: flex; gap: 6px; }
 .scenario { text-align: left; display: grid; gap: 3px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: rgba(255,255,255,.025); cursor: pointer; }
 .scenario:active { background: rgba(255,255,255,.06); }
 .scenario.current { border-color: rgba(255,184,92,.55); }

@@ -7,6 +7,7 @@ import { tempZones, localTemp, localHab, listReasons, exoticLife } from './therm
 import { lifetime } from './stellar.js';
 import { atmosphereOptics } from './optics.js';
 import { renderThumb, category } from './thumbs.js';
+import { CHALLENGES } from './challenges.js';
 
 // Time-speed slider spans 1 second per second to 300 million years per second (log scale).
 const MIN_EXP = Math.log10(1 / 3.15576e7);
@@ -312,6 +313,20 @@ export class UI {
   }
 
   buildScenarios() {
+    // Challenges, then the plain scenarios.
+    const cl = $('challenge-list'), ch = this.app.challenges;
+    for (const c of CHALLENGES) {
+      const b = document.createElement('button');
+      b.className = 'scenario challenge' + (ch.doneSet.has(c.id) ? ' done' : '');
+      b.id = 'chl-' + c.id;
+      b.innerHTML = `<span class="scn-title">${c.title}</span><span class="scn-blurb">${c.goal}</span><span class="scn-meta">${c.tag}</span>`;
+      b.addEventListener('click', () => { this.closeSheets(); ch.start(c); });
+      cl.appendChild(b);
+    }
+    $('chal-x').addEventListener('click', () => ch.stop());
+    $('chal-hint').addEventListener('click', () => { const m = $('chal-more'); m.hidden = false; m.textContent = ch.active ? ch.active.c.hint : ''; });
+    $('chal-retry').addEventListener('click', () => ch.active && ch.start(ch.active.c));
+    $('chal-answer').addEventListener('submit', (e) => { e.preventDefault(); ch.answer(parseFloat($('chal-in').value.replace(/,/g, ''))); });
     const list = $('scenario-list');
     for (const p of PRESETS) {
       const b = document.createElement('button');
@@ -754,6 +769,44 @@ export class UI {
       death.textContent = 'Detonate (Type Ia supernova)';
     }
   }
+
+  // The active challenge's card above the dock: goal, live progress, then the outcome and the science.
+  showChallenge(a) {
+    const el = $('chal');
+    el.hidden = !a;
+    if (!a) return;
+    const c = a.c, r = a.result;
+    $('chal-tag').textContent = c.tag;
+    $('chal-title').textContent = c.title;
+    $('chal-goal').textContent = c.goal;
+    el.classList.toggle('won', !!(r && r.done));
+    el.classList.toggle('lost', !!(r && r.fail));
+    $('chal-answer').hidden = !c.answer || !!r;
+    $('chal-unit').textContent = c.answer ? c.answer.unit : '';
+    $('chal-hint').hidden = !!r;
+    $('chal-retry').hidden = !r;
+    const more = $('chal-more');
+    if (r) {
+      $('chal-prog').textContent = r.done ? 'Done! ' + r.done : r.fail;
+      more.hidden = false;
+      more.innerHTML = '';
+      if (r.done) {
+        more.append(c.science + ' ');
+        const a2 = document.createElement('a');
+        a2.href = c.source[1]; a2.target = '_blank'; a2.rel = 'noopener'; a2.textContent = c.source[0];
+        more.append(a2);
+        this.toast(`Challenge complete: ${c.title}`, true);
+        const card = $('chl-' + c.id);
+        if (card) card.classList.add('done');
+      }
+    } else {
+      $('chal-prog').textContent = '';
+      more.hidden = true;
+      $('chal-in').value = '';
+    }
+  }
+
+  challengeProgress(text) { $('chal-prog').textContent = text || ''; }
 
   toast(text, big = false) {
     this.app.audio.ui('hint');

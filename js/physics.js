@@ -552,7 +552,7 @@ export class World {
     small.alive = false;
     small.mergedInto = null;
     this.flashes.push({ x: small.x, y: small.y, z: small.z, r: small.r * 6, born: performance.now(), life: 1500, color: [255, 210, 160] });
-    this.events.push({ text: `${small.name} crossed ${big.name}'s Roche limit and was torn apart by tides`, body: big, big: true, snd: 'tidal', power: small.kind === 'star' ? 1 : 0.6, at: [small.x, small.y, small.z] });
+    this.events.push({ text: `${small.name} crossed ${big.name}'s Roche limit and was torn apart by tides`, torn: small.name, body: big, big: true, snd: 'tidal', power: small.kind === 'star' ? 1 : 0.6, at: [small.x, small.y, small.z] });
   }
 
   // Blow a body apart when it holds more heat than its gravitational binding energy (3/5 GM²/R):

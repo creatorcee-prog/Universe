@@ -194,6 +194,14 @@
   </div>
 
   <footer class="dock">
+    <section id="chal" class="chal" hidden aria-live="polite">
+      <div class="chal-top"><span id="chal-tag" class="chal-tag"></span><b id="chal-title"></b><button id="chal-x" class="icon-btn small" type="button" aria-label="End challenge"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+      <p id="chal-goal" class="chal-goal"></p>
+      <p id="chal-prog" class="chal-prog"></p>
+      <form id="chal-answer" class="chal-answer" hidden><input id="chal-in" inputmode="decimal" autocomplete="off" aria-label="Your answer"><span id="chal-unit"></span><button type="submit">Check</button></form>
+      <p id="chal-more" class="chal-more" hidden></p>
+      <div class="chal-btns"><button id="chal-hint" type="button">Hint</button><button id="chal-retry" type="button" hidden>Try again</button></div>
+    </section>
     <div class="readout"><span id="stat-objects"></span><span id="stat-grid"></span></div>
     <div id="tray" class="addbar" hidden>
       <span id="add-swatch" class="swatch"></span>
@@ -290,6 +298,9 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
     </div>
+    <h3 class="sheet-sub">Challenges</h3>
+    <div id="challenge-list" class="scenario-list"></div>
+    <h3 class="sheet-sub">Scenarios</h3>
     <div id="scenario-list" class="scenario-list"></div>
   </section>
 
