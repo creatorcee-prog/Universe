@@ -15,6 +15,7 @@ const PK_GAS = 6, PK_SN_H = 8; // gas and hydrogen do not clump
 const AU_M = 1.495978707e11, MSUN = 1.98847e30;
 // Material density (kg/m³) by particle kind: debris/hot/rock 3000, ice 1000, dust 2000, SN O/Si/Fe.
 const RHO = [3000, 3000, 3000, 3000, 1000, 2000, 1000, 3000, 1000, 2000, 2500, 7800];
+const CBRT_RHO = RHO.map(Math.cbrt);
 const PROMOTE = 1.1e-9; // M☉ (~2.2e21 kg, 3% of the Moon): a clump this big becomes a body (moonlet)
 const RESTITUTION = 0.3;
 
@@ -35,55 +36,64 @@ export function coagulate(world, dt) {
   for (let i = 0; i < np; i++) if (pm[i] > 0 && pm[i] < PROMOTE && pk[i] !== PK_GAS && pk[i] !== PK_SN_H && pk[i] !== 2 && pk[i] !== 3) idx.push(i);
   const n = idx.length;
   if (n < 2) return;
-  const bodies = world.bodies;
+  const bodies = world.bodies, nb = bodies.length;
+  // The bodies in flat arrays (this loop runs clumps × bodies), with each one's Roche factor
+  // 2.456 R ρ_host^(1/3), so a clump's Roche limit is that over its own ρ^(1/3).
+  const B = new Float64Array(nb * 8);
+  for (let h = 0; h < nb; h++) {
+    const b = bodies[h], o = h * 8;
+    B[o] = b.x; B[o + 1] = b.y; B[o + 2] = b.z; B[o + 3] = b.m; B[o + 4] = b.vx; B[o + 5] = b.vy; B[o + 6] = b.vz;
+    const rhoHost = b.r > 0 ? (b.m * MSUN) / ((4 / 3) * Math.PI * (b.r * AU_M) ** 3) : 1e18;
+    B[o + 7] = 2.456 * b.r * Math.cbrt(rhoHost);
+  }
   // Host (strongest pull) and physical radius per clump.
-  const rad = new Float64Array(n), host = new Int32Array(n), rocheOK = new Uint8Array(n);
+  const rad = new Float64Array(n), rocheOK = new Uint8Array(n);
   let rmax = 0, smax = 0;
   for (let k = 0; k < n; k++) {
-    const i = idx[k];
+    const i = idx[k], x = px[i], y = py[i], z = pz[i];
     rad[k] = radiusAU(pm[i], pk[i]);
     if (rad[k] > rmax) rmax = rad[k];
     let best = -1, bf = 0, bd = 0;
-    for (let h = 0; h < bodies.length; h++) {
-      const b = bodies[h];
-      const d2 = (b.x - px[i]) ** 2 + (b.y - py[i]) ** 2 + (b.z - pz[i]) ** 2;
-      const f = b.m / d2;
-      if (f > bf) { bf = f; best = h; bd = d2; }
+    for (let o = 0; o < nb * 8; o += 8) {
+      const dx = B[o] - x, dy = B[o + 1] - y, dz = B[o + 2] - z, d2 = dx * dx + dy * dy + dz * dz;
+      const f = B[o + 3] / d2;
+      if (f > bf) { bf = f; best = o; bd = d2; }
     }
-    host[k] = best;
     let s = 0;
     if (best >= 0) {
-      const b = bodies[best];
-      s = Math.hypot(vx[i] - b.vx, vy[i] - b.vy, vz[i] - b.vz);
+      s = Math.hypot(vx[i] - B[best + 4], vy[i] - B[best + 5], vz[i] - B[best + 6]);
       // Roche limit for a fluid/rubble satellite: a_R = 2.456 R (ρ_host / ρ_clump)^(1/3).
-      const rhoHost = b.r > 0 ? (b.m * MSUN) / ((4 / 3) * Math.PI * (b.r * AU_M) ** 3) : 1e18;
-      const aR = 2.456 * b.r * Math.cbrt(rhoHost / (RHO[pk[i]] || 3000));
-      rocheOK[k] = Math.sqrt(bd) > aR ? 1 : 0;
+      rocheOK[k] = Math.sqrt(bd) > B[best + 7] / (CBRT_RHO[pk[i]] || 14.42) ? 1 : 0;
     } else rocheOK[k] = 1;
     if (s > smax) smax = s;
   }
   // Spatial hash. Cells must hold any pair that could have touched during the frame.
   const reach = 2 * rmax + Math.min(smax * dt * 0.25, 2e-3);
   const cell = Math.max(reach, 1e-12);
-  const grid = new Map();
-  const key = (a, b, c) => a * 73856093 ^ b * 19349663 ^ c * 83492791;
-  const cx = new Int32Array(n), cy = new Int32Array(n), cz = new Int32Array(n);
+  // Open-addressed hash of occupied cells (typed arrays, no per-frame Map or lists): each slot holds a cell's
+  // coordinates and the head of its clumps' linked list (next).
+  const cx = new Int32Array(n), cy = new Int32Array(n), cz = new Int32Array(n), next = new Int32Array(n);
+  let size = 16;
+  while (size < 2 * n) size *= 2;
+  const mask = size - 1, head = new Int32Array(size).fill(-1), sx = new Int32Array(size), sy = new Int32Array(size), sz = new Int32Array(size);
+  const slot = (a, b, c) => {
+    let h = (Math.imul(a, 73856093) ^ Math.imul(b, 19349663) ^ Math.imul(c, 83492791)) & mask;
+    while (head[h] >= 0 && (sx[h] !== a || sy[h] !== b || sz[h] !== c)) h = (h + 1) & mask;
+    return h;
+  };
   for (let k = 0; k < n; k++) {
     const i = idx[k];
     cx[k] = Math.floor(px[i] / cell); cy[k] = Math.floor(py[i] / cell); cz[k] = Math.floor(pz[i] / cell);
-    const h = key(cx[k], cy[k], cz[k]);
-    let l = grid.get(h);
-    if (!l) { l = []; grid.set(h, l); }
-    l.push(k);
+    const h = slot(cx[k], cy[k], cz[k]);
+    if (head[h] < 0) { sx[h] = cx[k]; sy[h] = cy[k]; sz[h] = cz[k]; }
+    next[k] = head[h]; head[h] = k;
   }
   const dead = new Uint8Array(n);
   let merges = 0;
   for (let k = 0; k < n; k++) {
     if (dead[k]) continue;
     for (let ox = -1; ox <= 1; ox++) for (let oy = -1; oy <= 1; oy++) for (let oz = -1; oz <= 1; oz++) {
-      const l = grid.get(key(cx[k] + ox, cy[k] + oy, cz[k] + oz));
-      if (!l) continue;
-      for (const q of l) {
+      for (let q = head[slot(cx[k] + ox, cy[k] + oy, cz[k] + oz)]; q >= 0; q = next[q]) {
         if (q <= k || dead[q] || dead[k]) continue;
         const i = idx[k], j = idx[q];
         const dx = px[j] - px[i], dy = py[j] - py[i], dz = pz[j] - pz[i];

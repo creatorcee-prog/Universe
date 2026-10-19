@@ -6,8 +6,10 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 
 - **Saturn's rings as debris**, as a setting: the drawn rings from afar, and real rocks you can fly
   through up close (a few thousand particles cannot fill 280,000 km of ring from a distance).
-- **Collision checks off the main thread** (about 1–3 ms a frame with a big dust cloud). This needs the
-  particle storage reworked, since merging changes the list in place.
+- **Collision checks off the main thread** (done differently: measured first, the cost was the algorithm, not the
+  thread. Each clump searched every body through object properties and the cell hash was a JS Map; flat
+  arrays and an open-addressed hash make it 10-18x faster with the same results, e.g. 116 -> 10 ms for ~9,700
+  clumps in Planet Formation, 4.6 -> 0.6 ms after a giant impact. A worker would add a frame of lag to merges.)
 - **Real elevation for more worlds** (done for Pluto and Charon: New Horizons DEMs, Schenk et al. 2018, about half
   of each mapped, the rest Moon-like relief matched to it). Io, Europa, Ganymede, Callisto and Titan have no
   global elevation maps (only regional stereo and Cassini's sparse altimetry), so they keep borrowed relief.
@@ -21,9 +23,10 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 
 - From afar the chunks look like gravel; at that range draw a smooth, detailed ring sheet and blend the
   chunks and the rock swarm in only up close (real ring particles are cm to house-sized).
-- The rocks of the close-up swarm render black over the lit ring (likely the Sun direction in its shader).
-- Fish-scale ovals where the far chunks hand over to the swarm.
-- Labels of planets far behind Saturn show through it (pre-existing).
+- (Fixed: the close-up rocks are lit, 3D since "Saturn's rings: 3D rocks close up"; checked headless in WebGPU.)
+- Fish-scale ovals: from ~0.1 radii above the ring plane (the swarm only runs within 0.08) the chunks are drawn
+  as flat coins tens of km wide. Still to do: fade big chunks into the smooth sheet there.
+- (Fixed: labels behind Saturn are hidden.) Gravel from afar: fixed, the smooth sheet draws the rings there.
 - Testing note: iPhone Low Power Mode caps web pages at 30 fps (yellow battery icon).
 
 ## New list
