@@ -654,7 +654,11 @@ export class Renderer3D {
   whiteBalance() {
     const g = this.surface && this.gLight && this.gLight.g;
     if (!g) return [1, 1, 1];
-    const T = g.sunT, m = Math.max(T[0], T[1], T[2]);
+    // Relative to the light with the star overhead: a world's own colour of light (Mars's dusty, ruddy day)
+    // is kept; only the extra reddening of a low sun is adapted to.
+    const gl0 = this.gLight;
+    if (!gl0.zenT) gl0.zenT = gl0.optics ? groundLight(gl0.optics, 1, 1).sunT : [1, 1, 1];
+    const T = g.sunT.map((v, i) => v / Math.max(gl0.zenT[i], 1e-6)), m = Math.max(T[0], T[1], T[2]);
     if (!(m > 1e-6)) return [1, 1, 1];
     const wb = T.map((v) => Math.min(1.6, Math.pow(Math.max(v / m, 1e-4), -0.2)));
     const y = 0.3 * wb[0] + 0.55 * wb[1] + 0.15 * wb[2];
@@ -1038,7 +1042,15 @@ export class Renderer3D {
     // black; measured skylight at sunrise is ~5-10% of noon sunlight, and the eye adapts to it. Boosted to
     // match: x1.6 at noon, up to x3 near the horizon.)
     const ambK = 1.6 + 1.4 * (1 - Math.max(0, Math.min(1, (sunUp - 0.05) / 0.45)));
-    const amb = g ? g.amb.map((v, i) => v * adapt * ambK * (ld[1][i] > 0 ? 1 : 0) + 0.004) : sunCol.map((v) => v * 0.04 * Math.max(0, sunUp) + 0.002);
+    // (Its colour half from the zenith and the horizon away from the Sun: the few sample rays overweight the bright
+    // glow around the Sun, which on Mars is blue (its dust scatters blue forward) though the sky is butterscotch.)
+    let ambG = g ? g.amb : null;
+    if (g) {
+      const c = [0, 1, 2].map((i) => 0.5 * g.zen[i] + 0.5 * g.horAnti[i]), cl = 0.3 * c[0] + 0.55 * c[1] + 0.15 * c[2];
+      const al = 0.3 * g.amb[0] + 0.55 * g.amb[1] + 0.15 * g.amb[2];
+      if (cl > 1e-9) ambG = c.map((v, i) => 0.5 * (v / cl) * al + 0.5 * g.amb[i]);
+    }
+    const amb = g ? ambG.map((v, i) => v * adapt * ambK * (ld[1][i] > 0 ? 1 : 0) + 0.004) : sunCol.map((v) => v * 0.04 * Math.max(0, sunUp) + 0.002);
     const ext = optics ? [0, 1, 2].map((i) => (optics.betaR[i] + optics.betaA[i] + optics.betaM[i] + optics.betaMa[i]) / Rm) : [0, 0, 0];
     const fogH = optics ? ((optics.betaR[1] * optics.hR + optics.betaM[1] * optics.hM) / Math.max(1e-9, optics.betaR[1] + optics.betaM[1])) * Rm : 1;
     const gr = (6.674e-11 * b.m * 1.98847e30) / (Rm * Rm);

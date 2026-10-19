@@ -77,7 +77,9 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 3. Done: Earth day map from Blue Marble (NASA Visible Earth, July 2004) at 4096x2048, colour-matched to the old
    map per channel; anisotropic filtering on the photo maps. Was: Blue Marble Next Generation, 4096x2048 (8192 would take ~170 MB of GPU
    memory with mipmaps, risky on iPhone), mipmaps and anisotropic filtering, each file under 15 MB.
-4. Ground detail textures in the surface view: tiling rock, soil, sand (colour + normal), blended by slope,
+4. Done (procedural, no image files): rock strata and fractures, pebbles and grit, sand ripples underfoot;
+   colour-banded strata on cliffs at any distance; snow patches in hollows near the snow line; dune fields on
+   dry flats (after the user's inspiration images). Was: tiling rock, soil, sand (colour + normal), blended by slope,
    height and biome, tinted by the map colour, hash-based tiling, fading with distance.
 5. Surface view: curved, lit clouds on a spherical shell at the real cloud height, normals from the noise
    gradient, bright edges toward the Sun, darker bases, a thin cirrus layer. The user also wants volumetric

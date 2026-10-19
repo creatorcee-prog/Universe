@@ -1090,6 +1090,17 @@ float smallHeight(vec2 p, float rough, float res) {
     h += amp * n * f;
     lam *= 0.42; amp *= i < 3 ? 0.42 : 0.38;
   }
+  // Dune fields on dry, flat ground: transverse dunes ~60 m apart and a few metres high, crests bent by the
+  // wind's eddies, gentle on the windward side and steep on the lee; only within fields (patchy).
+  if (uOcean <= 0.0 && uCraters < 0.5) {
+    float field = smoothstep(0.45, 0.65, vnoise(vec3(pp / 4000.0, 44.0))) * (1.0 - smoothstep(0.2, 0.5, rough));
+    if (field > 0.0) {
+      float f = smoothstep(res * 2.5, res * 6.0, 60.0);
+      float ph = (pp.x * 0.8 + pp.y * 0.6) / 60.0 + 1.2 * vnoise(vec3(pp / 300.0, 45.0)) + 0.4 * vnoise(vec3(pp / 80.0, 46.0));
+      float t = fract(ph), dune = t < 0.75 ? t / 0.75 : (1.0 - t) / 0.25;   // long windward slope, short slip face
+      h += uRelief * 0.0012 * dune * dune * field * f;
+    }
+  }
   if (uCraters > 0.0) {
     // Simple craters are about a fifth as deep as they are wide (crater2's bowl reaches -0.6 at the centre
     // of a crater up to ~0.9 cells across).
@@ -1328,6 +1339,14 @@ void main() {
       vc = mix(vc, vec3(0.5, 0.45, 0.3), smoothstep(0.6, 0.85, vnoise(vec3(pp / 60.0, 12.0))) * 0.35);
       col = mix(col, vc, veg);
     }
+    // Sedimentary strata: on steep rock, level bands of lighter, darker and ochre layers by height (seen from
+    // kilometres away on cliffs and ranges), slightly wavy, finer bands within thicker ones.
+    float hb = H + 18.0 * (vnoise(vec3(pp / 900.0, 41.0)) - 0.5);
+    float band1 = sin(hb * 0.045 + 1.3 * vnoise(vec3(pp / 3000.0, 42.0))), band2 = sin(hb * 0.19 + 0.7);
+    vec3 strataC = rock * (1.0 + 0.22 * band1 + 0.08 * band2 * smoothstep(res * 3.0, res * 10.0, 30.0));
+    strataC = mix(strataC, strataC * vec3(1.18, 1.0, 0.78), smoothstep(0.55, 0.9, band1) * 0.6);   // ochre layers
+    strataC = mix(strataC, vec3(dot(strataC, vec3(0.33))) * 1.25, smoothstep(-0.6, -0.95, band1) * 0.5);   // pale layers
+    rock = mix(rock, strataC, smoothstep(0.0, 0.6, rough + 0.3));
     col = mix(col, rock, smoothstep(0.35, 0.6, slope + 0.2 * rough * n1));
     // Sand and dust collect in hollows on dry worlds.
     if (uOcean <= 0.0) col = mix(col, uColA * 1.08, smoothstep(0.45, 0.28, vnoise(vec3(pp / 220.0, 9.0))) * (1.0 - slope) * 0.6);
@@ -1338,9 +1357,40 @@ void main() {
     // enough (high peaks, winter latitudes).
     float cap = smoothstep(uSnowLat, uSnowLat + 0.05, lat + 0.03 * (n1 - 0.5)) * uIce;
     float cold = uSeaOK > 0.5 ? smoothstep(271.0, 262.0, T + 6.0 * (n1 - 0.5)) : 0.0;
-    float snow = max(cap, cold) * (1.0 - smoothstep(0.45, 0.7, slope));
+    // Near the snow line, patches linger in hollows and on shaded ground instead of a uniform blanket.
+    float hollow = smoothstep(0.55, 0.35, vnoise(vec3(pp / 90.0, 43.0)) * 0.7 + n1 * 0.3);
+    float coolish = uSeaOK > 0.5 ? smoothstep(279.0, 271.0, T + 4.0 * (n1 - 0.5)) : 0.0;
+    float snow = max(max(cap, cold), coolish * hollow * 0.95) * (1.0 - smoothstep(0.45, 0.7, slope));
     col = mix(col, vec3(0.9, 0.93, 0.97), snow);
     col *= tex;
+    // Ground detail within a few hundred metres: what the material looks like underfoot, tinted by the colour
+    // the ground already has (so it still matches the map). Rock: layered strata and fractures; soil: pebbles
+    // and grit; sand: wind ripples. Each fades out where its pattern gets finer than a pixel.
+    float near = 1.0 - smoothstep(60.0, 260.0, dist);
+    if (near > 0.0) {
+      float isRock = smoothstep(0.3, 0.55, slope + 0.2 * rough * n1) * (1.0 - snow);
+      float isSand = (uOcean <= 0.0 ? 0.6 : 0.0) + (uSeaOK > 0.5 ? smoothstep(6.0, 1.0, H) : 0.0) + desert * 0.6;
+      isSand = clamp(isSand, 0.0, 1.0) * (1.0 - isRock) * (1.0 - snow);
+      float isSoil = (1.0 - isRock) * (1.0 - isSand) * (1.0 - snow);
+      // Rock: strata (bands along a tilted plane through the slope) broken by fractures.
+      // (Strata are level bands: by height alone, varied a little along the ground; rings only where the
+      // slope is gentle, and rock lies only on steep ground.)
+      float strata = 0.5 + 0.35 * sin(H * 2.1 + 2.0 * vnoise(vec3(pp / 25.0, 21.0))) * smoothstep(res * 3.0, res * 9.0, 1.5)
+                   + 0.15 * (vnoise(vec3(pp * 1.3, 22.0)) - 0.5);
+      float frac = 1.0 - smoothstep(0.0, 0.05, abs(vnoise(vec3(pp / 3.0, 23.0)) - 0.5)) * smoothstep(res * 3.0, res * 9.0, 3.0);
+      float rockD = (0.82 + 0.36 * strata) * (1.0 - 0.45 * (1.0 - frac));
+      // Soil: grit, and pebbles where a cell's random stone is close.
+      vec2 cp = pp / 0.35, ci = floor(cp), cf2 = fract(cp) - 0.5;
+      float ph = hash(vec3(ci, 31.0)), pr = length(cf2 - (vec2(hash(vec3(ci, 32.0)), hash(vec3(ci, 33.0))) - 0.5) * 0.5);
+      float pebble = step(0.72, ph) * (1.0 - smoothstep(0.12, 0.2, pr)) * smoothstep(res * 2.0, res * 6.0, 0.35);
+      float grit = (vnoise(vec3(pp / 0.08, 34.0)) - 0.5) * smoothstep(res * 2.0, res * 6.0, 0.08);
+      float soilD = (1.0 + 0.25 * grit) * (1.0 + 0.3 * pebble * (ph - 0.86) * 6.0);
+      // Sand: ripples across the wind, with a little meander.
+      float rip = sin((pp.x * 0.92 + pp.y * 0.38) * 9.0 + 3.0 * vnoise(vec3(pp / 6.0, 35.0)));
+      float sandD = 1.0 + 0.12 * rip * smoothstep(res * 2.0, res * 6.0, 0.7);
+      float detail = isRock * rockD + isSoil * soilD + isSand * sandD + snow;
+      col *= mix(1.0, detail, near);
+    }
     // Lambert with a little wrap, sky light from above, and the planet's own heat when molten.
     float ndl = max(dot(N, uL0), 0.0);
     col = col * (sunC * ndl + uAmb * (0.55 + 0.45 * dot(N, uUpV)));
@@ -2105,13 +2155,14 @@ vec3 lensFlare(vec2 uv) {
   vec3 c = vec3(0.0);
   // Starburst: thin rays from the aperture's blades, and a soft core.
   float ang = atan(d.y, d.x);
-  float rays = pow(abs(cos(ang * 3.0)), 60.0) + 0.6 * pow(abs(cos(ang * 3.0 + 1.0472)), 80.0);
+  // Four long thin spikes (diffraction from the camera's vanes), and faint finer rays between them.
+  float rays = pow(abs(cos(ang * 2.0)), 900.0) * 2.0 + 0.35 * pow(abs(cos(ang * 4.0 + 0.785)), 60.0);
   // (Rays shorter in space: uFlareThr < 1 there; against a bright sky the faint outer part does not show anyway.)
-  c += uFlareCol * rays * exp(-r * (uFlareThr < 1.0 ? 14.0 : 5.0)) * 1.2;
-  c += uFlareCol * exp(-r * 14.0) * 0.8;
+  c += uFlareCol * rays * exp(-r * (uFlareThr < 1.0 ? 9.0 : 7.0)) * 1.2;
+  c += uFlareCol * exp(-r * 22.0) * 0.6;
   // Halo: a faint rainbow-edged ring.
   float ring = exp(-pow((r - 0.32) / 0.012, 2.0));
-  c += vec3(0.25, 0.45, 0.9) * ring * 0.18 + vec3(0.9, 0.5, 0.3) * exp(-pow((r - 0.335) / 0.012, 2.0)) * 0.14;
+  c += vec3(0.25, 0.45, 0.9) * ring * 0.07 + vec3(0.9, 0.5, 0.3) * exp(-pow((r - 0.335) / 0.012, 2.0)) * 0.05;
   // Ghosts along the line through the centre.
   vec2 axis = vec2(0.5) - sp;
   for (int i = 0; i < 6; i++) {
@@ -2121,7 +2172,7 @@ vec3 lensFlare(vec2 uv) {
               : i == 3 ? vec3(0.4, 0.5, 1.0) : i == 4 ? vec3(0.9, 0.4, 0.7) : vec3(0.5, 0.7, 1.0);
     float gr = length((uv - (sp + axis * k)) * asp);
     float disc = smoothstep(sz, sz * 0.75, gr) * (0.5 + 0.5 * smoothstep(sz * 0.4, sz, gr));   // brighter rim
-    c += tint * disc * (i == 5 ? 0.08 : 0.16);
+    c += tint * disc * (i == 5 ? 0.04 : 0.08);
   }
   // Weaker as the star nears the screen's edge (less light reaches the inner surfaces).
   float edge = 1.0 - smoothstep(0.35, 0.75, length((sp - 0.5) * asp));
