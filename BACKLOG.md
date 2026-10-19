@@ -37,7 +37,9 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
   measured; it was ~1/400 and read pure red), the ground is lit by the overcast as it should be, the ground is
   broken rock with few dunes, and the overcast carries soft east-west streaks from the deck 48 km up. The
   image's crisp cloud texture is not physical from the ground: ~50 km of scattering air blurs anything smaller.
-- 3. Desert sunset with dark storm clouds and a mesa.
+- (Done) 3. Desert sunset: mesas and buttes (flat cap rock over cliffs and talus) wherever the ground is arid,
+  on Earth wherever its satellite photo is desert, with dunes there too; the ground takes warm light from the
+  bright horizon at sunset. (The clouds' grain in headless captures is their accumulation not settling there.)
 - 4. A solar eclipse seen from the ground.
 - 5. A red dwarf rising behind a red-lit rocky planet, its surface granulated.
 

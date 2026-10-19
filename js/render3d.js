@@ -1065,6 +1065,38 @@ export class Renderer3D {
 
   // The ground around the observer in the Surface view. Lit by the sunlight that reaches the ground and
   // the sky's own light, and hazed with distance, all from the same atmosphere model as the sky.
+  // How arid the ground where the observer stands is, 0..1, for mesas (TERRAIN mesaH): none without air (they
+  // are carved by wind and water) or under Venus-thick air; dry worlds everywhere; worlds with seas in the
+  // subtropical desert belts; Earth where its satellite photo is tan rock and sand rather than green, sea or ice.
+  aridity(b, sv, optics) {
+    if (!optics || optics.P > 10) return 0;
+    const th = b.th, latA = Math.abs(sv.lat);
+    if (/^Earth( \d+)?$/.test(b.name)) {
+      const img = loadImage('earth-day');
+      if (!img) return 0;
+      if (!this.earthDayPx) {
+        try {
+          const c = document.createElement('canvas'); c.width = 512; c.height = 256;
+          const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(img, 0, 0, 512, 256);
+          this.earthDayPx = g.getImageData(0, 0, 512, 256).data;
+        } catch { this.earthDayPx = new Uint8ClampedArray(512 * 256 * 4); }
+      }
+      // (Equirectangular, 0° longitude at the centre.) Average a few nearby pixels (~70 km each).
+      let ar = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const x = ((Math.floor((0.5 + sv.lon / (2 * Math.PI)) * 512) + dx) % 512 + 512) % 512;
+        const y = Math.max(0, Math.min(255, Math.floor((0.5 - sv.lat / Math.PI) * 256) + dy));
+        const o = (y * 512 + x) * 4, r = this.earthDayPx[o], g = this.earthDayPx[o + 1], bl = this.earthDayPx[o + 2];
+        const tan = Math.max(0, Math.min(1, (r - bl - 8) / 30)) * (r >= g * 0.98 ? 1 : 0.2) * (r + g + bl < 640 ? 1 : 0);   // (Blue Marble's deserts are pale: Sahara ~209,188,173)
+        ar += tan / 9;
+      }
+      return Math.min(1, ar * 2.5);   // (the photo averages ~200 km here: semi-arid country already has mesas)
+    }
+    if (!th) return 0;
+    if (th.liquid < 0.01) return 1;
+    return Math.max(0, Math.exp(-((latA - 0.45) ** 2) / 0.012) * (1 - th.liquid));
+  }
+
   drawTerrain(b, l, rot, lights, temp) {
     const gl = this.gl, sv = this.surface, p = this.pTerrain, u = p.u, th = b.th;
     const AU = 1.495978707e11, Rm = b.r * AU;
@@ -1108,7 +1140,9 @@ export class Renderer3D {
     // glow around the Sun, which on Mars is blue (its dust scatters blue forward) though the sky is butterscotch.)
     let ambG = g ? g.amb : null;
     if (g) {
-      const c = [0, 1, 2].map((i) => 0.5 * g.zen[i] + 0.5 * g.horAnti[i]), cl = 0.3 * c[0] + 0.55 * c[1] + 0.15 * c[2];
+      // (With the Sun low, the bright horizon around it lights the ground too: warm on Earth at sunset.)
+      const ws = Math.max(0, Math.min(1, (0.25 - sunUp) / 0.2)) * 0.4;
+      const c = [0, 1, 2].map((i) => (0.5 - ws / 2) * g.zen[i] + (0.5 - ws / 2) * g.horAnti[i] + ws * g.horSun[i]), cl = 0.3 * c[0] + 0.55 * c[1] + 0.15 * c[2];
       const al = 0.3 * g.amb[0] + 0.55 * g.amb[1] + 0.15 * g.amb[2];
       if (cl > 1e-9) ambG = c.map((v, i) => 0.5 * (v / cl) * al + 0.5 * g.amb[i]);
     }
@@ -1146,6 +1180,7 @@ export class Renderer3D {
     const thickAir = optics && optics.P > 10;
     gl.uniform1f(u.uRough, thickAir ? 1.8 : 1);
     gl.uniform1f(u.uDunes, thickAir ? 0.15 : 1);
+    gl.uniform1f(u.uArid, this.aridity(b, sv, optics));
     const fr = (x) => x - Math.floor(x);
     gl.uniform2f(u.uLocal, fr(sv.lat * 977.3) * 800, fr(sv.lon * 613.7) * 800);
     gl.uniform3fv(u.uL0, ld[0]);

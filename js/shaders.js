@@ -1151,6 +1151,19 @@ float rangeValley(vec2 p) {
   return 1.0 - smoothstep(0.45, 0.75, n);
 }
 uniform float uDunes;   // dune strength: 1 on dry worlds with thin air; little under Venus's (few dunes seen there)
+uniform float uArid;    // 0..1: how arid the ground around the observer is (mesas, see mesaH)
+// Mesas and buttes: in arid country, flat-topped remnants of a resistant cap rock, left standing as softer
+// layers around them wear away (Monument Valley; Mars's fretted terrain). Where a broad noise field passes a
+// level the ground steps up ~150-250 m in a near-vertical cliff, over a talus slope at its foot; some carry a
+// second, smaller tier. (Not right where the observer stands, so the view is of them.)
+float mesaH(vec2 p) {
+  if (uArid <= 0.0) return 0.0;
+  vec2 pp = p + uLocal;
+  float n = vnoise(vec3(pp / 2200.0, 51.0)) * 0.72 + vnoise(vec3(pp / 650.0, 52.0)) * 0.22 + vnoise(vec3(pp / 140.0, 53.0)) * 0.06;
+  float hgt = 150.0 + 100.0 * vnoise(vec3(pp / 9000.0, 54.0));
+  float cap = smoothstep(0.615, 0.632, n), talus = smoothstep(0.5, 0.62, n), tier = smoothstep(0.695, 0.708, n);
+  return uArid * hgt * (0.62 * cap + 0.22 * talus * talus + 0.3 * tier) * smoothstep(250.0, 700.0, length(p));
+}
 float smallHeight(vec2 p, float rough, float res) {
   vec2 pp = p + uLocal;
   float h = 0.0, amp = uRelief * (0.012 + 0.04 * rough) * uRough, lam = 2400.0;
@@ -1166,8 +1179,8 @@ float smallHeight(vec2 p, float rough, float res) {
   }
   // Dune fields on dry, flat ground: transverse dunes ~60 m apart and a few metres high, crests bent by the
   // wind's eddies, gentle on the windward side and steep on the lee; only within fields (patchy).
-  if (uOcean <= 0.0 && uCraters < 0.5) {
-    float field = smoothstep(0.45, 0.65, vnoise(vec3(pp / 4000.0, 44.0))) * (1.0 - smoothstep(0.2, 0.5, rough));
+  if ((uOcean <= 0.0 || uArid > 0.3) && uCraters < 0.5) {
+    float field = smoothstep(0.45, 0.65, vnoise(vec3(pp / 4000.0, 44.0))) * (1.0 - smoothstep(0.2, 0.5, rough)) * (uOcean <= 0.0 ? 1.0 : uArid);
     if (field > 0.0) {
       float f = smoothstep(res * 2.5, res * 6.0, 60.0);
       float ph = (pp.x * 0.8 + pp.y * 0.6) / 60.0 + 1.2 * vnoise(vec3(pp / 300.0, 45.0)) + 0.4 * vnoise(vec3(pp / 80.0, 46.0));
@@ -1212,8 +1225,8 @@ uniform float uSunAngT;                // the Sun's angular radius (rad)
 // Generated relief: continents and ranges, or with a real height map only the hills below its resolution.
 float terrainH(vec3 d, vec2 p, float res, out vec2 em) {
   em = bigTerrain(d);
-  if (uHMapK > 0.5) return smallHeight(p, uOcean > 0.0 ? clamp(em.y * 1.5 + 0.15, 0.0, 1.0) : 0.45, res);
-  return bigHeight(em) + rangeHeight(p, clamp(em.y * 1.6, 0.0, 1.0), res) + smallHeight(p, clamp(em.y * 1.5 + 0.15, 0.0, 1.0), res);
+  if (uHMapK > 0.5) return smallHeight(p, uOcean > 0.0 ? clamp(em.y * 1.5 + 0.15, 0.0, 1.0) : 0.45, res) + mesaH(p);
+  return bigHeight(em) + rangeHeight(p, clamp(em.y * 1.6, 0.0, 1.0), res) + smallHeight(p, clamp(em.y * 1.5 + 0.15, 0.0, 1.0), res) + mesaH(p);
 }
 float mapHeight(vec3 d) { return uHMapK > 0.5 ? mapTex(uHMap, uHRot * d).r * uHScale : 0.0; }
 void main() {
@@ -1443,7 +1456,7 @@ void main() {
     float near = 1.0 - smoothstep(60.0, 260.0, dist);
     if (near > 0.0) {
       float isRock = smoothstep(0.3, 0.55, slope + 0.2 * rough * n1) * (1.0 - snow);
-      float isSand = (uOcean <= 0.0 ? 0.6 * uDunes : 0.0) + (uSeaOK > 0.5 ? smoothstep(6.0, 1.0, H) : 0.0) + desert * 0.6 * uDunes;
+      float isSand = (uOcean <= 0.0 ? 0.6 * uDunes : 0.0) + (uSeaOK > 0.5 ? smoothstep(6.0, 1.0, H) : 0.0) + max(desert, uArid) * 0.6 * uDunes;
       isSand = clamp(isSand, 0.0, 1.0) * (1.0 - isRock) * (1.0 - snow);
       float isSoil = (1.0 - isRock) * (1.0 - isSand) * (1.0 - snow);
       // Rock: strata (bands along a tilted plane through the slope) broken by fractures.
