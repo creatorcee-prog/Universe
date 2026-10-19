@@ -86,3 +86,14 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 
 Also: after every shader edit, regenerate js/wgsl.js (the build now refuses otherwise) and check the frame rate
 on the phone.
+
+## Surface view (from the user's inspiration images, ranked)
+
+- S1 done (first version): a lit cloud deck with volume (SURFACE_CLOUD_FS, quarter resolution): flat bases,
+  puffy sunlit tops, dark undersides, rims near the Sun, hides the Sun when thick. To refine: fine streaks in
+  cloud bases from the step count; thin high cirrus; crisper detail (temporal accumulation would allow more
+  steps for the same cost).
+- S2: stronger aerial perspective and valley fog, scaled by how thick the air is.
+- S3: planets and moons in the sky veiled by the air in front of them (they are drawn opaque over the sky).
+- S4: weather: rain streaks under thick warm cloud, lightning glowing inside the deck.
+- S5: ground detail textures and sharper mountains (items 4 and 8 above).

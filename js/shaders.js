@@ -2020,6 +2020,8 @@ uniform vec3 uRingN;         // ring plane normal (world); zero for no rings
 uniform vec2 uRingR;         // inner, outer radius (planet radii)
 uniform float uRingProf[16];
 uniform vec3 uRingCol;
+uniform sampler2D uClouds;   // the cloud deck drawn by SURFACE_CLOUD_FS at a quarter of the resolution
+uniform float uCloudBuf;     // 1 when it was drawn this frame
 out vec4 outColor;
 void main() {
   vec3 dv = normalize(vec3((vUV.x * 2.0 - 1.0) * uTan.x, (vUV.y * 2.0 - 1.0) * uTan.y, -1.0));
@@ -2070,11 +2072,21 @@ void main() {
   // (Capped at 16x white: the real ratio, ~10^5, would only flood the screen with bloom.)
   vec3 sunHDR = Lsun * uExpo;
   sunHDR *= min(1.0, 16.0 / max(max(sunHDR.r, max(sunHDR.g, sunHDR.b)), 1e-6));
-  col += sunHDR;
-  alpha = max(alpha, clamp(max(sunHDR.r, max(sunHDR.g, sunHDR.b)) * 1.4, 0.0, 1.0));
-  // Cloud deck overhead: a flat layer seen in perspective, drifting with the wind, lit by the sunlight
-  // that got through the air (so it glows orange-pink at sunset), faint at night.
-  if (uCloud > 0.0 && h > 0.02) {
+  // The cloud deck (premultiplied colour and coverage), over the sky and the star's disc.
+  if (uCloudBuf > 0.5) {
+    // (A 3 x 3 blur: the buffer is a quarter of the resolution, and its sampling pattern repeats per pixel.)
+    vec2 tx = 1.0 / vec2(textureSize(uClouds, 0));
+    vec4 cl = vec4(0.0);
+    for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++)
+      cl += texture(uClouds, vUV + vec2(float(i), float(j)) * tx) * ((i == 0 ? 2.0 : 1.0) * (j == 0 ? 2.0 : 1.0));
+    cl /= 16.0;
+    col = col * (1.0 - cl.a) + cl.rgb;
+    alpha = alpha * (1.0 - cl.a) + cl.a;
+    sunHDR *= pow(1.0 - cl.a, 8.0);   // (16x white: a thick cloud must hide it, not just dim it)
+  }
+  // Fallback: a flat layer seen in perspective, drifting with the wind, lit by the sunlight that got through
+  // the air (so it glows orange-pink at sunset), faint at night.
+  else if (uCloud > 0.0 && h > 0.02) {
     vec3 east = normalize(cross(uNorth, uUp));
     vec2 p = vec2(dot(d, east), dot(d, uNorth)) / max(h, 0.05) * 1.6 + vec2(uTime * 0.02, uTime * 0.007);
     float n = fbm(vec3(p, 1.7), 5) + 0.1 * (vnoise(vec3(p * 5.0, 3.1)) - 0.5);
@@ -2089,8 +2101,101 @@ void main() {
     cc = mix(cc, col, 1.0 - smoothstep(0.02, 0.35, h));                 // distant clouds fade into the haze
     col = col * (1.0 - c) + cc * c;
     alpha = alpha * (1.0 - c) + c;
+    sunHDR *= pow(1.0 - c, 8.0);
   }
+  // The star's disc, over the sky and behind the clouds (see above).
+  col += sunHDR;
+  alpha = max(alpha, clamp(max(sunHDR.r, max(sunHDR.g, sunHDR.b)) * 1.4, 0.0, 1.0));
   outColor = vec4(col, alpha);
+}
+`;
+
+// The cloud deck seen from the ground, at a quarter of the screen's resolution (render3d.js drawSurfaceSky):
+// a layer between uCloudH.x and uCloudH.x + uCloudH.y above the ground (radii; on Earth about 2 to 4.5 km),
+// on the curved shell, marched through its thickness in 10 steps. Its density is a wind-blown fractal coverage field,
+// thresholded by the climate's cloud cover and eroded by finer 3D noise, with flat bases and puffy tops. Each
+// sample is lit by the sunlight that reaches it through the cloud above it toward the Sun (Beer-Lambert, a
+// "powder" darkening of thin edges, and forward scattering that rims clouds near the Sun with light), plus
+// the blue skylight. Far clouds fade into the horizon haze.
+export const SURFACE_CLOUD_FS = HEAD + NOISE + SCATTER + `
+in vec2 vUV;
+uniform mat3 uView;
+uniform vec2 uTan;
+uniform vec3 uUp, uSun, uNorth;
+uniform float uAir, uSunPower, uCloud, uTime;
+uniform vec3 uCloudCol;
+uniform vec3 uCloudH;       // base height, thickness (radii), planet radius (km)
+out vec4 outColor;
+float hg(float c, float g) { float g2 = g * g; return (1.0 - g2) / pow(1.0 + g2 - 2.0 * g * c, 1.5); }
+// Density 0..1 at P (km, planet-centred) with z the height within the layer (0 base .. 1 top).
+float dens(vec3 P, float z) {
+  // Cells about 4 km across (cumulus is ~1 km, gathered in fields), in fields and clear spells ~30 km wide.
+  vec3 w = P * 0.22 + vec3(uTime * 0.03, 0.0, uTime * 0.012);
+  float field = fbm(P * 0.03 + 5.0, 2);
+  float cov = fbm(w, 4) + 0.12 * (vnoise(w * 4.0 + 3.0) - 0.5) + (field - 0.5) * 0.5;
+  float thr = 0.64 - clamp(uCloud, 0.0, 1.0) * 0.36;
+  float base = smoothstep(thr, thr + 0.16, cov);
+  float top = 0.3 + 0.7 * base;                                   // thick where the cover is dense
+  float prof = smoothstep(0.0, 0.07, z) * (1.0 - smoothstep(top * 0.55, top, z));
+  float det = vnoise(P * 1.4 + vec3(0.0, uTime * 0.05, 0.0)) * 0.65 + vnoise(P * 3.2) * 0.35;
+  return clamp(base * prof * 1.4 - 0.45 * det * (1.0 - 0.6 * base), 0.0, 1.0);
+}
+void main() {
+  vec3 dv = normalize(vec3((vUV.x * 2.0 - 1.0) * uTan.x, (vUV.y * 2.0 - 1.0) * uTan.y, -1.0));
+  vec3 d = transpose(uView) * dv;
+  float h = dot(d, uUp);
+  if (h < -0.01 || uCloud <= 0.0) { outColor = vec4(0.0); return; }
+  float z0 = 2e-5, zb = uCloudH.x, zt = uCloudH.x + uCloudH.y, Rkm = uCloudH.z;
+  float r0 = 1.0 + z0;
+  // Distance to the shell of height z, from below (exact in differences, so float precision holds).
+  #define SHELL(z) (-r0 * h + sqrt(r0 * r0 * h * h + ((z) - z0) * (2.0 + (z) + z0)))
+  float tIn = SHELL(zb), tOut = SHELL(zt);
+  float far = tIn * Rkm;                                          // km to the cloud base along the view
+  float fade = exp(-far / 160.0) * smoothstep(0.0, 0.05, h);
+  if (fade < 0.01) { outColor = vec4(0.0); return; }
+  // Light on the clouds: the sunlight that got through the air (orange-pink at sunset) and the skylight.
+  float e = dot(uSun, uUp);
+  vec3 Tsun = uAir > 0.0 ? exp(-tauToSun(1.0 + zb, e)) : vec3(1.0);
+  vec3 Lc = Tsun * max(e, 0.0) + (1.0 - exp(-uTauS)) * 0.5 * max(e + 0.08, 0.0);
+  float m = max(Lc.r, max(Lc.g, Lc.b));
+  vec3 lightCol = m > 1e-4 ? Lc / m : vec3(1.0);
+  float sunK = smoothstep(-0.1, 0.15, e) * uSunPower * pow(max(m, 0.0), 0.25);
+  vec3 sunL = uCloudCol * lightCol * sunK * 1.25;
+  vec3 skyL = uCloudCol * mix(vec3(0.5, 0.58, 0.75), lightCol, 0.4) * (0.1 + 0.55 * smoothstep(-0.15, 0.3, e)) * max(uSunPower, 0.15);
+  float cs = dot(d, uSun);
+  float ph = mix(hg(cs, 0.6), hg(cs, -0.15), 0.35) * 0.55;
+  const int N = 10;
+  float len = (tOut - tIn), ds = len / float(N);
+  // Start offset: interleaved gradient noise (Jimenez 2014), fixed per pixel, so the steps band less and
+  // nothing shimmers; the sky's read of this buffer (a 3 x 3 blur) smooths it.
+  float jit = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+  vec3 C = vec3(0.0);
+  float Tr = 1.0;
+  const float SIG = 1.1;                                          // extinction per km at full density
+  float lstep = 0.35 / Rkm;                                       // light-march step (radii)
+  for (int i = 0; i < N; i++) {
+    float t = tIn + (float(i) + jit) * ds;
+    vec3 P = uUp * r0 + d * t;
+    float z = (length(P) - 1.0 - zb) / uCloudH.y;
+    float rho = dens(P * Rkm, z);
+    if (rho <= 0.002) continue;
+    // Toward the Sun through the cloud above this point.
+    float od = 0.0;
+    for (int k = 1; k <= 3; k++) {
+      vec3 Q = P + uSun * lstep * float(k * k);
+      float zq = (length(Q) - 1.0 - zb) / uCloudH.y;
+      if (zq > 1.0) break;
+      od += dens(Q * Rkm, zq) * SIG * 0.35 * float(2 * k - 1);
+    }
+    float beer = exp(-od), powder = 1.0 - exp(-od * 2.0 - 0.15);
+    vec3 L = sunL * beer * mix(1.0, powder, 0.5) * (0.55 + ph) + skyL * (0.45 + 0.55 * z);
+    float a = 1.0 - exp(-rho * SIG * ds * Rkm);
+    C += Tr * a * L;
+    Tr *= 1.0 - a;
+    if (Tr < 0.02) break;
+  }
+  float A = (1.0 - Tr) * fade;
+  outColor = vec4(C * fade, A);
 }
 `;
 

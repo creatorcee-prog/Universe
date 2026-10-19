@@ -2,7 +2,7 @@ import { PK } from './physics.js';
 import { isLuminous, tempToRGB, schwarzschild } from './bodies.js';
 import { transientLum } from './stellar.js';
 import { EARTH_MASS } from './units.js';
-import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS, RIM_FS, TERRAIN_VS, TERRAIN_FS, RING_FS, CLOUD_FS, GEN_FS } from './shaders.js';
+import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS, RIM_FS, TERRAIN_VS, TERRAIN_FS, RING_FS, CLOUD_FS, GEN_FS, SURFACE_CLOUD_FS } from './shaders.js';
 import { atmosphereOptics, setOpticsUniforms, stretchOptics, atmosphereTop, groundLight } from './optics.js';
 import { heatOutput } from './thermal.js';
 import { earthMap, moonMap } from './geography.js';
@@ -413,6 +413,7 @@ export class Renderer3D {
     this.pRing = this.program(DISK_VS, RING_FS);
     this.pField = this.program(FULL_VS, TEMP_FIELD_FS);
     this.pGen = this.program(FULL_VS, GEN_FS);
+    this.pSurfCloud = this.program(FULL_VS, SURFACE_CLOUD_FS);
     this.hdr = !!gl.getExtension('EXT_color_buffer_float');
     this.post = null;
   }
@@ -559,6 +560,9 @@ export class Renderer3D {
     const gl = this.gl, p = this.pSurfSky, u = p.u, cam = this.cam, b = sv.body, th = b.th;
     const optics = atmosphereOptics(b);
     const t = Math.tan(cam.fov / 2);
+    // Under a thick haze (Venus, Titan) the sky is a uniform overcast: no separate cloud deck.
+    const cover = th && !(optics && optics.tauM > 3) ? th.cloud : 0;
+    const clouds = cover > 0.001 && this.drawSurfaceClouds(sv, optics, cover, t);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); // shader output is premultiplied
     gl.useProgram(p.p);
@@ -576,8 +580,9 @@ export class Renderer3D {
     gl.uniform1f(u.uSunPower, sv.sunPower);
     gl.uniform1f(u.uSunAng, sv.sunAng || 0.00465);
     gl.uniform3fv(u.uSunCol, tempToRGB(sv.sunTemp || 5772).map((v) => v / 255));
-    // Under a thick haze (Venus, Titan) the sky is a uniform overcast: no separate cloud deck.
-    gl.uniform1f(u.uCloud, th && !(optics && optics.tauM > 3) ? th.cloud : 0);
+    gl.uniform1f(u.uCloud, cover);
+    gl.uniform1f(u.uCloudBuf, clouds ? 1 : 0);
+    if (clouds) this.bindTex(13, this.cloudRT.tex, u.uClouds);
     gl.uniform3fv(u.uCloudCol, this.look(b).colC || [0.95, 0.96, 1]);
     gl.uniform1f(u.uTime, performance.now() / 1000);
     gl.uniform3fv(u.uNorth, sv.north || [0, 0, 1]);
@@ -591,6 +596,41 @@ export class Renderer3D {
     gl.bindVertexArray(this.quad);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.disable(gl.BLEND);
+    gl.activeTexture(gl.TEXTURE0);
+  }
+
+  // The cloud deck seen from the ground (SURFACE_CLOUD_FS), into a quarter-resolution buffer the sky reads.
+  // Base and thickness follow the air's scale height (Earth: 8.5 km, so about 2 to 4.5 km up).
+  drawSurfaceClouds(sv, optics, cover, t) {
+    const gl = this.gl, p = this.pSurfCloud, u = p.u, b = sv.body;
+    const w = Math.max(16, Math.ceil(this.sceneW / 4)), h = Math.max(16, Math.ceil(this.sceneH / 4));
+    if (!this.cloudRT || this.cloudRT.w !== w || this.cloudRT.h !== h) {
+      if (this.cloudRT) { gl.deleteTexture(this.cloudRT.tex); gl.deleteFramebuffer(this.cloudRT.fbo); }
+      this.cloudRT = this.makeTarget(w, h);
+    }
+    const Rkm = b.r * 1.495978707e8;
+    const Hkm = optics ? Math.min(60, Math.max(2, optics.hR * Rkm)) : 8.5;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.cloudRT.fbo);
+    gl.viewport(0, 0, w, h);
+    gl.disable(gl.BLEND); gl.disable(gl.DEPTH_TEST);
+    gl.useProgram(p.p);
+    gl.uniformMatrix3fv(u.uView, false, this.V);
+    gl.uniform2f(u.uTan, t * (this.canvas.width / this.canvas.height), t);
+    gl.uniform3fv(u.uUp, sv.up);
+    gl.uniform3fv(u.uSun, sv.sun);
+    gl.uniform3fv(u.uNorth, sv.north || [0, 0, 1]);
+    gl.uniform1f(u.uAir, optics ? 1 : 0);
+    if (optics) setOpticsUniforms(gl, u, optics, 8);
+    gl.uniform1f(u.uSunPower, sv.sunPower);
+    gl.uniform1f(u.uCloud, cover);
+    gl.uniform1f(u.uTime, performance.now() / 1000);
+    gl.uniform3fv(u.uCloudCol, this.look(b).colC || [0.95, 0.96, 1]);
+    gl.uniform3f(u.uCloudH, (0.24 * Hkm) / Rkm, (0.3 * Hkm) / Rkm, Rkm);
+    gl.bindVertexArray(this.quad);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFB);
+    gl.viewport(0, 0, this.sceneW, this.sceneH);
+    return true;
   }
 
   // Temperature field across the plane of the first chosen source, from the eight strongest heat sources.
@@ -1148,7 +1188,8 @@ export class Renderer3D {
     this.Hcur = H;
     try {
     if (!this.post || this.post.W !== W || this.post.H !== H) this.buildPost(W, H);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.post ? this.post.ms : null);
+    this.sceneFB = this.post ? this.post.ms : null; this.sceneW = W; this.sceneH = H;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFB);
     gl.viewport(0, 0, W, H);
     gl.clearColor(0.004, 0.006, 0.013, 1);
     gl.clearDepth(1);

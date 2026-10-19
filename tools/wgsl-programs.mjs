@@ -7,5 +7,5 @@ export const PROGRAMS = [
   ['sprite', S.SPRITE_VS, S.SPRITE_FS], ['disk', S.DISK_VS, S.DISK_FS], ['points', S.POINTS_VS, S.POINTS_FS, true],
   ['lines', S.LINES_VS, S.LINES_FS], ['sky', S.SKY_VS, S.SKY_FS, true], ['milky', S.FULL_VS, S.MILKYWAY_FS],
   ['down', S.FULL_VS, S.DOWN_FS], ['up', S.FULL_VS, S.UP_FS], ['comp', S.FULL_VS, S.COMPOSITE_FS], ['pixel', S.FULL_VS, S.PIXEL_FS],
-  ['surfsky', S.FULL_VS, S.SURFACE_SKY_FS], ['terrain', S.TERRAIN_VS, S.TERRAIN_FS], ['ring', S.DISK_VS, S.RING_FS], ['field', S.FULL_VS, S.TEMP_FIELD_FS], ['gen', S.FULL_VS, S.GEN_FS],
+  ['surfsky', S.FULL_VS, S.SURFACE_SKY_FS], ['terrain', S.TERRAIN_VS, S.TERRAIN_FS], ['ring', S.DISK_VS, S.RING_FS], ['field', S.FULL_VS, S.TEMP_FIELD_FS], ['gen', S.FULL_VS, S.GEN_FS], ['surfcloud', S.FULL_VS, S.SURFACE_CLOUD_FS],
 ];
