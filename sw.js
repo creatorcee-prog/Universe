@@ -1,5 +1,6 @@
-// Offline support: cache the app shell, serve it cache-first, refresh in the background.
-const CACHE = 'pocket-universe-v95';
+// Offline support: the code and pages network-first (so one reload brings an update), falling back to the
+// cache offline; the big images and sounds cache-first, refreshed in the background.
+const CACHE = 'pocket-universe-v96';
 const SHELL = [
   './', 'index.html', 'css/style.css', 'manifest.webmanifest',
   'js/main.js', 'js/units.js', 'js/bodies.js', 'js/physics.js', 'js/presets.js',
@@ -23,6 +24,14 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
+  const url = new URL(e.request.url);
+  if (url.origin === location.origin && !url.pathname.includes('/assets/')) {
+    e.respondWith(fetch(e.request).then((res) => {
+      if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); }
+      return res;
+    }).catch(() => caches.match(e.request).then((hit) => hit || Response.error())));
+    return;
+  }
   e.respondWith(
     caches.match(e.request).then((hit) => {
       const net = fetch(e.request).then((res) => {

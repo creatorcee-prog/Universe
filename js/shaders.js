@@ -2596,12 +2596,7 @@ vec3 lensFlare(vec2 uv) {
   vec2 d = (uv - sp) * asp;
   float r = length(d);
   vec3 c = vec3(0.0);
-  // Starburst: thin rays from the aperture's blades, and a soft core.
-  float ang = atan(d.y, d.x);
-  // Four long thin spikes (diffraction from the camera's vanes), and faint finer rays between them.
-  float rays = pow(abs(cos(ang * 2.0)), 900.0) * 2.0 + 0.35 * pow(abs(cos(ang * 4.0 + 0.785)), 60.0);
-  // (Rays shorter in space: uFlareThr < 1 there; against a bright sky the faint outer part does not show anyway.)
-  c += uFlareCol * rays * exp(-r * (uFlareThr < 1.0 ? 9.0 : 7.0)) * 1.2;
+  // A soft core (no starburst rays: only the round parts of the flare).
   c += uFlareCol * exp(-r * 22.0) * 0.6;
   // Halo: a faint rainbow-edged ring.
   float ring = exp(-pow((r - 0.32) / 0.012, 2.0));

@@ -17,12 +17,12 @@ import { Challenges } from './challenges.js';
 const SETTINGS_KEY = 'universe-pocket-settings';
 
 function loadSettings() {
-  const defaults = { trails: true, labels: true, grid: true, stars: true, trailsRelative: true, collisions: true, sound: true, music: true, uiSound: true, soundSilent: false, bassBoost: false, sharp: false, perf: false, gpuRings: false, webgpu: false, v: 3, view: 'realistic', bloom: true, flare: false, rocks: true, trailColor: 'body', orbits: false, trueSize: false };
+  const defaults = { trails: true, labels: true, grid: true, stars: true, trailsRelative: true, collisions: true, sound: true, music: true, uiSound: true, soundSilent: false, bassBoost: false, sharp: false, perf: false, gpuRings: false, webgpu: false, v: 4, view: 'realistic', bloom: true, flare: true, rocks: true, trailColor: 'body', orbits: false, trueSize: false };
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
     // v2: interface sounds were off in v1 while the sound set was being replaced; the new set is on.
     if ((saved.v || 1) < 2) { delete saved.uiSound; saved.v = 2; }
-    if (saved.v < 3) { saved.flare = false; saved.v = 3; }   // the Sun's rays off for now, to see it without them (Settings brings them back)
+    if (saved.v < 4) { saved.flare = true; saved.v = 4; }   // the flare is back, now without rays
     return { ...defaults, ...saved };
   } catch {
     return defaults;

@@ -32,6 +32,11 @@ jobs:
           mkdir -p _site
           cp -r index.html manifest.webmanifest sw.js css js icons assets _site/
           node tools/build-single.mjs _site/pocket-universe.html
+          # The build's stamp in the readout (Settings and the performance line), and a fresh offline cache
+          # per build.
+          STAMP="$(date -u +%Y-%m-%d) ${GITHUB_SHA::7}"
+          sed -i "s/window.__BUILD__ = window.__BUILD__ || 'dev';/window.__BUILD__ = '$STAMP';/" _site/index.html
+          sed -i "s/const CACHE = 'pocket-universe-v[0-9]*';/const CACHE = 'pocket-universe-${GITHUB_SHA::7}';/" _site/sw.js
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

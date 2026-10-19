@@ -64,8 +64,10 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
   double precision (eye height steady to micrometres; consecutive frames identical).
 - (Done) Trails, orbit lines, comet tails and labels are hidden behind worlds and below the horizon (a sight-line
   test against each world big enough to hide something, and the ground you stand on).
-- (For now) The Sun's rays (lens flare and diffraction spikes) off by default, to see the sky without them;
-  Settings → Lens flare brings them back.
+- (Done) No rays from the Sun or stars: the lens flare keeps only its round parts (core, halo, ghosts); stars
+  are round glows.
+- (Done) Updates arrive on one reload (code network-first, the offline cache as fallback); the readout shows
+  the build (date and commit) on the website.
 - Next: the jagged edge of hills' shadows (shaded per vertex of the ring mesh); Earth's land up close.
 
 ## New list

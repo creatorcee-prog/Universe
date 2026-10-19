@@ -2424,10 +2424,8 @@ export class Renderer3D {
       const L = Math.max(b.lum, 1e-4);
       const glowPx = Math.max(shownPx * 3.2, (6 + 4.5 * Math.log10(1 + L * 10)) * dpr) * (1 + 0.6 * Math.min(1, b.heat));
       const rgb = tempToRGB(b.temp).map((v) => v / 255);
-      // Diffraction spikes only while the star is a point; a resolved disc doesn't show them (and with the
-      // lens flare, so the one setting turns all the rays off).
-      const spikes = this.settings.flare === false ? 0 : Math.max(0, Math.min(1, 1.6 - shownPx / 25));
-      glows.push(() => this.sprite(vp, glowPx / pxPerAU, rgb.map((v) => v * (this.post ? 0.75 : 1.1)), 0, 0, spikes));
+      // (No diffraction spikes: stars show as round glows.)
+      glows.push(() => this.sprite(vp, glowPx / pxPerAU, rgb.map((v) => v * (this.post ? 0.75 : 1.1)), 0, 0, 0));
       if (b.kind === 'ns') {
         const ang = now * 0.004;
         glows.push(() => this.sprite(vp, (glowPx * 2.6) / pxPerAU, [0.6, 0.75, 1], 3, ang, 0));

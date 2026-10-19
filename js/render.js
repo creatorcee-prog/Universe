@@ -629,16 +629,6 @@ export class Renderer {
     g.addColorStop(1, rgba(c, 0));
     ctx.fillStyle = g;
     ctx.fillRect(p.x - glow, p.y - glow, glow * 2, glow * 2);
-    // Faint diffraction spikes (off with the lens flare).
-    if (R < glow * 0.3 && this.settings.flare !== false) {
-      ctx.strokeStyle = rgba(lighten(c, 0.5), 0.22);
-      ctx.lineWidth = dpr;
-      ctx.beginPath();
-      const sl = glow * 1.5;
-      ctx.moveTo(p.x - sl, p.y); ctx.lineTo(p.x + sl, p.y);
-      ctx.moveTo(p.x, p.y - sl); ctx.lineTo(p.x, p.y + sl);
-      ctx.stroke();
-    }
     if (b.kind === 'ns') {
       const a = now * 0.004;
       ctx.strokeStyle = 'rgba(170,210,255,0.35)';
