@@ -1654,6 +1654,28 @@ export class Renderer3D {
     return [this.viewOf(dx / d, dy / d, dz / d), [sunCol[0] * I * c[0] / m, sunCol[1] * I * c[1] / m, sunCol[2] * I * c[2] / m]];
   }
 
+  // Moonlight: the brightest moon's reflected sunlight on its planet's night side, by the same measure
+  // (full Moon on Earth: albedo 0.12 × (1737/384400 km)² ≈ 2.5e-6 of sunlight, ~0.25 lux; shown at ~2% of
+  // daylight after the compression, enough for moonlit clouds and seas as in night photos from orbit).
+  moonshine(b, sunCol) {
+    const S = this.lumList && this.lumList[0];
+    if (!S || isLuminous(b)) return null;
+    let best = null, bg = 1e-7;
+    for (const m of this.world.bodies) {
+      if (m.host !== b || !m.alive || isLuminous(m)) continue;
+      const dx = m.x - b.x, dy = m.y - b.y, dz = m.z - b.z, d = Math.hypot(dx, dy, dz);
+      const sx = S.x - m.x, sy = S.y - m.y, sz = S.z - m.z, sd = Math.hypot(sx, sy, sz) || 1;
+      const k = 0.5 * (1 - (sx * dx + sy * dy + sz * dz) / (sd * d));   // lit fraction of the moon facing b
+      const alb = m.th && m.th.albedo ? m.th.albedo : 0.2;
+      const g = alb * k * (m.r / d) ** 2;
+      if (g > bg) { bg = g; best = { m, dx, dy, dz, d }; }
+    }
+    if (!best) return null;
+    const c = (best.m.color || [200, 200, 200]).map((v) => v / 255), mx = Math.max(c[0], c[1], c[2]) || 1;
+    const I = 0.55 * Math.pow(bg, 0.25), d = best.d;
+    return [this.viewOf(best.dx / d, best.dy / d, best.dz / d), [sunCol[0] * I * c[0] / mx, sunCol[1] * I * c[1] / mx, sunCol[2] * I * c[2] / mx]];
+  }
+
   // The two brightest light sources seen from body b: view-space directions and colour * intensity.
   lightsFor(b) {
     const L = [];
@@ -1940,7 +1962,7 @@ export class Renderer3D {
     const ld = lights ? lights.dirs : [[0, 1, 0], [0, 0, 0], [0, 1, 0], [0, 0, 0]];
     gl.uniform3fv(u.uL0, ld[0]); gl.uniform3fv(u.uLc0, ld[1]);
     gl.uniform3fv(u.uL1, ld[2]); gl.uniform3fv(u.uLc1, ld[3]);
-    const bounce = lights ? this.planetshine(b, ld[1]) : null;
+    const bounce = lights ? this.planetshine(b, ld[1]) || this.moonshine(b, ld[1]) : null;
     gl.uniform3fv(u.uL2, bounce ? bounce[0] : [0, 1, 0]); gl.uniform3fv(u.uLc2, bounce ? bounce[1] : [0, 0, 0]);
     // Atmosphere: physically based scattering from the gas mix (js/optics.js); for giant planets, the
     // hydrogen and haze above their cloud tops.

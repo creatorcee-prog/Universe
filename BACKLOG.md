@@ -33,8 +33,8 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 - **Atmospheres, further** (done: oxygen airglow on Earth's (and faintly Venus's) night limb, a detached haze
   layer above Mars's limb, and zoom down to a low orbit, 2% of the radius up, with the view tilting to the
   horizon. Thickness readouts, rims visible from afar and Titan's detached haze were done before.)
-- **More lighting**: light reflected by Saturn's rings onto its night side, moonlight on Earth's night
-  side, and shadows of big moons on rings. (Planetshine, red eclipses and cast terrain shadows are done.)
+- **More lighting** (done: ringshine from the sunlit face of a planet's rings onto its night side, fading toward
+  equinox; moonlight from the brightest moon on its planet's night side, as the planetshine is.)
 - **Black hole heat** (done: a feeding hole shines at 0.1 Mdot c^2 up to Eddington, lights and heats its
   surroundings; a tidal disruption peaks at ~3e10 L_sun, as observed). Was: Hawking radiation is only 6 × 10⁻⁸ K × (M☉ / M) (Hawking 1974), far colder
   than the 2.7 K microwave background, so a stellar black hole absorbs more than it emits. The heat

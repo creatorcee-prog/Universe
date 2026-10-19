@@ -907,6 +907,21 @@ void main() {
   float ecl = uOccN > 0 ? eclipse(Pc + uView * uCenter, uL0, eclRed) : 0.0;
   vec3 lit = vec3(0.015) + uLc0 * lightTerm(N, uL0) * (1.0 - 0.85 * rs) * ((1.0 - ecl) * hsh + eclRed * vec3(0.3, 0.085, 0.03))
            + uLc1 * lightTerm(N, uL1) + uLc2 * max(dot(N, uL2), 0.0);
+  // Ringshine: the rings' sunlit face lights the night side of the hemisphere it faces, as in Cassini's
+  // images of Saturn. Seen from the cloud tops the rings fill most sky at mid-latitudes (none at the equator,
+  // where they are edge-on, little near the pole): view factor ~ sin 2·latitude. Their brightness falls as
+  // the Sun drops toward the ring plane (gone at equinox). Strength ~0.1 × that of sunlight, compressed as
+  // the planetshine is (see planetshine in render3d.js).
+  if (dot(uRingN, uRingN) > 0.5) {
+    float sB = dot(uRingN, uL0), z = dot(normalize(Pc), uRingN) * sign(sB);
+    if (z > 0.0) {
+      float tau = 0.0;
+      for (int i = 0; i < 16; i++) tau += uRingProf[i];
+      float g = 0.12 * 2.0 * z * sqrt(max(1.0 - z * z, 0.0)) * (tau / 16.0) * min(1.0, 4.0 * abs(sB));
+      float night = 1.0 - smoothstep(-0.15, 0.25, dot(normalize(Pc), uL0));
+      lit += uLc0 * vec3(1.0, 0.9, 0.74) * 0.55 * pow(max(g, 0.0), 0.25) * night * max(0.3 + 0.7 * dot(N, normalize(Pc)), 0.0);
+    }
+  }
   // Giant planets darken toward the limb (sunlight there is scattered in the haze above the clouds).
   if (uKind == 1) lit *= 0.55 + 0.45 * pow(mu, 0.45);
   // The clouds themselves are drawn on their own layer above (CLOUD_FS); here only their shadows,
