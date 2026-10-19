@@ -2,7 +2,8 @@
 // chosen angle from it.
 //   node tools/surface.mjs out.png [sunElevDeg=20] [yawFromSunDeg=40] [pitchDeg=4]
 // TERRA=<compKey> stands on a made-up world (Terra, 1 AU from a star) instead of Earth. CLOUD=<0..1> overrides
-// its cloud cover. WEBGPU=1 uses the WebGPU renderer.
+// its cloud cover. WEBGPU=1 uses the WebGPU renderer. SETTLE=<ms> waits longer before the picture (the clouds
+// accumulate over frames, and software rendering here is slow).
 import { chromium, devices } from 'playwright';
 import { writeFileSync } from 'fs';
 const [out, elevS = '20', yawS = '40', pitchS = '4'] = process.argv.slice(2);
@@ -48,7 +49,7 @@ const info = await page.evaluate(([yaw, pitch]) => {
   sv.yaw = Math.atan2(dot(s, E), dot(s, N)) + yaw * Math.PI / 180; sv.pitch = pitch * Math.PI / 180;
   return { sunElev: Math.asin(dot(s, n)) * 180 / Math.PI };
 }, [+yawS, +pitchS]);
-await page.waitForTimeout(webgpu ? 15000 : 6000);
+await page.waitForTimeout(+(process.env.SETTLE || (webgpu ? 15000 : 6000)));
 const png = webgpu
   ? await page.evaluate(async () => { const { w, h, data } = await app.r3d.gl.readDefault(); const c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(data), w, h), 0, 0); return c.toDataURL('image/png'); })
   : await page.evaluate(() => new Promise((ok) => requestAnimationFrame(() => ok(app.r3d.canvas.toDataURL('image/png')))));

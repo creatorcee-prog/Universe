@@ -2023,6 +2023,17 @@ uniform vec3 uRingCol;
 uniform sampler2D uClouds;   // the cloud deck drawn by SURFACE_CLOUD_FS at a quarter of the resolution
 uniform float uCloudBuf;     // 1 when it was drawn this frame
 out vec4 outColor;
+// Catmull-Rom bicubic upscaling in 9 bilinear reads (the weights of each pair folded into one offset read).
+vec4 catmullRom(sampler2D t, vec2 uv) {
+  vec2 size = vec2(textureSize(t, 0)), sp = uv * size, tp1 = floor(sp - 0.5) + 0.5, f = sp - tp1;
+  vec2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f)), w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
+  vec2 w2 = f * (0.5 + f * (2.0 - 1.5 * f)), w3 = f * f * (-0.5 + 0.5 * f);
+  vec2 w12 = w1 + w2, t0 = (tp1 - 1.0) / size, t3 = (tp1 + 2.0) / size, t12 = (tp1 + w2 / w12) / size;
+  vec4 r = (texture(t, vec2(t0.x, t0.y)) * w0.x + texture(t, vec2(t12.x, t0.y)) * w12.x + texture(t, vec2(t3.x, t0.y)) * w3.x) * w0.y
+         + (texture(t, vec2(t0.x, t12.y)) * w0.x + texture(t, vec2(t12.x, t12.y)) * w12.x + texture(t, vec2(t3.x, t12.y)) * w3.x) * w12.y
+         + (texture(t, vec2(t0.x, t3.y)) * w0.x + texture(t, vec2(t12.x, t3.y)) * w12.x + texture(t, vec2(t3.x, t3.y)) * w3.x) * w3.y;
+  return clamp(r, 0.0, 64.0);
+}
 void main() {
   vec3 dv = normalize(vec3((vUV.x * 2.0 - 1.0) * uTan.x, (vUV.y * 2.0 - 1.0) * uTan.y, -1.0));
   vec3 d = transpose(uView) * dv;
@@ -2074,12 +2085,8 @@ void main() {
   sunHDR *= min(1.0, 16.0 / max(max(sunHDR.r, max(sunHDR.g, sunHDR.b)), 1e-6));
   // The cloud deck (premultiplied colour and coverage), over the sky and the star's disc.
   if (uCloudBuf > 0.5) {
-    // (A 3 x 3 blur: the buffer is a quarter of the resolution, and its sampling pattern repeats per pixel.)
-    vec2 tx = 1.0 / vec2(textureSize(uClouds, 0));
-    vec4 cl = vec4(0.0);
-    for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++)
-      cl += texture(uClouds, vUV + vec2(float(i), float(j)) * tx) * ((i == 0 ? 2.0 : 1.0) * (j == 0 ? 2.0 : 1.0));
-    cl /= 16.0;
+    // (Upscaled from a quarter of the resolution with a Catmull-Rom bicubic: smooth, but sharper than a blur.)
+    vec4 cl = catmullRom(uClouds, vUV);
     col = col * (1.0 - cl.a) + cl.rgb;
     alpha = alpha * (1.0 - cl.a) + cl.a;
     sunHDR *= pow(1.0 - cl.a, 8.0);   // (16x white: a thick cloud must hide it, not just dim it)
@@ -2112,7 +2119,7 @@ void main() {
 
 // The cloud deck seen from the ground, at a quarter of the screen's resolution (render3d.js drawSurfaceSky):
 // a layer between uCloudH.x and uCloudH.x + uCloudH.y above the ground (radii; on Earth about 2 to 4.5 km),
-// on the curved shell, marched through its thickness in 10 steps. Its density is a wind-blown fractal coverage field,
+// on the curved shell, marched through its thickness (6 steps a frame, accumulated over frames). Its density is a wind-blown fractal coverage field,
 // thresholded by the climate's cloud cover and eroded by finer 3D noise, with flat bases and puffy tops. Each
 // sample is lit by the sunlight that reaches it through the cloud above it toward the Sun (Beer-Lambert, a
 // "powder" darkening of thin edges, and forward scattering that rims clouds near the Sun with light), plus
@@ -2125,26 +2132,56 @@ uniform vec3 uUp, uSun, uNorth;
 uniform float uAir, uSunPower, uCloud, uTime;
 uniform vec3 uCloudCol;
 uniform vec3 uCloudH;       // base height, thickness (radii), planet radius (km)
+uniform sampler2D uPrev;    // last frame's result, blended in (see the end)
+uniform mat3 uPrevView;     // last frame's rotation from the planet's frame to its view
+uniform mat3 uRotT;         // world -> the planet's own frame (the clouds turn with the ground)
+uniform float uHist;        // 1 when uPrev holds a usable last frame
+uniform float uFrame;       // frame counter, for the sample offset
+uniform sampler2D uNoiseTex; // 256 x 256 random values; G is R shifted by (37, 239) (see tnoise)
 out vec4 outColor;
+// Value noise from a texture: one filtered read gives two neighbouring z slices of the lattice (the slice
+// z = k is stored shifted by k·(37, 239)), instead of eight hashes. The technique is common on Shadertoy;
+// explained in M. Heckel, "Real-time dreamy Cloudscapes with Volumetric Raymarching" (2023).
+float tnoise(vec3 x) {
+  vec3 p = floor(x), f = fract(x);
+  f = f * f * (3.0 - 2.0 * f);
+  vec2 uv = p.xy + vec2(37.0, 239.0) * p.z + f.xy;
+  vec2 rg = textureLod(uNoiseTex, (uv + 0.5) / 256.0, 0.0).yx;
+  return mix(rg.x, rg.y, f.z);
+}
+float tfbm(vec3 p, int oct) {
+  float a = 0.5, s = 0.0;
+  for (int i = 0; i < 5; i++) {
+    if (i >= oct) break;
+    s += a * tnoise(p);
+    p = p * 2.03 + vec3(1.7, 9.2, 3.1);
+    a *= 0.5;
+  }
+  return s;
+}
 float hg(float c, float g) { float g2 = g * g; return (1.0 - g2) / pow(1.0 + g2 - 2.0 * g * c, 1.5); }
 // Density 0..1 at P (km, planet-centred) with z the height within the layer (0 base .. 1 top).
 float dens(vec3 P, float z) {
   // Cells about 4 km across (cumulus is ~1 km, gathered in fields), in fields and clear spells ~30 km wide.
-  vec3 w = P * 0.22 + vec3(uTime * 0.03, 0.0, uTime * 0.012);
-  float field = fbm(P * 0.03 + 5.0, 2);
-  float cov = fbm(w, 4) + 0.12 * (vnoise(w * 4.0 + 3.0) - 0.5) + (field - 0.5) * 0.5;
+  // Wind about 15 m/s (P is in km, uTime in seconds).
+  vec3 w = (P + vec3(uTime * 0.015, 0.0, uTime * 0.006)) * 0.22;
+  float field = tfbm(P * 0.03 + 5.0, 2);
+  float cov = tfbm(w, 4) + 0.12 * (tnoise(w * 4.0 + 3.0) - 0.5) + (field - 0.5) * 0.5;
   float thr = 0.64 - clamp(uCloud, 0.0, 1.0) * 0.36;
   float base = smoothstep(thr, thr + 0.16, cov);
   float top = 0.3 + 0.7 * base;                                   // thick where the cover is dense
   float prof = smoothstep(0.0, 0.07, z) * (1.0 - smoothstep(top * 0.55, top, z));
-  float det = vnoise(P * 1.4 + vec3(0.0, uTime * 0.05, 0.0)) * 0.65 + vnoise(P * 3.2) * 0.35;
+  vec3 Pw = P + vec3(uTime * 0.015, 0.0, uTime * 0.006);
+  float det = tnoise(Pw * 1.4 + vec3(0.0, uTime * 0.01, 0.0)) * 0.65 + tnoise(Pw * 3.2) * 0.35;
   return clamp(base * prof * 1.4 - 0.45 * det * (1.0 - 0.6 * base), 0.0, 1.0);
 }
 void main() {
   vec3 dv = normalize(vec3((vUV.x * 2.0 - 1.0) * uTan.x, (vUV.y * 2.0 - 1.0) * uTan.y, -1.0));
-  vec3 d = transpose(uView) * dv;
-  float h = dot(d, uUp);
+  // Everything in the planet's own frame: the clouds ride with the ground and move only with the wind.
+  vec3 d = uRotT * (transpose(uView) * dv), up = uRotT * uUp, sun = uRotT * uSun;
+  float h = dot(d, up);
   if (h < -0.01 || uCloud <= 0.0) { outColor = vec4(0.0); return; }
+  vec4 cur = vec4(0.0);
   float z0 = 2e-5, zb = uCloudH.x, zt = uCloudH.x + uCloudH.y, Rkm = uCloudH.z;
   float r0 = 1.0 + z0;
   // Distance to the shell of height z, from below (exact in differences, so float precision holds).
@@ -2152,9 +2189,9 @@ void main() {
   float tIn = SHELL(zb), tOut = SHELL(zt);
   float far = tIn * Rkm;                                          // km to the cloud base along the view
   float fade = exp(-far / 160.0) * smoothstep(0.0, 0.05, h);
-  if (fade < 0.01) { outColor = vec4(0.0); return; }
+  if (fade >= 0.01) {
   // Light on the clouds: the sunlight that got through the air (orange-pink at sunset) and the skylight.
-  float e = dot(uSun, uUp);
+  float e = dot(sun, up);
   vec3 Tsun = uAir > 0.0 ? exp(-tauToSun(1.0 + zb, e)) : vec3(1.0);
   vec3 Lc = Tsun * max(e, 0.0) + (1.0 - exp(-uTauS)) * 0.5 * max(e + 0.08, 0.0);
   float m = max(Lc.r, max(Lc.g, Lc.b));
@@ -2162,27 +2199,28 @@ void main() {
   float sunK = smoothstep(-0.1, 0.15, e) * uSunPower * pow(max(m, 0.0), 0.25);
   vec3 sunL = uCloudCol * lightCol * sunK * 1.25;
   vec3 skyL = uCloudCol * mix(vec3(0.5, 0.58, 0.75), lightCol, 0.4) * (0.1 + 0.55 * smoothstep(-0.15, 0.3, e)) * max(uSunPower, 0.15);
-  float cs = dot(d, uSun);
+  float cs = dot(d, sun);
   float ph = mix(hg(cs, 0.6), hg(cs, -0.15), 0.35) * 0.55;
-  const int N = 10;
-  float len = (tOut - tIn), ds = len / float(N);
+  // 6 steps, over at most 16 km of the layer (beyond that it is opaque or lost in haze).
+  const int N = 6;
+  float len = min(tOut - tIn, 16.0 / Rkm), ds = len / float(N);
   // Start offset: interleaved gradient noise (Jimenez 2014), fixed per pixel, so the steps band less and
   // nothing shimmers; the sky's read of this buffer (a 3 x 3 blur) smooths it.
-  float jit = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+  float jit = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))) + uFrame * 0.618034);
   vec3 C = vec3(0.0);
   float Tr = 1.0;
   const float SIG = 1.1;                                          // extinction per km at full density
   float lstep = 0.35 / Rkm;                                       // light-march step (radii)
   for (int i = 0; i < N; i++) {
     float t = tIn + (float(i) + jit) * ds;
-    vec3 P = uUp * r0 + d * t;
+    vec3 P = up * r0 + d * t;
     float z = (length(P) - 1.0 - zb) / uCloudH.y;
     float rho = dens(P * Rkm, z);
     if (rho <= 0.002) continue;
     // Toward the Sun through the cloud above this point.
     float od = 0.0;
     for (int k = 1; k <= 3; k++) {
-      vec3 Q = P + uSun * lstep * float(k * k);
+      vec3 Q = P + sun * lstep * float(k * k);
       float zq = (length(Q) - 1.0 - zb) / uCloudH.y;
       if (zq > 1.0) break;
       od += dens(Q * Rkm, zq) * SIG * 0.35 * float(2 * k - 1);
@@ -2194,8 +2232,19 @@ void main() {
     Tr *= 1.0 - a;
     if (Tr < 0.02) break;
   }
-  float A = (1.0 - Tr) * fade;
-  outColor = vec4(C * fade, A);
+  cur = vec4(C * fade, (1.0 - Tr) * fade);
+  }
+  // Temporal accumulation: in the planet's frame the camera only turns, so last frame's clouds are found by
+  // direction. Each frame starts its steps at a different offset; blended, a dozen frames act as one march
+  // of 60+ steps (no banding or curtains). The wind moves the clouds slowly enough not to smear.
+  if (uHist > 0.5) {
+    vec3 pv = uPrevView * d;
+    if (pv.z < 0.0) {
+      vec2 puv = (pv.xy / -pv.z) / uTan * 0.5 + 0.5;
+      if (puv.x > 0.0 && puv.x < 1.0 && puv.y > 0.0 && puv.y < 1.0) cur = mix(texture(uPrev, puv), cur, 0.12);
+    }
+  }
+  outColor = cur;
 }
 `;
 

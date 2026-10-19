@@ -359,7 +359,7 @@ export class Renderer3D {
     this.gen = ++contextGen;
     canvas.addEventListener('webglcontextrestored', () => {
       this.gen = ++contextGen;
-      this.mapTex = new Map(); this.dTex = null; this.nightTex = null; this.tMesh = null; this.post = null; this.genMaps = null;
+      this.mapTex = new Map(); this.dTex = null; this.nightTex = null; this.tMesh = null; this.post = null; this.genMaps = null; this.noiseTex = null; this.cloudRTs = null;
       this.init(); this.lost = false;
     });
     this.init();
@@ -599,15 +599,51 @@ export class Renderer3D {
     gl.activeTexture(gl.TEXTURE0);
   }
 
+  // Random values for SURFACE_CLOUD_FS's texture noise: R at random, G = R shifted by (-37, -239), wrapping.
+  cloudNoise() {
+    if (this.noiseTex) return this.noiseTex;
+    const gl = this.gl, N = 256, R = new Uint8Array(N * N), px = new Uint8Array(N * N * 4);
+    let x = 0x2545f491;
+    for (let i = 0; i < R.length; i++) { x ^= x << 13; x ^= x >>> 17; x ^= x << 5; R[i] = (x >>> 0) & 255; }
+    for (let y = 0; y < N; y++) for (let i = 0; i < N; i++) {
+      const o = (y * N + i) * 4;
+      px[o] = R[y * N + i];
+      px[o + 1] = R[(((y - 239) % N + N) % N) * N + (((i - 37) % N + N) % N)];
+      px[o + 3] = 255;
+    }
+    this.noiseTex = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.noiseTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, N, N, 0, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+    return this.noiseTex;
+  }
+
   // The cloud deck seen from the ground (SURFACE_CLOUD_FS), into a quarter-resolution buffer the sky reads.
   // Base and thickness follow the air's scale height (Earth: 8.5 km, so about 2 to 4.5 km up).
   drawSurfaceClouds(sv, optics, cover, t) {
     const gl = this.gl, p = this.pSurfCloud, u = p.u, b = sv.body;
     const w = Math.max(16, Math.ceil(this.sceneW / 4)), h = Math.max(16, Math.ceil(this.sceneH / 4));
-    if (!this.cloudRT || this.cloudRT.w !== w || this.cloudRT.h !== h) {
-      if (this.cloudRT) { gl.deleteTexture(this.cloudRT.tex); gl.deleteFramebuffer(this.cloudRT.fbo); }
-      this.cloudRT = this.makeTarget(w, h);
+    // Two buffers in turn: this frame's, and last frame's to blend in.
+    if (!this.cloudRTs || this.cloudRTs[0].w !== w || this.cloudRTs[0].h !== h) {
+      if (this.cloudRTs) for (const r of this.cloudRTs) { gl.deleteTexture(r.tex); gl.deleteFramebuffer(r.fbo); }
+      this.cloudRTs = [this.makeTarget(w, h), this.makeTarget(w, h)];
+      this.cloudHist = null;
     }
+    this.cloudFrame = (this.cloudFrame || 0) + 1;
+    const prev = this.cloudRTs[this.cloudFrame & 1];
+    this.cloudRT = this.cloudRTs[(this.cloudFrame + 1) & 1];
+    // The planet's orientation (object -> world, column-major) and the view from its frame (V · R).
+    const R = this.bodyRotation(b), V = this.V, VB = new Float32Array(9);
+    for (let c = 0; c < 3; c++) for (let r = 0; r < 3; r++) VB[c * 3 + r] = V[r] * R[c * 3] + V[3 + r] * R[c * 3 + 1] + V[6 + r] * R[c * 3 + 2];
+    const RT = new Float32Array([R[0], R[3], R[6], R[1], R[4], R[7], R[2], R[5], R[8]]);
+    const upB = [0, 1, 2].map((i) => R[i * 3] * sv.up[0] + R[i * 3 + 1] * sv.up[1] + R[i * 3 + 2] * sv.up[2]);
+    // History is good if it was drawn last frame, on this world, from this spot, with this field of view.
+    const H0 = this.cloudHist;
+    const hist = H0 && H0.frame === this.frameNo - 1 && H0.body === b && Math.abs(H0.t - t) < 1e-3 && Math.hypot(H0.up[0] - upB[0], H0.up[1] - upB[1], H0.up[2] - upB[2]) < 2e-6;
     const Rkm = b.r * 1.495978707e8;
     const Hkm = optics ? Math.min(60, Math.max(2, optics.hR * Rkm)) : 8.5;
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.cloudRT.fbo);
@@ -626,8 +662,16 @@ export class Renderer3D {
     gl.uniform1f(u.uTime, performance.now() / 1000);
     gl.uniform3fv(u.uCloudCol, this.look(b).colC || [0.95, 0.96, 1]);
     gl.uniform3f(u.uCloudH, (0.24 * Hkm) / Rkm, (0.3 * Hkm) / Rkm, Rkm);
+    gl.uniform1f(u.uFrame, this.cloudFrame % 1000);
+    gl.uniform1f(u.uHist, hist ? 1 : 0);
+    gl.uniformMatrix3fv(u.uPrevView, false, hist ? H0.VB : VB);
+    gl.uniformMatrix3fv(u.uRotT, false, RT);
+    this.bindTex(14, prev.tex, u.uPrev);
+    this.bindTex(15, this.cloudNoise(), u.uNoiseTex);
     gl.bindVertexArray(this.quad);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.activeTexture(gl.TEXTURE0);
+    this.cloudHist = { frame: this.frameNo, body: b, t, VB, up: upB };
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFB);
     gl.viewport(0, 0, this.sceneW, this.sceneH);
     return true;
