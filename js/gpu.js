@@ -149,7 +149,19 @@ struct SU {
   xf: vec4f,                 // as in the rings' uniforms
 };
 @group(0) @binding(0) var<uniform> u: SU;
-struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) col: vec4f, @location(2) seed: f32, @location(3) lv: vec3f, @location(4) dw: f32 };
+struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) col: vec4f, @location(2) seed: f32, @location(3) lv: vec3f, @location(4) dw: f32,
+  @location(5) vp: vec3f, @location(6) mode: f32 };
+// A rock close enough to see its shape is an icosahedron, its 12 corners pushed in and out at random (a lumpy
+// boulder) and turned at random; drawn as 20 flat-shaded faces (60 vertices). Smaller ones are a billboard.
+var<private> ICO: array<vec3f, 12> = array<vec3f, 12>(
+  vec3f(-0.526, 0.851, 0.0), vec3f(0.526, 0.851, 0.0), vec3f(-0.526, -0.851, 0.0), vec3f(0.526, -0.851, 0.0),
+  vec3f(0.0, -0.526, 0.851), vec3f(0.0, 0.526, 0.851), vec3f(0.0, -0.526, -0.851), vec3f(0.0, 0.526, -0.851),
+  vec3f(0.851, 0.0, -0.526), vec3f(0.851, 0.0, 0.526), vec3f(-0.851, 0.0, -0.526), vec3f(-0.851, 0.0, 0.526));
+var<private> FACES: array<u32, 60> = array<u32, 60>(
+  0u, 11u, 5u, 0u, 5u, 1u, 0u, 1u, 7u, 0u, 7u, 10u, 0u, 10u, 11u, 1u, 5u, 9u, 5u, 11u, 4u, 11u, 10u, 2u, 10u, 7u, 6u, 7u, 1u, 8u,
+  3u, 9u, 4u, 3u, 4u, 2u, 3u, 2u, 6u, 3u, 6u, 8u, 3u, 8u, 9u, 4u, 9u, 5u, 2u, 4u, 11u, 6u, 2u, 10u, 8u, 6u, 7u, 9u, 8u, 1u);
+var<private> QUAD: array<u32, 6> = array<u32, 6>(0u, 1u, 2u, 2u, 1u, 3u);
+fn rotq(q: vec4f, v: vec3f) -> vec3f { let t = 2.0 * cross(q.xyz, v); return v + q.w * t + cross(q.xyz, t); }
 struct FO { @location(0) c: vec4f, @builtin(frag_depth) d: f32 };
 fn logDepth(w: f32, fc: f32) -> f32 { return log2(1.0 + w * 1e12) * fc * 0.5; }
 fn h3(p: vec3i) -> vec3f {
@@ -200,13 +212,31 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VO {
   let cs = u.cam.w * scale;
   let pv = cs * (fa * u.et.xyz + fr * u.er.xyz + z * u.en.xyz);           // view space, relative to the eye
   if (-pv.z <= 0.0) { return o; }
-  // Billboard of the rock's size.
-  let c = vec2f(f32(vi & 1u) * 2.0 - 1.0, f32((vi >> 1u) & 1u) * 2.0 - 1.0);
-  o.uv = c;
-  var clip = u.proj * vec4f(pv, 1.0);
   let spx = size * cs * u.vp.x / (-pv.z);
   let px = max(spx, 1.2 * u.vp.w);
-  clip = vec4f(clip.xy + c * px * 2.0 / u.vp.yz * clip.w, clip.zw);
+  var clip: vec4f;
+  if (spx > 3.0 * u.vp.w) {
+    // 3D: corner of this face, pushed out by a random amount (the same for every face sharing the corner).
+    let ci = FACES[vi];
+    let lump = h3(cellI + vec3i(i32(ci) * 31, 5, 7));
+    let qv = h3(cellI + vec3i(3, 17, 29)) * 2.0 - 1.0;
+    let q = normalize(vec4f(qv, hw.y * 2.0 - 1.0 + 0.001));
+    let dr = rotq(q, ICO[ci]) * (0.7 + 0.55 * lump.x) * vec3f(1.0, 0.75 + 0.4 * lump.y, 0.8);
+    let p3 = pv + size * cs * (dr.x * u.et.xyz + dr.y * u.er.xyz + dr.z * u.en.xyz);
+    clip = u.proj * vec4f(p3, 1.0);
+    o.vp = p3 / cs;
+    o.mode = 1.0;
+    o.uv = vec2f(0.0);
+  } else {
+    // Billboard of the rock's size (two triangles; the rest of the 60 vertices unused).
+    if (vi >= 6u) { return o; }
+    let qi = QUAD[vi];
+    let c = vec2f(f32(qi & 1u) * 2.0 - 1.0, f32((qi >> 1u) & 1u) * 2.0 - 1.0);
+    o.uv = c;
+    clip = u.proj * vec4f(pv, 1.0);
+    clip = vec4f(clip.xy + c * px * 2.0 / u.vp.yz * clip.w, clip.zw);
+    o.mode = 0.0;
+  }
   if (clip.w <= 0.0) { return o; }
   o.pos = vec4f(clip.x, clip.y * u.xf.x, 0.5 * clip.w, clip.w);
   o.dw = clip.w;
@@ -216,7 +246,7 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VO {
   let tL = dot(po, L);
   let shadow = select(1.0, 0.0, tL < 0.0 && length(po - L * tL) < 1.0);
   let I = 1.6 * ring.y * (0.8 + 0.4 * hv.z) * shadow;
-  o.col = vec4f(u.sun.rgb * vec3f(0.92, 0.84, 0.71) * I, fade * min(1.0, (spx * spx) / (px * px) * 1.8));
+  o.col = vec4f(u.sun.rgb * vec3f(0.92, 0.84, 0.71) * I, fade * select(min(1.0, (spx * spx) / (px * px) * 1.8), 1.0, o.mode > 0.5));
   o.seed = hv.z * 50.0;
   o.lv = u.sunV.xyz;
   return o;
@@ -230,6 +260,16 @@ fn vnoise(p: vec2f) -> f32 {
   return mix(mix(a, b, w.x), mix(c, d, w.x), w.y);
 }
 fn shade(i: VO) -> vec4f {
+  // (Derivatives first, outside any branch, as WGSL requires.)
+  let fdx = dpdx(i.vp); let fdy = dpdy(i.vp);
+  if (i.mode > 0.5) {
+    // The 3D rock: flat faces (the normal from the face's slope across the screen), lit by the Sun.
+    var n = normalize(cross(fdx, fdy));
+    if (dot(n, -i.vp) < 0.0) { n = -n; }
+    let lam = max(dot(n, normalize(i.lv)), 0.0);
+    let c = i.col.rgb * (0.05 + 0.95 * lam) * (0.85 + 0.3 * fract(i.seed * 7.31));
+    return vec4f(c * i.col.a, i.col.a);
+  }
   // A lumpy rock: an irregular outline, and shading as if round, lit from the Sun's side.
   let ang = atan2(i.uv.y, i.uv.x);
   let edge = 0.78 + 0.22 * vnoise(vec2f(ang * 1.6 + i.seed, i.seed));
@@ -312,16 +352,17 @@ export class GPULayer {
     let p = this.pipes.get(key);
     if (p) return p;
     const blend = { color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' } };
-    const make = (module, bgl) => this.device.createRenderPipeline({
+    const make = (module, bgl, topology, write) => this.device.createRenderPipeline({
       layout: this.device.createPipelineLayout({ bindGroupLayouts: [bgl] }),
       vertex: { module, entryPoint: 'vs' },
       fragment: { module, entryPoint: depthFormat ? 'fsD' : 'fs', targets: [{ format, blend }] },
-      primitive: { topology: 'triangle-strip' },
+      primitive: { topology },
       multisample: { count: samples },
-      // Tested against the scene's depth, not written (the chunks are see-through at their edges).
-      depthStencil: depthFormat ? { format: depthFormat, depthWriteEnabled: false, depthCompare: 'less-equal' } : undefined,
+      // Tested against the scene's depth; the ring chunks, see-through at their edges, do not write it; the
+      // swarm's solid rocks do (nearer rocks hide farther ones).
+      depthStencil: depthFormat ? { format: depthFormat, depthWriteEnabled: write, depthCompare: 'less-equal' } : undefined,
     });
-    p = { ring: make(this.rMod, this.rBGL), swarm: make(this.sMod, this.sBGL) };
+    p = { ring: make(this.rMod, this.rBGL, 'triangle-strip', false), swarm: make(this.sMod, this.sBGL, 'triangle-list', true) };
     this.pipes.set(key, p);
     return p;
   }
@@ -385,7 +426,7 @@ export class GPULayer {
     // material's turn), and its height in cells.
     const aT = ((((phi - this.mat.ang) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) * rho;   // along-track (planet radii)
     // Levels: cells doubling in size until they are as coarse as the far field's chunks.
-    const nl = Math.max(1, Math.min(6, Math.ceil(Math.log2(Math.max(1, (3 * sRad) / cs))) + 1));
+    const nl = Math.max(1, Math.min(this.testLevels || 6, Math.ceil(Math.log2(Math.max(1, (3 * sRad) / cs))) + 1));   // (testLevels: fewer, for software GPUs in tests)
     const cells = [];
     for (let k = 0; k < nl; k++) {
       const c = cs * 2 ** k, A = aT / c, Rr = rho / c, ca = Math.floor(A), cr = Math.floor(Rr);
@@ -516,7 +557,7 @@ export class GPULayer {
       pass.draw(4, count);
       if (ring.swarm) {
         pass.setPipeline(pp.swarm); pass.setBindGroup(0, this.sBind);
-        pass.draw(4, (2 * 24 + 1) * (2 * 24 + 1) * 8 * ring.swarm.nl);
+        pass.draw(60, (2 * 24 + 1) * (2 * 24 + 1) * 8 * ring.swarm.nl);
       }
       pass.end();
     }

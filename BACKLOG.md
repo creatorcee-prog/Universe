@@ -61,7 +61,8 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 3. Gas giants: jets, curling band edges and drifting storms, animated by advecting the pattern (curl noise,
    Bridson et al. 2007).
 4. Polish: stronger rim glow for thick or hazy air, a little contrast.
-5. Ring debris: real 3D rocks for the few thousand nearest the camera (now flat discs, seen as ovals).
+5. Done: ring debris near the camera are real 3D rocks (lumpy icosahedra, turned at random, flat-shaded, writing
+   depth inside the WebGPU renderer); smaller and distant ones stay discs.
 
 ## Visual to-do from the user (ranked by impact for effort), with notes
 
