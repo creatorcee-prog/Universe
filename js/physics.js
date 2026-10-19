@@ -683,6 +683,7 @@ export class World {
     this.stepParticles(att, steps, t0, done);
     const t3 = performance.now();
     this.diskAccretion(done);
+    this.feedingLight(done);
     // Particles with mass pull on each other and on the bodies (Barnes-Hut tree).
     particleGravity(this, done, this.tree);
     // Touching clumps bounce or stick; big clumps become moonlets.
@@ -704,6 +705,26 @@ export class World {
   // the disk (Rees 1988; fallback and accretion in weeks for supermassive holes). Here, bound particles
   // inside r_circ = 2 r_t (for a Sun-like star, r_t = R☉ (M/M☉)^⅓) are swallowed at a rate of one per
   // viscous time, taken as 10 orbits at r_circ (a thick disk, α ≈ 0.1): about 3 days at any mass.
+  // A black hole's light: the gas falling in heats up in its accretion disk and radiates about a tenth of its
+  // rest-mass energy (L = 0.1 Mdot c^2; Shakura & Sunyaev 1973), up to the Eddington limit (3.2e4 L_sun per
+  // solar mass). Hawking radiation is negligible (6e-8 K x M_sun/M). The feeding rate is averaged over ~3 days;
+  // a hole that stops feeding goes dark. While it shines it lights and heats what is around it (isLuminous).
+  // 1 M_sun of mass-energy per year is 1.48e13 L_sun.
+  feedingLight(dt) {
+    if (!(dt > 0)) return;
+    const tau = 3 / 365.25, k = Math.exp(-dt / tau);
+    for (const h of this.bodies) {
+      if (h.kind !== 'bh' || !h.alive) continue;
+      if (!h.mdot && !h.fed) continue;
+      h.mdot = (h.mdot || 0) * k + (h.fed || 0) / tau;
+      h.fed = 0;
+      const L = Math.min(3.2e4 * h.m, 0.1 * h.mdot * 1.48e13);
+      if (L < 1e-4) { h.mdot = 0; h.lum = 0; continue; }
+      h.lum = L;
+      h.temp = 3e4;   // (the disk's light peaks in ultraviolet and X-rays; its colour, blue-white)
+    }
+  }
+
   diskAccretion(dt) {
     if (!(dt > 0) || !this.np) return;
     const holes = this.bodies.filter((b) => b.kind === 'bh' && b.alive);
@@ -1005,6 +1026,7 @@ export class World {
     const dvx = this.pvx[i] - b.vx, dvy = this.pvy[i] - b.vy, dvz = this.pvz[i] - b.vz;
     accreteHeat(b, m, dvx * dvx + dvy * dvy + dvz * dvz);
     accreteMaterial(b, m, this.pk[i]);
+    if (b.kind === 'bh') b.fed = (b.fed || 0) + m;   // (mass swallowed this frame: see feedingLight)
     // Meteors leave craters too (rate-limited so a shower doesn't wipe older scars at once).
     if (b.kind === 'rocky' && this.pk[i] !== PK.GAS && this.pk[i] !== PK.SN_H) {
       const now = performance.now();

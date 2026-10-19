@@ -34,7 +34,8 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
   detached haze are done.)
 - **More lighting**: light reflected by Saturn's rings onto its night side, moonlight on Earth's night
   side, and shadows of big moons on rings. (Planetshine, red eclipses and cast terrain shadows are done.)
-- **Black hole heat**. Hawking radiation is only 6 × 10⁻⁸ K × (M☉ / M) (Hawking 1974), far colder
+- **Black hole heat** (done: a feeding hole shines at 0.1 Mdot c^2 up to Eddington, lights and heats its
+  surroundings; a tidal disruption peaks at ~3e10 L_sun, as observed). Was: Hawking radiation is only 6 × 10⁻⁸ K × (M☉ / M) (Hawking 1974), far colder
   than the 2.7 K microwave background, so a stellar black hole absorbs more than it emits. The heat
   and X-rays come from the gas falling in (accretion disks reach millions of K). Model that disk as a
   heat and light source.

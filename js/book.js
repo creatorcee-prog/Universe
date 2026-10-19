@@ -226,7 +226,10 @@ export class Book {
       rows.push(['Surface gravity', g > 1e5 ? g.toExponential(2).replace('e+', ' × 10^') + ' m/s²' : `${g.toPrecision(3)} m/s² (${(g / 9.81).toPrecision(3)} g)`]);
       rows.push(['Escape velocity', formatSpeed(Math.sqrt((2 * G * b.m) / b.r))]);
     }
-    if (isLuminous(b)) {
+    if (b.kind === 'bh' && b.lum > 0) {
+      rows.push(['Accretion disk', `${b.lum.toPrecision(3)} × the Sun's light, from gas falling in (about 10% of its mass-energy)`]);
+      rows.push(['Feeding', `${(b.mdot / 3.003e-6).toPrecision(3)} Earth masses a year`]);
+    } else if (isLuminous(b)) {
       rows.push(['Surface temperature', formatTemp(b.temp)]);
       rows.push(['Luminosity', `${b.lum.toPrecision(3)} × the Sun`]);
       if (b.kind === 'star' && b.age !== undefined) {

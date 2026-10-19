@@ -257,5 +257,5 @@ export function typeName(b) {
 }
 
 export function isLuminous(b) {
-  return b.kind === 'star' || b.kind === 'wd' || b.kind === 'ns';
+  return b.kind === 'star' || b.kind === 'wd' || b.kind === 'ns' || (b.kind === 'bh' && b.lum > 0);   // (a feeding hole)
 }
