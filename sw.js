@@ -1,5 +1,5 @@
 // Offline support: cache the app shell, serve it cache-first, refresh in the background.
-const CACHE = 'pocket-universe-v89';
+const CACHE = 'pocket-universe-v90';
 const SHELL = [
   './', 'index.html', 'css/style.css', 'manifest.webmanifest',
   'js/main.js', 'js/units.js', 'js/bodies.js', 'js/physics.js', 'js/presets.js',

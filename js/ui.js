@@ -844,7 +844,9 @@ export class UI {
       this.svT = now;
       const p = sv.body.atm ? sv.body.atm.p + (sv.body.th ? sv.body.th.steam : 0) : 0;
       const lat = Math.round((sv.lat * 180) / Math.PI);
-      $('sv-readout').textContent = `${Math.abs(lat)}°${lat >= 0 ? 'N' : 'S'} · ${sv.localT ? Math.round(sv.localT) + ' K (' + Math.round(sv.localT - 273.15) + ' °C)' : ''} · Sun ${Math.round((sv.elev * 180) / Math.PI)}° ${sv.elev >= 0 ? 'above' : 'below'} the horizon · air ${p < 0.001 ? 'none' : p.toPrecision(2) + ' bar'}`;
+      const zoom = (55 * Math.PI) / 180 / this.app.cam.fov;
+      const ecl = sv.occ && sv.sunPower < 0.999 ? ` · eclipse: ${sv.sunPower <= 1e-4 ? 'total' : Math.round((1 - sv.sunPower) * 100) + '% of the Sun covered'}` : '';
+      $('sv-readout').textContent = `${Math.abs(lat)}°${lat >= 0 ? 'N' : 'S'} · ${sv.localT ? Math.round(sv.localT) + ' K (' + Math.round(sv.localT - 273.15) + ' °C)' : ''} · Sun ${Math.round((sv.elev * 180) / Math.PI)}° ${sv.elev >= 0 ? 'above' : 'below'} the horizon · air ${p < 0.001 ? 'none' : p.toPrecision(2) + ' bar'}${ecl}${zoom > 1.05 ? ` · ${zoom.toFixed(zoom < 10 ? 1 : 0)}× zoom` : ''}`;
     }
     $('sim-time').textContent = formatDuration(app.world.t);
     const lim = $('limit');

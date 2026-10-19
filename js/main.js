@@ -176,9 +176,17 @@ class App {
     if (this.surface) this.ui.setSpeed(this.surface.prevSpeed);
     this.surface = null;
     this.cam.override = null;
+    this.setFov((55 * Math.PI) / 180);   // (zoom is for the surface view)
     if (b && b.alive) { this.cam.follow = b; this.cam.dist = this.cam.distGoal = b.r * 6; }
     this.cam.update();
     this.ui.showSurface(null);
+  }
+
+  // Field of view (surface view zoom), kept between 2° and 75°.
+  setFov(f) {
+    const cam = this.cam;
+    cam.fov = Math.max((2 * Math.PI) / 180, Math.min((75 * Math.PI) / 180, f));
+    cam.setViewport(cam.W, cam.H);
   }
 
   updateSurface() {
@@ -236,6 +244,32 @@ class App {
     this.cam.override = { eye: [b.x + n[0] * h, b.y + n[1] * h, b.z + n[2] * h], f, r, u };
     this.cam.dist = this.cam.distGoal = b.r * 0.01;
     sv.up = n; sv.sun = sun; sv.sunPower = star ? 1 : 0; sv.star = star; sv.north = north; sv.sunAng = sunAng; sv.sunTemp = sunTemp;
+    // Eclipses: the share of the star's disc a moon or planet covers, seen from here (the overlap of two
+    // discs, as angles), dims the sunlight, the sky and the ground; the biggest such body is passed on so the
+    // sky draws the star's disc cut by it (a crescent Sun).
+    sv.occ = null;
+    if (star) {
+      const eye = this.cam.override.eye, ds = Math.hypot(star.x - eye[0], star.y - eye[1], star.z - eye[2]);
+      let covered = 0;
+      for (const o of this.world.bodies) {
+        if (o === b || o === star || !o.alive || !(o.r > 0) || o.lum > 0 || o.kind === 'nebula' || o.kind === 'core') continue;
+        const ox = o.x - eye[0], oy = o.y - eye[1], oz = o.z - eye[2], d = Math.hypot(ox, oy, oz);
+        if (d >= ds || d <= o.r) continue;
+        const ang = Math.asin(Math.min(1, o.r / d)), c = Math.acos(Math.max(-1, Math.min(1, (ox * sun[0] + oy * sun[1] + oz * sun[2]) / d)));
+        if (c >= ang + sunAng) continue;
+        const a = sunAng, bb = ang;
+        let A;
+        if (c <= Math.abs(a - bb)) A = Math.PI * Math.min(a, bb) ** 2;
+        else {
+          const k1 = Math.acos(Math.max(-1, Math.min(1, (c * c + a * a - bb * bb) / (2 * c * a)))), k2 = Math.acos(Math.max(-1, Math.min(1, (c * c + bb * bb - a * a) / (2 * c * bb))));
+          A = a * a * k1 + bb * bb * k2 - 0.5 * Math.sqrt(Math.max(0, (-c + a + bb) * (c + a - bb) * (c - a + bb) * (c + a + bb)));
+        }
+        const f = A / (Math.PI * a * a);
+        if (f > covered) { covered = f; sv.occ = { dir: [ox / d, oy / d, oz / d], ang }; }
+      }
+      // (Even at totality the corona and the sky beyond the shadow leave ~1e-4 of the light.)
+      sv.sunPower = Math.max(1e-4, 1 - covered);
+    }
     // Local conditions for the readout.
     const th = b.th;
     const elev = Math.asin(Math.max(-1, Math.min(1, sun[0] * n[0] + sun[1] * n[1] + sun[2] * n[2])));

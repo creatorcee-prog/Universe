@@ -59,7 +59,7 @@ export class Input {
     const [a, b] = [...this.pointers.values()];
     this.mode = 'pinch';
     this.pinch = {
-      d0: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+      d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, fov0: this.app.cam.fov,
       ang0: Math.atan2(b.y - a.y, b.x - a.x),
       mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2,
       dist0: this.app.cam.dist, yaw0: this.app.cam.yaw, panned: 0,
@@ -78,8 +78,9 @@ export class Input {
     if (this.mode === 'rotate' && this.app.surface) {
       // Surface view: drag to look around.
       const sv = this.app.surface;
-      sv.yaw -= dx * 0.005;
-      sv.pitch = Math.max(-0.7, Math.min(1.5, sv.pitch + dy * 0.005));
+      const k = 0.005 * (cam.fov / ((55 * Math.PI) / 180));   // (finer when zoomed in)
+      sv.yaw -= dx * k;
+      sv.pitch = Math.max(-0.7, Math.min(1.5, sv.pitch + dy * k));
     } else if (this.mode === 'rotate') {
       cam.yaw -= dx * 0.006;
       cam.pitch = Math.max(-1.54, Math.min(1.54, cam.pitch + dy * 0.006));
@@ -91,8 +92,12 @@ export class Input {
       this.app.laserMove(x, y);
     } else if (this.mode === 'paint') {
       this.app.paintAt(x, y, false);
-    } else if (this.mode === 'pinch' && this.app.surface) {
-      // no zoom while standing on a surface
+    } else if (this.mode === 'pinch' && this.app.surface && this.pointers.size >= 2) {
+      // Standing on a surface, pinching zooms like a camera lens: the field of view, 2° (a telephoto, the Moon
+      // filling a good part of the view) to 75°.
+      const [a, b] = [...this.pointers.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+      this.app.setFov(this.pinch.fov0 * (this.pinch.d0 / d));
     } else if (this.mode === 'pinch' && this.pointers.size >= 2) {
       const [a, b] = [...this.pointers.values()];
       const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
@@ -154,6 +159,7 @@ export class Input {
   wheel(e) {
     e.preventDefault();
     const cam = this.app.cam;
+    if (this.app.surface) { this.app.setFov(cam.fov * Math.exp(e.deltaY * 0.0015)); return; }
     cam.distGoal = cam.zoomFrom(cam.distGoal, Math.exp(e.deltaY * 0.0015));
     this.app.interacted();
   }

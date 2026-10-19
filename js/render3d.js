@@ -597,7 +597,9 @@ export class Renderer3D {
     // Also opens up a little at dusk.
     const el = sv.elev || 0;
     const dusk = 1 + (1 / Math.sqrt(0.3 + 0.7 * Math.max(0, Math.sin(el))) - 1) * Math.max(0, Math.min(1, (el + 0.2) / 0.15));
-    gl.uniform1f(u.uExpo, (22 * dusk) / Math.pow(Math.max(0.01, Math.min(1, optics ? optics.day : 1)), 0.6));
+    // (The eye adapts as an eclipse dims the day.)
+    gl.uniform1f(u.uExpo, (22 * dusk) / Math.pow(Math.max(1e-4, Math.min(1, (optics ? optics.day : 1) * sv.sunPower)), 0.6));
+    gl.uniform4f(u.uOccS, sv.occ ? sv.occ.dir[0] : 0, sv.occ ? sv.occ.dir[1] : 0, sv.occ ? sv.occ.dir[2] : 0, sv.occ ? sv.occ.ang : 0);
     gl.uniform1f(u.uSunPower, sv.sunPower);
     gl.uniform1f(u.uSunAng, sv.sunAng || 0.00465);
     gl.uniform3fv(u.uSunCol, tempToRGB(sv.sunTemp || 5772).map((v) => v / 255));
@@ -641,6 +643,7 @@ export class Renderer3D {
     if (Math.abs(x) > 1.3 || Math.abs(y) > 1.3) { gl0(this.gl, u); return; }
     const d2 = vp[0] * vp[0] + vp[1] * vp[1] + vp[2] * vp[2];
     let k = Math.min(1.2, Math.pow(Math.max(S.lum, 1e-6) / Math.max(d2, 1e-9), 0.25));
+    if (this.surface) k *= Math.sqrt(this.surface.sunPower ?? 1);   // (an eclipse leaves a smaller glare)
     // In space: hidden by any body between us and the star (its disc over the star's centre).
     if (!this.surface) {
       const sd = Math.sqrt(d2), ux = (S.x - this.ex) / sd, uy = (S.y - this.ey) / sd, uz = (S.z - this.ez) / sd;
@@ -1117,14 +1120,15 @@ export class Renderer3D {
     // Light and haze from the sky model, refreshed a few times a second.
     const optics = atmosphereOptics(b);
     const now = performance.now();
-    if (!this.gLight || now - this.gLight.t > 300 || this.gLight.b !== b) {
-      const el = sv.elev || 0, day = optics ? optics.day : 1;
+    if (!this.gLight || now - this.gLight.t > 300 || this.gLight.b !== b || Math.abs(this.gLight.sp - (sv.sunPower ?? 1)) > 0.02) {
+      const el = sv.elev || 0, day = optics ? optics.day : 1, sp = sv.sunPower === undefined ? 1 : sv.sunPower;
       const dusk = 1 + (1 / Math.sqrt(0.3 + 0.7 * Math.max(0, Math.sin(el))) - 1) * Math.max(0, Math.min(1, (el + 0.2) / 0.15));
-      const expo = (22 * dusk) / Math.pow(Math.max(0.01, Math.min(1, day)), 0.6);
+      // (An eclipse dims the sunlight by sp; the eye adapts, as the sky's exposure does.)
+      const expo = (22 * dusk) / Math.pow(Math.max(1e-4, Math.min(1, day * sp)), 0.6);
       // Without air the eye adapts to the sunlit ground itself (as in the Apollo photographs).
-      const adapt = optics ? expo / 22 : 1.4;
-      const g = optics ? groundLight(optics, sunUp, expo) : null;
-      this.gLight = { t: now, b, g, adapt, optics };
+      const adapt = (optics ? expo / 22 : 1.4) * sp;
+      const g = optics ? groundLight(optics, sunUp, expo * sp) : null;
+      this.gLight = { t: now, b, g, adapt, optics, sp };
     }
     const { g, adapt } = this.gLight;
     const sunT = g ? g.sunT : [1, 1, 1];

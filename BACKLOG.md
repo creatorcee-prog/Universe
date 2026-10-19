@@ -40,7 +40,10 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 - (Done) 3. Desert sunset: mesas and buttes (flat cap rock over cliffs and talus) wherever the ground is arid,
   on Earth wherever its satellite photo is desert, with dunes there too; the ground takes warm light from the
   bright horizon at sunset. (The clouds' grain in headless captures is their accumulation not settling there.)
-- 4. A solar eclipse seen from the ground.
+- (Done) 4. Solar eclipses from the ground: the share of the Sun a moon covers dims the sunlight, the sky, the
+  ground and the glare (the eye adapting), the Sun's disc is cut into a crescent or an annulus, the corona
+  shows near totality, and pinch zoom in the surface view (2-75°, a telephoto) brings the crescent close.
+  The image's large Moon against blue sky beside the Sun is artistic: an unlit new Moon is invisible in daylight.
 - 5. A red dwarf rising behind a red-lit rocky planet, its surface granulated.
 
 ## New list

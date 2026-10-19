@@ -2435,7 +2435,8 @@ uniform vec2 uTan;
 uniform vec3 uUp, uSun;      // world directions: local up, toward the brightest star
 uniform float uAir;          // 1 with an atmosphere, 0 airless
 uniform float uExpo;         // eye adaptation
-uniform float uSunPower;     // sunlight strength (0 with no star)
+uniform float uSunPower;     // sunlight strength (0 with no star; less in an eclipse)
+uniform vec4 uOccS;          // a body in front of the star (eclipse): direction (world), angular radius; w 0 = none
 uniform float uSunAng;       // angular radius of the star (rad)
 uniform vec3 uSunCol;        // star colour
 uniform float uCloud;        // cloud cover 0..1 from the climate model
@@ -2480,7 +2481,7 @@ void main() {
   bool ground = h < 0.0 && sphereHit(o, d, 1.0).x > 0.0;
   if (uAir > 0.0 && uSunPower > 0.0) {
     float tMax = ground ? sphereHit(o, d, 1.0).x : sphereHit(o, d, uTop).y;
-    L = scatter(o, d, tMax, uSun, 2.2, T);
+    L = scatter(o, d, tMax, uSun, 2.2, T) * uSunPower;   // (an eclipse dims the light the air scatters)
     Tsun = exp(-tauToSun(1.00002, e));
     // Under Venus's deck the overcast is brighter under thin cloud and darker under thick: features smaller
     // than the ~50 km of air below are blurred away by the scattering, but the broad streaks the
@@ -2497,8 +2498,19 @@ void main() {
   }
   // The star's disc, dimmed and reddened by the air in front of it.
   float cosA = dot(d, uSun);
-  float disc = smoothstep(cos(uSunAng * 1.08), cos(uSunAng * 0.92), cosA) * uSunPower;
-  vec3 Lsun = uSunCol * disc * 60.0 * (ground ? vec3(0.0) : T);
+  // (Its surface is as bright in an eclipse; only what the body in front covers is gone: a crescent.)
+  float disc = smoothstep(cos(uSunAng * 1.08), cos(uSunAng * 0.92), cosA) * step(1e-6, uSunPower);
+  float corona = 0.0;
+  if (uOccS.w > 0.0) {
+    disc *= 1.0 - smoothstep(cos(uOccS.w * 0.985), cos(uOccS.w * 1.015), dot(d, uOccS.xyz));
+    // Near totality the corona, a million times fainter than the Sun but now the brightest thing in the sky:
+    // pearly streamers fading over a few solar radii.
+    float ang = acos(clamp(cosA, -1.0, 1.0));
+    float pa = atan(dot(d, normalize(cross(uSun, uUp))), dot(d, uUp));
+    corona = (1.0 - smoothstep(0.0, 0.03, uSunPower)) * step(uOccS.w, acos(clamp(dot(d, uOccS.xyz), -1.0, 1.0)))
+           * exp(-(ang - uSunAng) / (uSunAng * (0.5 + 0.5 * pow(abs(cos(pa * 2.0 + 0.4)), 3.0)))) * 0.8;
+  }
+  vec3 Lsun = uSunCol * (disc * 60.0 + corona * vec3(0.92, 0.95, 1.0)) * (ground ? vec3(0.0) : T);
   // Rings: where the view ray crosses the ring plane.
   vec3 Lring = vec3(0.0); float ringA = 0.0;
   if (dot(uRingN, uRingN) > 0.5 && !ground) {
