@@ -568,7 +568,11 @@ export class Renderer3D {
     // Under a thick haze (Venus, Titan) the sky is a uniform overcast: no separate cloud deck.
     const cover = th && !(optics && optics.tauM > 3) ? th.cloud : 0;
     if (!veil) this.updateWeather(sv, performance.now());
-    const clouds = veil ? this.cloudsNow : cover > 0.001 && this.drawSurfaceClouds(sv, optics, cover, t);
+    // Cirrus: with the weather clouds; on dry worlds with thin air a faint veil of ice cloud (Mars's water-ice
+    // cirrus, seen by the rovers, ~10-30 km up).
+    const wetAir = th && th.liquid > 0.005;
+    this.cirrus = optics && !(optics.tauM > 3) ? (cover > 0.001 ? Math.min(1, cover * 1.6) : !wetAir && optics.P > 0.002 ? 0.25 : 0) : 0;
+    const clouds = veil ? this.cloudsNow : (cover > 0.001 || this.cirrus > 0) && this.drawSurfaceClouds(sv, optics, cover, t);
     this.cloudsNow = clouds;
     gl.disable(gl.DEPTH_TEST);
     gl.enable(gl.BLEND);
@@ -777,6 +781,7 @@ export class Renderer3D {
     gl.uniform3fv(u.uCloudCol, this.look(b).colC || [0.95, 0.96, 1]);
     gl.uniform3f(u.uCloudH, (0.24 * Hkm) / Rkm, (0.3 * Hkm) / Rkm, Rkm);
     gl.uniform1f(u.uStorm, this.weather ? this.weather.rain || 0 : 0);
+    gl.uniform1f(u.uCirrus, this.cirrus || 0);
     gl.uniform1f(u.uFrame, this.cloudFrame % 1000);
     gl.uniform1f(u.uHist, hist ? 1 : 0);
     gl.uniformMatrix3fv(u.uPrevView, false, hist ? H0.VB : VB);
@@ -1072,9 +1077,33 @@ export class Renderer3D {
     gl.uniform4f(u.uHaze, 4e-5 * (0.3 + 1.7 * humid) * airK * (1 + 12 * rainK), 1500, Pbar > 0.05 ? 1.2e-3 * humid * dawn * (0.3 + 0.7 * cool) * airK : 0, 0);
     if (window.__tdbg) window.__tdbg = { n, eyeH, wr, br: b.r, upWorld: [rot[0] * n[0] + rot[3] * n[1] + rot[6] * n[2], rot[1] * n[0] + rot[4] * n[1] + rot[7] * n[2], rot[2] * n[0] + rot[5] * n[1] + rot[8] * n[2]], svUp: sv.up, upV, ex: [this.ex, this.ey, this.ez], b: [b.x, b.y, b.z] };
     const m = this.terrainMesh();
+    gl.uniform1f(u.uRefl, 0);
     gl.disable(gl.CULL_FACE);
     gl.bindVertexArray(m.vao);
     gl.drawElements(gl.TRIANGLES, m.n, gl.UNSIGNED_INT, 0);
+    // Water mirrors the frame: copy it out (resolved), then draw the water again reading its reflection there,
+    // over the same pixels (depth EQUAL).
+    const post = this.post;
+    if (liquid && post && this.sceneFB === post.ms) {
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, post.ms);
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, post.scene.fbo);
+      gl.blitFramebuffer(0, 0, post.W, post.H, 0, 0, post.W, post.H, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, post.ms);
+      gl.viewport(0, 0, post.W, post.H);
+      gl.useProgram(p.p);
+      this.bindTex(14, post.scene.tex, u.uSceneTex);
+      gl.uniform1f(u.uRefl, 1);
+      gl.depthFunc(gl.EQUAL);
+      gl.depthMask(false);
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.drawElements(gl.TRIANGLES, m.n, gl.UNSIGNED_INT, 0);
+      gl.disable(gl.BLEND);
+      gl.depthMask(true);
+      gl.depthFunc(gl.LEQUAL);
+      gl.uniform1f(u.uRefl, 0);
+      gl.activeTexture(gl.TEXTURE0);
+    }
     gl.enable(gl.CULL_FACE);
   }
 
