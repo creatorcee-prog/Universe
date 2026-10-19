@@ -153,6 +153,10 @@ Switch in the **View** panel.
   (Venus, Titan) super-rotates at ~100 m/s (Venus's clouds circle it in about 4 days). Two generations of
   cloud field crossfade every few days, so clouds form, shear and dissipate. Cover follows the climate
   model, so the weather changes as the planet warms, cools or loses its oceans.
+- **Ground materials** (assets/maps/ground-*.jpg, colour and height, 1024²): photographed scans from Poly
+  Haven, CC0: `dry_ground_rocks` (soil), `sand_03` (sand), `rock_face_03` (rock), `moon_01` (regolith on
+  airless worlds), `forrest_ground_01` (vegetated ground). The Surface view tiles them near the eye with a
+  turned, rescaled second copy against repeats, as light and dark on each world's own colour plus relief.
 - **Image maps** (assets/maps, 2048×1024 equirectangular, 0° longitude at the centre; Solar System Scope /
   NASA sources, CC BY 4.0; built by `tools/make_maps.py`):
   - *Colour*: Mars (brought to true colour), Jupiter (Cassini), Saturn, Uranus, Neptune (pale, as it

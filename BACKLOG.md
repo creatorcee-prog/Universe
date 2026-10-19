@@ -56,6 +56,10 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 - (Done) Relief underfoot, lit and casting small shadows: worn small craters on airless worlds, stones and
   gravel half-sunk in the soil (irregular, in patches), sand ripples as real relief; each scale turned and
   warped so no grid shows.
+- (Done) Photographed ground near the eye (Poly Haven CC0 scans of soil, sand, rock, lunar regolith and
+  forest floor) as colour and relief; fine detail fades by the pixel's real footprint on the ground (the
+  long axis at a slant), which removed the streaks that ran away from the eye; sand ripples in patches.
+- Next: the jagged edge of hills' shadows (shaded per vertex of the ring mesh); Earth's land up close.
 
 ## New list
 

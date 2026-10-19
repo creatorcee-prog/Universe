@@ -51,6 +51,10 @@ function loadImage(file, ext = 'jpg') {
   }
   return e.img;
 }
+// The Surface view's ground materials (groundMats), in the order of TERRAIN_FS's uGSoil..uGGrass, and the
+// texture units they take.
+const GROUND_MATS = ['soil', 'sand', 'rock', 'regolith', 'grass'];
+const GROUND_UNITS = [1, 2, 4, 6, 9];
 function photoMap(b) {
   const p = PHOTO.find(([re, , , kind]) => re.test(b.name) && b.kind === kind);
   if (!p) return null;
@@ -381,7 +385,7 @@ export class Renderer3D {
     this.gen = ++contextGen;
     canvas.addEventListener('webglcontextrestored', () => {
       this.gen = ++contextGen;
-      this.mapTex = new Map(); this.dTex = null; this.nightTex = null; this.tMesh = null; this.rMesh = null; this.shTarget = null; this.post = null; this.genMaps = null; this.noiseTex = null; this.cloudRTs = null; this.skyLayer = null; this.nebRT = null;
+      this.mapTex = new Map(); this.dTex = null; this.nightTex = null; this.tMesh = null; this.rMesh = null; this.shTarget = null; this.gMats = null; this.post = null; this.genMaps = null; this.noiseTex = null; this.cloudRTs = null; this.skyLayer = null; this.nebRT = null;
       this.init(); this.lost = false;
     });
     this.init();
@@ -1093,6 +1097,34 @@ export class Renderer3D {
 
   // The rocks' shadow map: 1024² (about 8 cm per texel over 80 m), distance packed into the colour channels
   // (TERRAIN_FS shDecode), so read without filtering; with its own depth buffer.
+  // Photographed ground materials for the Surface view (Poly Haven, CC0): colour, with the scan's height in
+  // alpha (two JPEGs each, joined here), mipmapped and repeating. Null until all have loaded.
+  groundMats() {
+    if (this.gMats) return this.gMats;
+    const imgs = GROUND_MATS.map((k) => [loadImage('ground-' + k), loadImage('ground-' + k + '-h')]);
+    if (imgs.some(([c, h]) => !c || !h)) return null;
+    const gl = this.gl, cv = document.createElement('canvas'), cx = cv.getContext('2d', { willReadFrequently: true });
+    this.gMats = imgs.map(([c, h]) => {
+      const W = c.width, H = c.height;
+      cv.width = W; cv.height = H;
+      cx.drawImage(c, 0, 0); const px = cx.getImageData(0, 0, W, H).data;
+      cx.drawImage(h, 0, 0, W, H); const hx = cx.getImageData(0, 0, W, H).data;
+      for (let i = 3; i < px.length; i += 4) px[i] = hx[i - 1];
+      const t = gl.createTexture();
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, W, H, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(px.buffer));
+      gl.generateMipmap(gl.TEXTURE_2D);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+      this.aniso(8);
+      return t;
+    });
+    return this.gMats;
+  }
+
   shadowTarget() {
     if (this.shTarget) return this.shTarget;
     const gl = this.gl, T = this.makeTarget(1024, 1024);
@@ -1328,7 +1360,10 @@ export class Renderer3D {
     const rockiness = !optics ? 1 : optics.P > 10 ? 0.9 : th && th.liquid > 0.05 ? 0.35 : th && th.ice > 0.5 ? 0.6 : 0.85;
     const rocksOn = rockiness > 0 && !(this.settings.rocks === false);
     // Relief underfoot: small craters where nothing erodes them (no air), and how stony the soil is.
-    gl.uniform2f(u.uMicro, !optics ? 1 : 0, 0.05 + 0.15 * rockiness);
+    gl.uniform2f(u.uMicro, !optics ? 1 : 0, 0.03 + 0.07 * rockiness);
+    const gm = this.groundMats();
+    GROUND_MATS.forEach((k, i) => this.bindTex(GROUND_UNITS[i], gm ? gm[i] : this.cloudNoise(), u['uG' + k[0].toUpperCase() + k.slice(1)]));
+    gl.uniform1f(u.uGroundOn, gm ? 1 : 0);
     const sh = this.shadowTarget();
     // (While drawing into the map, the program's map sampler holds something else: reading the texture being
     // drawn is a feedback loop WebGL refuses.)

@@ -1389,10 +1389,23 @@ in vec3 vLocalQ;
 // spread over three channels so 8-bit and half-float targets both hold it finely enough.
 uniform float uShadowPass, uShOn;
 uniform vec2 uMicro;                   // small craters (1 on airless worlds), share of soil cells holding a stone
+uniform sampler2D uGSoil, uGSand, uGRock, uGRegolith, uGGrass;   // photographed ground: colour, height in alpha
+uniform float uGroundOn;
 uniform sampler2D uShTex;
 uniform vec3 uShU, uShV, uShL;
 uniform vec2 uShSize;
 float shDecode(vec4 c) { return c.r + c.g / 256.0 + c.b / 65536.0; }
+// A photographed ground material at planar p (m), one tile every T m. Against visible repeats a second
+// copy, turned and rescaled, shows through in broad patches (where it stands higher, so the two read as
+// one surface rather than a double exposure). Colour relative to the material's mean, so it varies the
+// ground's own colour instead of replacing it; height (0..1) in alpha.
+vec4 gMat(sampler2D s, vec2 p, float T) {
+  vec4 a = texture(s, p / T);
+  vec4 b = texture(s, mat2(0.6, 0.8, -0.8, 0.6) * p / (T * 1.37) + 0.31);
+  float w = smoothstep(0.3, 0.7, vnoise(vec3(p / (T * 2.7), 71.0)));
+  vec4 c = mix(a, b, clamp((w - 0.5) * 3.0 + (b.a - a.a) * 4.0 + 0.5, 0.0, 1.0));
+  return vec4(c.rgb / max(textureLod(s, vec2(0.5), 12.0).rgb, 0.02), c.a);
+}
 // Relief underfoot (m), shading only, within a few hundred metres: on airless worlds small craters from
 // secondary impacts (~0.3-8 m across: the regolith is saturated with them, mostly old and worn shallow); stones and gravel half-sunk in
 // the soil (30 and 11 cm cells, a share about uMicro.y holding one, in patches); sand ripples (~0.7 m apart, a few cm high,
@@ -1412,7 +1425,7 @@ float microH(vec2 pp, float res, float wRock, float wSand) {
       float a = float(i) * 2.17 + 0.6;
       vec2 q = mat2(cos(a), sin(a), -sin(a), cos(a)) * (wp + cl * 0.35 * vec2(vnoise(vec3(pp / (cl * 2.3), 58.0 + float(i))), vnoise(vec3(pp / (cl * 2.3), 61.0 + float(i)))));
       float clump = smoothstep(0.2, 0.8, vnoise(vec3(pp / (cl * 7.0), 64.0 + float(i))));
-      h += crater2(q / cl + float(i) * 23.0 + 5.0) * 0.06 * cl * f * (0.25 + 1.5 * clump);   // worn soft: most are old
+      h += crater2(q / cl + float(i) * 23.0 + 5.0) * 0.035 * cl * f * (0.2 + 1.2 * clump);   // worn soft: most are old
       cl *= 0.3;
     }
   }
@@ -1437,9 +1450,12 @@ float microH(vec2 pp, float res, float wRock, float wSand) {
     cs *= 0.37;
   }
   if (wSand > 0.0) {
-    float t = fract((pp.x * 0.92 + pp.y * 0.38) * 1.43 + 0.5 * vnoise(vec3(pp / 6.0, 35.0)));
+    // (in patches, their direction and spacing wandering with the local wind)
+    float ang = 0.4 + 0.9 * (vnoise(vec3(pp / 23.0, 36.0)) - 0.5);
+    float t = fract(dot(pp, vec2(cos(ang), sin(ang))) * (1.2 + 0.5 * vnoise(vec3(pp / 17.0, 37.0))) + 0.8 * vnoise(vec3(pp / 4.0, 35.0)));
     float rip = t < 0.7 ? t / 0.7 : (1.0 - t) / 0.3;
-    h += wSand * 0.025 * rip * smoothstep(res * 2.0, res * 6.0, 0.7);
+    float strong = smoothstep(0.45, 0.8, vnoise(vec3(pp / 9.0, 38.0)) * 0.7 + 0.3 * vnoise(vec3(pp / 2.3, 39.0)));
+    h += wSand * 0.012 * strong * rip * smoothstep(res * 2.0, res * 6.0, 0.7);
   }
   h += 0.006 * (vnoise(vec3(pp / 0.05, 55.0)) - 0.5) * smoothstep(res * 2.0, res * 6.0, 0.05);
   return h;
@@ -1477,6 +1493,9 @@ void main() {
   float H = vInfo.x, mtnBig = vInfo.y, dist = vInfo.z;
   vec3 V = normalize(-vViewPos);
   float res = max(0.002, dist * uPxAng);            // metres per pixel here
+  // ...along the ground's longer axis: seen at a slant a pixel covers far more ground lengthwise, and detail
+  // finer than that would alias into streaks running away from the eye.
+  res = max(res, max(length(dFdx(vPlanar)), length(dFdy(vPlanar))));
   bool water = uSeaOK > 0.5 && H < 0.0;
   float lat = abs(vDir.y);
   // Temperature here: latitude, then air cooling with height (lapse rate).
@@ -1566,6 +1585,7 @@ void main() {
     if (uDayK > 0.0) { soil = mix(soil, mapTex(uDay, vDir).rgb * (0.75 + 0.5 * n1), uDayK * 0.85); col = soil; }
     if (uDonorK > 0.0) { float t = donorT(vDir); soil *= mix(1.0, clamp(t, 0.2, 2.0), uDonorK * 0.8); rock *= mix(1.0, clamp(t, 0.4, 1.6), uDonorK * 0.5); col = soil; }
     if (uMapMode > 4.5 && uMapMode < 8.5) { vec3 mc = mapTex(uMap, vDir).rgb; if (uMapMode > 6.5) { float t = 2.0 * mc.r; mc = mix(uColB, uColA, clamp(t, 0.0, 1.0)) * t; } soil = mc * (soil / max(dot(mix(uColA, uColB, 0.5), vec3(0.333)), 0.05)) * 0.5 + mc * 0.5; rock = mix(rock, mc * 0.75, 0.6); col = soil; }
+    float vegW = 0.0;
     if (uLife > 0.0) {
       float warm = smoothstep(255.0, 280.0, T) * smoothstep(335.0, 305.0, T);
       float veg = uLife * warm * smoothstep(0.36, 0.56, moist) * (1.0 - smoothstep(0.35, 0.6, slope));
@@ -1577,6 +1597,7 @@ void main() {
       vec3 vc = mix(vg * 0.95, vg * 0.45, clump) * (0.75 + 0.45 * n2);
       vc = mix(vc, vec3(0.5, 0.45, 0.3), smoothstep(0.6, 0.85, vnoise(vec3(pp / 60.0, 12.0))) * 0.35);
       col = mix(col, vc, veg);
+      vegW = veg;
     }
     // Sedimentary strata: on steep rock, level bands of lighter, darker and ochre layers by height (seen from
     // kilometres away on cliffs and ranges), slightly wavy, finer bands within thicker ones.
@@ -1625,9 +1646,40 @@ void main() {
       float grit = (vnoise(vec3(pp / 0.08, 34.0)) - 0.5) * smoothstep(res * 2.0, res * 6.0, 0.08);
       float soilD = (1.0 + 0.25 * grit) * (1.0 + 0.3 * pebble * (ph - 0.86) * 6.0);
       // Sand: ripples across the wind, with a little meander.
-      float rip = sin((pp.x * 0.92 + pp.y * 0.38) * 9.0 + 3.0 * vnoise(vec3(pp / 6.0, 35.0)));
-      float sandD = 1.0 + 0.06 * rip * smoothstep(res * 2.0, res * 6.0, 0.7);
+      float sandD = 1.0;
       float detail = isRock * rockD + isSoil * soilD + isSand * sandD + snow;
+      // Photographed materials, where loaded: rock, sand, soil (regolith on airless worlds), grass where
+      // vegetation grows; colour from the scan, mostly as light and dark on the ground's own colour (a little
+      // of its hue on worlds with life), height as relief. They fade before their tiles would show as a
+      // pattern in the distance.
+      if (uGroundOn > 0.5 && vRock < 0.5) {
+        float fade = near * (1.0 - smoothstep(0.03, 0.15, res));
+        if (fade > 0.0) {
+          float wSoil = isSoil * (1.0 - vegW), wGr = isSoil * vegW, airless = uMicro.x;
+          vec4 m = vec4(0.0);
+          float ws = 0.0, amp = 0.0;
+          if (isRock > 0.01) { m += isRock * gMat(uGRock, pp, 2.7); ws += isRock; amp += isRock * 0.3; }
+          if (isSand > 0.01) { m += isSand * gMat(uGSand, pp, 2.0); ws += isSand; amp += isSand * 0.1; }
+          if (wSoil * airless > 0.01) { m += wSoil * airless * gMat(uGRegolith, pp, 3.1); ws += wSoil * airless; amp += wSoil * airless * 0.15; }
+          if (wSoil * (1.0 - airless) > 0.01) { m += wSoil * (1.0 - airless) * gMat(uGSoil, pp, 4.0); ws += wSoil * (1.0 - airless); amp += wSoil * (1.0 - airless) * 0.2; }
+          if (wGr > 0.01) { m += wGr * gMat(uGGrass, pp, 2.0); ws += wGr; amp += wGr * 0.1; }
+          if (ws > 0.01) {
+            m /= ws; amp /= ws;
+            // (Scans are lit flat, so their colour varies little; a little more contrast reads as real.)
+            vec3 dc = mix(vec3(dot(m.rgb, vec3(0.3, 0.55, 0.15))), m.rgb, uLife > 0.0 ? 0.6 : 0.2);
+            dc = 1.0 + (dc - 1.0) * 1.6;
+            col *= mix(vec3(1.0), clamp(dc, 0.2, 2.5), fade * (1.0 - snow));
+            detail = mix(detail, 1.0, fade * 0.7);
+            // The scan's height as relief: the surface gradient from its screen-space derivatives.
+            float hM = m.a * amp * fade * (1.0 - snow);
+            vec3 dpx = dFdx(vViewPos), dpy = dFdy(vViewPos);
+            vec3 r1 = cross(dpy, N), r2 = cross(N, dpx);
+            float det = dot(dpx, r1);
+            vec3 g = sign(det) * (dFdx(hM) * r1 + dFdy(hM) * r2);
+            if (abs(det) > 1e-12) N = normalize(abs(det) * N - g);
+          }
+        }
+      }
       col *= mix(1.0, detail, near);
       // Relief underfoot, lit: its slopes tilt the normal, stones are their own shade of rock, and where the
       // Sun is low its bumps cast small shadows (is the relief a short way toward the Sun higher than the
