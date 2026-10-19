@@ -49,6 +49,27 @@ float crater(vec3 p) {
 }
 `;
 
+// False colour for the other bands (Settings, Light seen). Infrared: an "inferno" scale of brightness
+// temperature (black, purple, red, orange, yellow, white; 40 K to 2,000 K on a log scale, Earth at the middle).
+const SPECTRUM = `
+uniform int uSpectrum;      // 0 visible, 1 infrared, 2 ultraviolet, 3 X-ray
+vec3 inferno(float x) {
+  x = clamp(x, 0.0, 1.0);
+  vec3 c = mix(vec3(0.0), vec3(0.32, 0.05, 0.45), smoothstep(0.0, 0.25, x));
+  c = mix(c, vec3(0.85, 0.2, 0.25), smoothstep(0.2, 0.5, x));
+  c = mix(c, vec3(1.0, 0.62, 0.1), smoothstep(0.45, 0.75, x));
+  return mix(c, vec3(1.0, 1.0, 0.85), smoothstep(0.75, 1.0, x));
+}
+float h1n(vec3 v) { return fract(sin(dot(v, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
+float irLevel(float T) { return log2(max(T, 40.0) / 40.0) / log2(50.0); }
+// For worlds: stretched around room temperature, so polar cold, warm tropics and cold cloud tops separate
+// (~200 K black-purple, 290 K orange, ~400 K and hotter yellow-white).
+float irWorld(float T) { return clamp(0.52 + 1.15 * log2(max(T, 20.0) / 280.0), 0.0, 1.0); }
+vec3 uvTint(float x) { return mix(vec3(0.05, 0.0, 0.18), vec3(0.75, 0.6, 1.0), clamp(x, 0.0, 1.0)); }
+vec3 xrayTint(float x) { return mix(vec3(0.0, 0.02, 0.08), vec3(0.55, 0.8, 1.0), clamp(x, 0.0, 1.0)) * (0.6 + 0.6 * clamp(x, 0.0, 1.0)); }
+`;
+
+
 const BLACKBODY = `
 // Black-body colour (fit after Tanner Helland), normalised to 0..1.
 vec3 blackbody(float t) {
@@ -271,13 +292,14 @@ vec2 cloudField(vec3 d, float cover, float seed, float px) {
 `;
 
 // The cloud shell itself (BODY_VS at the deck's radius).
-export const CLOUD_FS = HEAD + NOISE + MAPTEX_FS + CLOUDS + `
+export const CLOUD_FS = HEAD + NOISE + MAPTEX_FS + CLOUDS + SPECTRUM + `
 in vec3 vObj;
 in vec3 vViewPos;
 in vec3 vN;
 ` + LOGDEPTH_F + `
 uniform vec3 uL0, uLc0, uL1, uLc1, uColC;
 uniform float uCloud, uSeed, uPx, uTime, uEcl;
+uniform float uTempC;       // the surface temperature (K), for the cloud tops' (colder) infrared glow
 out vec4 outColor;
 void main() {
   vec3 V = normalize(-vViewPos);
@@ -310,12 +332,17 @@ void main() {
     float fl = step(0.9965, hash(cell + floor(uTime * 7.0))) * smoothstep(0.5, 0.05, length(fract(g) - 0.5));
     col += vec3(0.75, 0.8, 1.0) * fl * night * 1.6 * smoothstep(80.0, 200.0, uPx);
   }
+  // Infrared: cloud tops are cold (high and thick colder still), so they glow less than the ground; UV: bright
+  // (clouds reflect UV well); X-ray: invisible.
+  if (uSpectrum == 1) col = inferno(irWorld(uTempC - 35.0 - 45.0 * cf.y) * 0.97);
+  else if (uSpectrum == 2) col = uvTint(0.55 + 0.3 * cf.y) * (0.15 + 0.85 * max(d0, 0.0));
+  else if (uSpectrum == 3) a = 0.0;
   outColor = vec4(col * a, a);
   ` + WRITE_DEPTH + `
 }
 `;
 
-export const BODY_FS = HEAD + NOISE + BLACKBODY + MAPTEX_FS + CLOUDS + `
+export const BODY_FS = HEAD + NOISE + BLACKBODY + MAPTEX_FS + CLOUDS + SPECTRUM + `
 in vec3 vObj;
 in vec3 vViewPos;
 in vec3 vN;
@@ -484,6 +511,10 @@ void main() {
     vec3 c = blackbody(uTemp);
     if (uKind == 3) {
       vec3 col = mix(c, vec3(1.0), 0.55) * (0.65 + 0.35 * mu) * 1.25;
+      // (White dwarfs and neutron stars: hot surfaces that blaze in UV and X-rays.)
+      if (uSpectrum == 1) col = inferno(irLevel(uTemp) * 0.85) * (0.65 + 0.35 * mu);
+      else if (uSpectrum == 2) col = uvTint(0.4 + 0.6 * clamp(uTemp / 20000.0, 0.0, 1.0)) * 1.4;
+      else if (uSpectrum == 3) col = xrayTint(clamp(uTemp / 30000.0, 0.3, 1.0)) * 1.6;
       outColor = vec4(col + glow, 1.0);
     } else {
       // Convection cells: bright upwelling centres, dark lanes of sinking gas. Their size relative to the
@@ -510,6 +541,13 @@ void main() {
       float act = uMapMode > 8.5 ? mix(1.0, 2.0 * mapTex(uMap, vObj).r, 0.18) : 1.0;
       float I = act * (0.5 + 0.5 * sqrt(mu)) * (0.9 + 0.2 * gran) * (1.0 - 0.75 * spot) * (1.0 - big * (0.4 * lanes - 0.12)) * (1.0 + big * 0.25 * (warpN - 0.5));
       vec3 col = limb * I * (1.05 + 0.25 * facula) + c * glow * 1.5;
+      if (uSpectrum == 1) col = inferno(irLevel(uTemp * (0.7 + 0.3 * sqrt(mu))) * 0.92) * (0.85 + 0.15 * gran);
+      // Ultraviolet: hot stars bright, cool ones faint (a blackbody's UV share falls steeply with temperature);
+      // the bright active regions stand out, the limb is not darkened as much.
+      else if (uSpectrum == 2) col = uvTint(clamp(pow(uTemp / 9000.0, 2.0), 0.05, 1.0) * (0.75 + 0.35 * facula / max(uSpots, 0.01) + 0.6 * actReg)) * (0.8 + 0.2 * mu) * 1.3;
+      // X-ray: the hot corona above active regions (the photosphere itself is dark): bright patches, brightest
+      // at the limb where the line of sight runs through more corona.
+      else if (uSpectrum == 3) col = xrayTint((0.08 + 1.4 * actReg + 0.3 * smoothstep(0.4, 0.75, fbm(vObj * 6.0 + uSeed, 3))) * (0.6 + 0.8 * (1.0 - mu))) * (uTemp < 2500.0 ? 0.3 : 1.0);
       outColor = vec4(col, 1.0);
     }
     ` + WRITE_DEPTH + `
@@ -987,6 +1025,15 @@ void main() {
   // Atmosphere: a lit haze at the limb.
   float fres = pow(1.0 - mu, 2.6);
   outc += uAtmo * uAtmoK * fres * (lightTerm(N, uL0) * 0.9 + 0.08);
+  // Other bands. Infrared: the world's own thermal glow by its local temperature (day and night alike), a
+  // little cooler toward the limb (seen through colder upper air). Ultraviolet: surfaces reflect little; ice and
+  // cloud tops some. X-ray: almost nothing (a faint fluorescence of the sunlit side).
+  // (Giant planets: the 5-micron view, heat from deep down escaping where the clouds are thin: the dark belts
+  // glow, the bright zones are cool; as in Gemini and Juno images of Jupiter.)
+  if (uSpectrum == 1 && uKind == 1) outc = inferno(0.22 + 0.62 * (1.0 - smoothstep(0.25, 0.85, dot(col, vec3(0.3, 0.55, 0.15)))) * (0.75 + 0.25 * mu));
+  else if (uSpectrum == 1) outc = inferno(irWorld(T * (0.94 + 0.06 * mu) + uHeat * 400.0) * 0.97 + 0.02 * (h1n(vObj) - 0.5));
+  else if (uSpectrum == 2) outc = uvTint(dot(outc, vec3(0.3, 0.55, 0.15)) * 0.6 + frozen * 0.3) * (0.15 + 0.85 * lightTerm(N, uL0));
+  else if (uSpectrum == 3) outc = xrayTint(0.05 * lightTerm(N, uL0)) * 0.3;
   outColor = vec4(outc, 1.0);
   ` + WRITE_DEPTH + `
 }

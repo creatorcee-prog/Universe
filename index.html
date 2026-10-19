@@ -367,6 +367,15 @@
         <label class="view-opt"><input type="radio" name="view" value="pixel" id="view-pixel"><span><b>Pixel</b><small>Retro pixel art with a dithered palette, made for screenshots</small></span></label>
         <label class="view-opt disabled"><input type="radio" name="view" value="nasa" id="view-nasa" disabled><span><b>NASA models</b><small>Planned: real 3D models of spacecraft, asteroids and comets</small></span></label>
       </fieldset>
+      <div class="field row">
+        <span class="field-label">Light seen</span>
+        <div class="seg" role="group" aria-label="Light seen">
+          <button type="button" data-spectrum="visible">Visible</button>
+          <button type="button" data-spectrum="ir">Infrared</button>
+          <button type="button" data-spectrum="uv">UV</button>
+          <button type="button" data-spectrum="xray">X-ray</button>
+        </div>
+      </div>
       <label class="switch"><input id="set-bloom" type="checkbox"><span>Glow around bright and hot objects</span></label>
       <label class="switch"><input id="set-flare" type="checkbox"><span>Lens flare from the Sun</span></label>
       <label class="switch"><input id="set-trails" type="checkbox"><span>Orbit trails</span></label>

@@ -648,6 +648,9 @@ export class Renderer3D {
     this.gl.uniform3fv(u.uFlareCol, tempToRGB(S.temp || 5772).map((v) => v / 255));
   }
 
+  // The band of light shown: 0 visible, 1 infrared, 2 ultraviolet, 3 X-ray (Settings, Light seen).
+  spectrumMode() { return { ir: 1, uv: 2, xray: 3 }[this.settings.spectrum] || 0; }
+
   // White balance on the ground: the eye (or a camera) partly adapts to the colour of the light, so a sunset
   // reads orange-gold rather than the deep red the light really is (at 1° up, red is ~4x green). A fifth-power
   // root of the sunlight's colour, at most 1.6x on a channel, scaled to keep the brightness. In space: none.
@@ -1765,6 +1768,7 @@ export class Renderer3D {
     gl.uniform1i(u.uImpN, nImp);
     gl.uniform1f(u.uLogDepthFC, this.logFC);
     gl.uniform1i(u.uKind, l.kind);
+    gl.uniform1i(u.uSpectrum, this.spectrumMode());
     gl.uniform3fv(u.uColA, l.colA || [0.6, 0.6, 0.6]);
     gl.uniform3fv(u.uColB, l.colB || [0.4, 0.4, 0.4]);
     gl.uniform3fv(u.uColC, l.colC || [0.95, 0.96, 1]);
@@ -1974,6 +1978,7 @@ export class Renderer3D {
         gl.uniform3fv(cu.uL0, lc[0]); gl.uniform3fv(cu.uLc0, lc[1]); gl.uniform3fv(cu.uL1, lc[2]); gl.uniform3fv(cu.uLc1, lc[3]);
         gl.uniform3fv(cu.uColC, colC);
         gl.uniform1f(cu.uCloud, cover); gl.uniform1f(cu.uSeed, seeded(b.id) * 40); gl.uniform1f(cu.uPx, shownPx);
+        gl.uniform1i(cu.uSpectrum, this.spectrumMode()); gl.uniform1f(cu.uTempC, temp);
         gl.uniform1f(cu.uTime, performance.now() / 1000); gl.uniform1f(cu.uEcl, 0);
         gl.uniform1f(cu.uCloudT, this.cloudT || 0); gl.uniform1f(cu.uWind, wind); gl.uniform1f(cu.uDeck, deck);
         this.bindCloudTex(cu, b, deck);
@@ -2015,7 +2020,9 @@ export class Renderer3D {
           setOpticsUniforms(gl, au, opt, 14);
           gl.uniform3fv(au.uCenterV, this.viewOf(x, y, z));
           gl.uniform1f(au.uPR, R);
-          gl.uniform1f(au.uExpo, 5.5 * (ld[1][0] + ld[1][1] + ld[1][2] > 0 ? 1 : 0));
+          // (Other bands: air scatters ultraviolet strongly and glows faintly in infrared; X-rays pass unseen.)
+          const band = this.spectrumMode(), bandK = [1, 0.25, 2.2, 0][band];
+          gl.uniform1f(au.uExpo, 5.5 * bandK * (ld[1][0] + ld[1][1] + ld[1][2] > 0 ? 1 : 0));
           gl.uniform3fv(au.uHot, [1, 0.45, 0.15].map((v) => v * hotK * 0.6));
           gl.uniform1f(au.uDiscK, l.kind === 1 ? 0.25 : 1);
         } else {

@@ -26,7 +26,7 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 
 - **Challenges** inspired by Universe Sandbox's, then famous experiments and calculations
   (e.g. Cavendish, Eratosthenes, Kepler's third law, the Roche limit, a slingshot, the Shoemaker–Levy 9 breakup).
-- **Spectrum views**: infrared (thermal glow), ultraviolet, X-ray and gamma. Most of these can come from
+- **Spectrum views** (done, first version: Settings, Light seen: infrared thermal / 5-micron giants, UV, X-ray coronae). Was: infrared (thermal glow), ultraviolet, X-ray and gamma. Most of these can come from
   per-body emission models: blackbody heat, hot coronae, accretion disks and pulsars.
 - **Clearer info pages** that point the user to the extra detail more obviously.
 - **Atmospheres, further**: airglow on the night side, Mars's layered limb hazes, a low-orbit (ISS)
@@ -56,11 +56,11 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 1. Done: generated terrain maps for made-up rocky worlds (render3d.js genStep, shaders.js GEN_FS): warped
    continents with fractal coasts, ridged mountain belts, moisture and tone, made once per world; rock and
    snow along the mountain chains.
-2. Clouds for made-up worlds: a generated weather map (streaks, swirling storms), cloud shadows on the
+2. Done already: clouds for made-up worlds (generated storm clouds and their shadows on the ground). Was: a generated weather map (streaks, swirling storms), cloud shadows on the
    ground, lit cloud thickness.
 3. Done (first version): gas giant bands flow: each latitude slides with an alternating jet (flow map, two
    cross-faded copies). To refine: curl-noise eddies (Bridson et al. 2007).
-4. Polish: stronger rim glow for thick or hazy air, a little contrast.
+4. Done with the giant atmospheres and the HDR curve.
 5. Done: ring debris near the camera are real 3D rocks (lumpy icosahedra, turned at random, flat-shaded, writing
    depth inside the WebGPU renderer); smaller and distant ones stay discs.
 
@@ -90,7 +90,7 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 7. Done: real atmosphere on gas giants (optics.js giantOptics: H2/He + methane + haze above the cloud tops,
    full at the limb, a quarter over the face since the photo-based colours already include it). Was: Rayleigh (H2/He) + haze Mie through ATMO_FS, cloud tops as the ground,
    replacing RIM_FS's flat rim.
-8. Sharper distant terrain (low priority): ridged octaves in mountain zones, denser rings near the camera.
+8. Done: mountain ranges at 2-24 km (S2). Was: ridged octaves in mountain zones, denser rings near the camera.
 
 Also: after every shader edit, regenerate js/wgsl.js (the build now refuses otherwise) and check the frame rate
 on the phone.
@@ -111,7 +111,7 @@ on the phone.
   layers, the deck closing into dark overcast, dimmer sunlight, visibility down to a few km; lightning every
   few to ~20 s in warm heavy rain: a jagged forked bolt from the cloud base, the deck lit around it, the scene
   flashing, thunder after the distance's delay. To refine: splashes and wet ground, a rain sound.
-- S5: ground detail textures and sharper mountains (items 4 and 8 above).
+- S5 done: ground detail, strata, snow patches, dunes.
 
 ## Ring fixes done
 - From farther than ~4 outer ring radii the rings are the smooth sheet (no more gravel look from afar).

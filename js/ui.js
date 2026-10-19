@@ -52,6 +52,13 @@ function swatch(item) {
   return `radial-gradient(circle at 35% 35%, rgb(${Math.min(255, r + 50)},${Math.min(255, g + 50)},${Math.min(255, bl + 50)}), rgb(${r},${g},${bl}) 45%, rgb(${r * 0.25 | 0},${g * 0.25 | 0},${bl * 0.25 | 0}) 70%, transparent 71%)`;
 }
 
+// What each band shows (a toast when it is chosen).
+const SPECTRUM_NOTE = {
+  ir: 'Infrared: everything glows by its own temperature (false colour, cold dark to hot white). Night sides show; cold cloud tops look dark.',
+  uv: 'Ultraviolet: rock and ocean are dark, air glows (it scatters UV strongly), hot stars blaze and cool ones fade.',
+  xray: 'X-ray: planets are nearly black; stars show their hot, patchy coronae; white dwarfs and neutron stars blaze.',
+};
+
 export class UI {
   constructor(app) {
     this.app = app;
@@ -215,6 +222,10 @@ export class UI {
     const tc = (v) => { app.settings.trailColor = v; app.saveSettings(); document.querySelectorAll('[data-tcolor]').forEach((x) => x.classList.toggle('on', x.dataset.tcolor === v)); };
     document.querySelectorAll('[data-tcolor]').forEach((b) => b.addEventListener('click', () => { tc(b.dataset.tcolor); if (!app.settings.trails) this.toggleSetting('trails', true); }));
     tc(app.settings.trailColor || 'body');
+    // Light seen: visible, or false colour in other bands (render3d.js spectrumMode).
+    const sp = (v) => { app.settings.spectrum = v; app.saveSettings(); document.querySelectorAll('[data-spectrum]').forEach((x) => x.classList.toggle('on', x.dataset.spectrum === v)); };
+    document.querySelectorAll('[data-spectrum]').forEach((b) => b.addEventListener('click', () => { sp(b.dataset.spectrum); this.app.audio.ui('click'); if (b.dataset.spectrum !== 'visible') this.toast(SPECTRUM_NOTE[b.dataset.spectrum]); }));
+    sp(app.settings.spectrum || 'visible');
     const dockH = () => document.getElementById('app').style.setProperty('--dock-h', document.querySelector('.bar-main').getBoundingClientRect().height + 20 + 'px');
     dockH(); window.addEventListener('resize', dockH);
     $('map-bar').style.background = gradientCss(TEMP_STOPS);
