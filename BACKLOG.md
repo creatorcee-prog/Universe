@@ -97,6 +97,7 @@ on the phone.
   (pooled between the mountain ranges' crests and on low coasts, thickest at dawn and dusk), integrated along
   each view ray; mountain ranges at 2-24 km wavelengths (up to ~1.8 km relief in mountain country); more
   skylight on shaded ground (it went black at dawn). To refine: mist could drift and thin with the wind.
-- S3: planets and moons in the sky veiled by the air in front of them (they are drawn opaque over the sky).
+- S3 done: planets and moons in the sky are drawn into their own layer and composited through the air (dimmed
+  by its transmittance, the air's light in front, clouds in front).
 - S4: weather: rain streaks under thick warm cloud, lightning glowing inside the deck.
 - S5: ground detail textures and sharper mountains (items 4 and 8 above).

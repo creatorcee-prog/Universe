@@ -2078,6 +2078,8 @@ uniform float uRingProf[16];
 uniform vec3 uRingCol;
 uniform sampler2D uClouds;   // the cloud deck drawn by SURFACE_CLOUD_FS at a quarter of the resolution
 uniform float uCloudBuf;     // 1 when it was drawn this frame
+uniform float uVeil;         // 1: compositing the planets and moons in the sky (see the end)
+uniform sampler2D uBodies;   // ... drawn on their own: light (rgb) and where they are solid (a)
 out vec4 outColor;
 // Catmull-Rom bicubic upscaling in 9 bilinear reads (the weights of each pair folded into one offset read).
 vec4 catmullRom(sampler2D t, vec2 uv) {
@@ -2091,6 +2093,11 @@ vec4 catmullRom(sampler2D t, vec2 uv) {
   return clamp(r, 0.0, 64.0);
 }
 void main() {
+  vec4 B = vec4(0.0);
+  if (uVeil > 0.5) {
+    B = texture(uBodies, vUV);
+    if (B.a < 0.002 && max(B.r, max(B.g, B.b)) < 0.002) discard;   // (nothing there: the sky as drawn stays)
+  }
   vec3 dv = normalize(vec3((vUV.x * 2.0 - 1.0) * uTan.x, (vUV.y * 2.0 - 1.0) * uTan.y, -1.0));
   vec3 d = transpose(uView) * dv;
   float h = dot(d, uUp);
@@ -2169,6 +2176,18 @@ void main() {
     col = col * (1.0 - c) + cc * c;
     alpha = alpha * (1.0 - c) + c;
     sunHDR *= pow(1.0 - c, 8.0);
+  }
+  // The veil: the planets and moons in the sky, seen through the air. Where one is solid, the sky behind it
+  // gives way to the air's own light in front of it (and the clouds), plus the body dimmed by the air's
+  // transmittance: a pale Moon by day, a giant planet fading into the blue, a reddened Moon low down. Light
+  // from glows (rings, atmospheres, small dots) is dimmed the same way and added. No star disc: a moon in
+  // front of the Sun hides it.
+  if (uVeil > 0.5) {
+    vec3 Tv = ground ? vec3(0.0) : T;
+    float cloudA = uCloudBuf > 0.5 ? clamp(catmullRom(uClouds, vUV).a, 0.0, 1.0) : 0.0;
+    float a = clamp(B.a, 0.0, 1.0);
+    outColor = vec4(col * a + Tv * (1.0 - cloudA) * B.rgb, a);
+    return;
   }
   // The star's disc, over the sky and behind the clouds (see above).
   col += sunHDR;

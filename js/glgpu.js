@@ -178,7 +178,7 @@ export class GLonGPU {
   clearDepth(d) { this.state.clearDepth = d; }
   clear(mask) { this.beginPass(mask); }
   pixelStorei() {}
-  colorMask() {}
+  colorMask(r, g, b, a) { this.state.cmask = (r ? 1 : 0) | (g ? 2 : 0) | (b ? 4 : 0) | (a ? 8 : 0); }
   scissor() {}
 
   // ---------- buffers and vertex arrays ----------
@@ -510,14 +510,14 @@ struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     const depthOn = !!t.depth;
     const key = [p.id, slots.map((sl) => sl.stride + ':' + sl.attrs.map((a) => a.shaderLocation + a.format + a.rel).join(',')).join(';'), topo, points ? 'i' : 'v',
       s.blend ? s.bsrc + '/' + s.bdst : 'nb', depthOn ? (s.depth ? s.dfunc + (s.dmask ? 'w' : 'r') : 'off') : 'nd', s.cull ? s.cface : 'nc', t.format, t.depthFormat, t.samples, t.flip,
-      indexType && topo === 'triangle-strip' ? indexType : ''].join('|');
+      indexType && topo === 'triangle-strip' ? indexType : '', s.cmask ?? 15].join('|');
     let pipe = this.pipelines.get(key);
     if (!pipe) {
       const blend = s.blend ? { color: { srcFactor: this.blendFactor(s.bsrc), dstFactor: this.blendFactor(s.bdst), operation: 'add' }, alpha: { srcFactor: this.blendFactor(s.bsrc), dstFactor: this.blendFactor(s.bdst), operation: 'add' } } : undefined;
       const desc = {
         layout: p.layout.pl,
         vertex: { module: p.vs, entryPoint: 'main', buffers: slots.map((sl) => ({ arrayStride: sl.stride, stepMode: points ? 'instance' : 'vertex', attributes: sl.attrs.map((a) => ({ shaderLocation: a.shaderLocation, format: a.format, offset: a.rel })) })) },
-        fragment: { module: p.fs, entryPoint: 'main', targets: [{ format: t.format, blend }] },
+        fragment: { module: p.fs, entryPoint: 'main', targets: [{ format: t.format, blend, writeMask: s.cmask ?? 15 }] },
         primitive: { topology: topo, cullMode: s.cull ? (s.cface === this.FRONT ? 'front' : 'back') : 'none', frontFace: t.flip < 0 ? 'cw' : 'ccw',
           stripIndexFormat: indexType && topo === 'triangle-strip' ? (indexType === this.UNSIGNED_INT ? 'uint32' : 'uint16') : undefined },
         multisample: { count: t.samples },

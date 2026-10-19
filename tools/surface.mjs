@@ -1,10 +1,11 @@
 // The surface view, for judging looks: stands on a world with the Sun at a chosen elevation and looks at a
 // chosen angle from it.
 //   node tools/surface.mjs out.png [sunElevDeg=20] [yawFromSunDeg=40] [pitchDeg=4]
-// TERRA=<compKey> stands on a made-up world (Terra, 1 AU from a star) instead of Earth; with MOUNTAIN=1, in its
+// BODY=<name> stands on that Solar System world (default Earth). GIANT=1 (with TERRA) puts a gas giant in Terra's sky. TERRA=<compKey> stands on a made-up world (Terra, 1 AU from a star) instead of Earth; with MOUNTAIN=1, in its
 // most mountainous land (MOUNTAIN=high: its highest). CLOUD=<0..1> overrides
 // its cloud cover. WEBGPU=1 uses the WebGPU renderer. SETTLE=<ms> waits longer before the picture (the clouds
-// accumulate over frames, and software rendering here is slow).
+// accumulate over frames, and software rendering here is slow). LOOKAT=<name> stands where that body is ~30° up
+// in daylight (NIGHT=1: at night) and faces it.
 import { chromium, devices } from 'playwright';
 import { writeFileSync } from 'fs';
 const [out, elevS = '20', yawS = '40', pitchS = '4'] = process.argv.slice(2);
@@ -19,7 +20,7 @@ page.on('pageerror', (e) => errs.push(e.message));
 await page.goto('http://localhost:8080/');
 await page.waitForTimeout(3000);
 if (webgpu) await page.waitForFunction(() => app.r3d && app.r3d.webgpu, null, { timeout: 60000 });
-await page.evaluate(async ([terra, cloud]) => {
+await page.evaluate(async ([terra, cloud, body, giant]) => {
   app.settings.labels = false; app.settings.orbits = false; app.settings.grid = false; app.settings.perf = false;
   let b;
   if (terra) {
@@ -28,12 +29,18 @@ await page.evaluate(async ([terra, cloud]) => {
     const s = app.world.bodies.find((x) => x.kind === 'star');
     b = B.makeBody({ ...B.CATALOG.find((c) => c.id === 'earth'), name: 'Terra', compKey: terra });
     b.x = s.x + 1; b.y = s.y; b.z = s.z; b.vz = 6.28; b.life = true; app.world.addBody(b);
-  } else { app.loadPreset('solar'); b = app.world.findByName('Earth'); }
+    // GIANT=1: a gas giant (named Giant) close by, 120° from the Sun as seen from Terra, so mostly sunlit.
+    if (giant) {
+      const J = B.makeBody({ ...B.CATALOG.find((c) => c.id === 'jupiter'), name: 'Giant' });
+      const D = 0.0035;
+      J.x = b.x + D * 0.5; J.y = b.y + D * 0.06; J.z = b.z + D * 0.866; J.vz = 6.28; app.world.addBody(J);
+    }
+  } else { app.loadPreset('solar'); b = app.world.findByName(body || 'Earth'); }
   app.ui.setSpeed(1 / 3650);
   app.cam.focus(b, performance.now()); app.cam.dist = app.cam.distGoal = b.r * 3;
   window.__b = b;
   if (cloud !== '') setInterval(() => { if (b.th) b.th.cloud = +cloud; }, 5);
-}, [process.env.TERRA || '', process.env.CLOUD ?? '']);
+}, [process.env.TERRA || '', process.env.CLOUD ?? '', process.env.BODY || '', !!process.env.GIANT]);
 await page.waitForTimeout(4000);   // climate settles
 await page.evaluate(() => { app.ui.setSpeed(0); app.state.paused = true; app.enterSurface(window.__b, 'day'); });
 await page.waitForTimeout(4000);
@@ -75,13 +82,38 @@ if (process.env.TERRA && process.env.MOUNTAIN) {
   }, [+elevS]);
 }
 await page.waitForTimeout(3000);
-const info = await page.evaluate(([yaw, pitch]) => {
+// LOOKAT: move around the globe to where that body stands ~30° up, with the Sun up (or down with NIGHT=1).
+if (process.env.LOOKAT) await page.evaluate(([look, night]) => {
+  const sv = app.surface, t = app.world.findByName(look);
+  let best = null;
+  for (let la = -60; la <= 60; la += 15) for (let lo = 0; lo < 360; lo += 10) {
+    sv.lat = la * Math.PI / 180; sv.lon = lo * Math.PI / 180; sv.place = false;
+    app.updateSurface();
+    const e = app.cam.override.eye, n = sv.up, s = sv.sun;
+    const v = [t.x - e[0], t.y - e[1], t.z - e[2]], l = Math.hypot(...v);
+    const te = Math.asin((v[0] * n[0] + v[1] * n[1] + v[2] * n[2]) / l) * 180 / Math.PI;
+    const se = Math.asin(s[0] * n[0] + s[1] * n[1] + s[2] * n[2]) * 180 / Math.PI;
+    const ok = night ? se < -12 : se > 20;
+    const score = Math.abs(te - 30) + (ok ? 0 : 1000);
+    if (!best || score < best.score) best = { score, la, lo };
+  }
+  sv.lat = best.la * Math.PI / 180; sv.lon = best.lo * Math.PI / 180; app.updateSurface();
+}, [process.env.LOOKAT, !!process.env.NIGHT]);
+const info = await page.evaluate(([yaw, pitch, look]) => {
   const sv = app.surface, s = sv.sun, n = sv.up, N = sv.north;
   const E = [N[1] * n[2] - N[2] * n[1], N[2] * n[0] - N[0] * n[2], N[0] * n[1] - N[1] * n[0]];
   const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
   sv.yaw = Math.atan2(dot(s, E), dot(s, N)) + yaw * Math.PI / 180; sv.pitch = pitch * Math.PI / 180;
+  // LOOKAT=<name>: face that body instead.
+  if (look) {
+    const t = app.world.findByName(look), e = app.cam.override.eye;
+    const v = [t.x - e[0], t.y - e[1], t.z - e[2]], l = Math.hypot(...v), u = v.map((x) => x / l);
+    sv.yaw = Math.atan2(dot(u, E), dot(u, N)); sv.pitch = Math.asin(dot(u, n));
+    // (Elongation from the Sun: near 0 the Moon is new, dark side toward us.)
+    return { sunElev: Math.asin(dot(s, n)) * 180 / Math.PI, target: look, elev: sv.pitch * 180 / Math.PI, elong: Math.acos(dot(u, s)) * 180 / Math.PI, distR: l / window.__b.r };
+  }
   return { sunElev: Math.asin(dot(s, n)) * 180 / Math.PI };
-}, [+yawS, +pitchS]);
+}, [+yawS, +pitchS, process.env.LOOKAT || '']);
 await page.waitForTimeout(+(process.env.SETTLE || (webgpu ? 15000 : 6000)));
 const png = webgpu
   ? await page.evaluate(async () => { const { w, h, data } = await app.r3d.gl.readDefault(); const c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(data), w, h), 0, 0); return c.toDataURL('image/png'); })

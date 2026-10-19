@@ -359,7 +359,7 @@ export class Renderer3D {
     this.gen = ++contextGen;
     canvas.addEventListener('webglcontextrestored', () => {
       this.gen = ++contextGen;
-      this.mapTex = new Map(); this.dTex = null; this.nightTex = null; this.tMesh = null; this.post = null; this.genMaps = null; this.noiseTex = null; this.cloudRTs = null;
+      this.mapTex = new Map(); this.dTex = null; this.nightTex = null; this.tMesh = null; this.post = null; this.genMaps = null; this.noiseTex = null; this.cloudRTs = null; this.skyLayer = null;
       this.init(); this.lost = false;
     });
     this.init();
@@ -556,13 +556,17 @@ export class Renderer3D {
   }
 
   // Atmospheric sky over the surface view, blended over the stars by its brightness.
-  drawSurfaceSky(sv) {
+  // veil: drawn again to composite the planets and moons in the sky (drawn on their own into skyLayer) seen
+  // through the air: dimmed by it, the air's light in front; with this frame's clouds.
+  drawSurfaceSky(sv, veil = false) {
     const gl = this.gl, p = this.pSurfSky, u = p.u, cam = this.cam, b = sv.body, th = b.th;
     const optics = atmosphereOptics(b);
     const t = Math.tan(cam.fov / 2);
     // Under a thick haze (Venus, Titan) the sky is a uniform overcast: no separate cloud deck.
     const cover = th && !(optics && optics.tauM > 3) ? th.cloud : 0;
-    const clouds = cover > 0.001 && this.drawSurfaceClouds(sv, optics, cover, t);
+    const clouds = veil ? this.cloudsNow : cover > 0.001 && this.drawSurfaceClouds(sv, optics, cover, t);
+    this.cloudsNow = clouds;
+    gl.disable(gl.DEPTH_TEST);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); // shader output is premultiplied
     gl.useProgram(p.p);
@@ -583,6 +587,8 @@ export class Renderer3D {
     gl.uniform1f(u.uCloud, cover);
     gl.uniform1f(u.uCloudBuf, clouds ? 1 : 0);
     if (clouds) this.bindTex(13, this.cloudRT.tex, u.uClouds);
+    gl.uniform1f(u.uVeil, veil ? 1 : 0);
+    if (veil) this.bindTex(12, this.skyLayer.tex, u.uBodies);
     gl.uniform3fv(u.uCloudCol, this.look(b).colC || [0.95, 0.96, 1]);
     gl.uniform1f(u.uTime, performance.now() / 1000);
     gl.uniform3fv(u.uNorth, sv.north || [0, 0, 1]);
@@ -597,6 +603,30 @@ export class Renderer3D {
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.disable(gl.BLEND);
     gl.activeTexture(gl.TEXTURE0);
+  }
+
+  // The planets and moons in the sky, seen from the ground, are drawn into their own buffer (with its own
+  // depth): their light in rgb, and alpha 1 where a solid body is (glows add light but leave alpha alone).
+  bindSkyLayer() {
+    const gl = this.gl, W = this.sceneW, H = this.sceneH;
+    let L = this.skyLayer;
+    if (!L || L.w !== W || L.h !== H) {
+      if (L) { gl.deleteTexture(L.tex); gl.deleteFramebuffer(L.fbo); gl.deleteRenderbuffer(L.depth); }
+      L = this.makeTarget(W, H);
+      L.depth = gl.createRenderbuffer();
+      gl.bindRenderbuffer(gl.RENDERBUFFER, L.depth);
+      gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, W, H);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, L.fbo);
+      gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, L.depth);
+      this.skyLayer = L;
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, L.fbo);
+    gl.viewport(0, 0, W, H);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clearDepth(1);
+    gl.colorMask(true, true, true, true);
+    gl.depthMask(true);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
   }
 
   // Random values for SURFACE_CLOUD_FS's texture noise: R at random, G = R shifted by (-37, -239), wrapping.
@@ -1304,7 +1334,9 @@ export class Renderer3D {
     // profile (so gaps such as the Cassini Division show in the shadow the rings cast on the planet).
     // The rings change slowly: measured every 30 frames, or at once when particles are added or lost.
     this.ringFrame = (this.ringFrame || 0) + 1;
-    if (!this.ringInfo || this.ringNr !== world.nr || this.ringWorld !== world || this.ringFrame >= 30) {
+    // (Also when the ringed bodies are new ones: a reloaded preset has as many ring particles as before.)
+    const stale = world.nr > 0 && this.ringInfo && !this.ringInfo.has(world.rHost[0]);
+    if (!this.ringInfo || stale || this.ringNr !== world.nr || this.ringWorld !== world || this.ringFrame >= 30) {
       this.ringFrame = 0; this.ringNr = world.nr; this.ringWorld = world;
       this.ringInfo = new Map();
       const tmp = new Map();
@@ -1334,7 +1366,35 @@ export class Renderer3D {
     }
     const glows = [];
     this.lumList = world.bodies.filter(isLuminous).sort((a, c) => c.lum - a.lum);
-    for (const b of world.bodies) this.drawBody(b, now, glows);
+    // From the ground: the sky's bodies and their glows on their own (skyLayer), then composited through the
+    // air (the veil), then the ground.
+    const ground = this.surface ? this.surface.body : null;
+    if (ground) {
+      this.bindSkyLayer();
+      gl.enable(gl.DEPTH_TEST);
+      gl.depthFunc(gl.LEQUAL);
+    }
+    // (The star lighting the sky is drawn by the sky shader itself, at its full brightness.)
+    const skyStar = ground ? this.surface.star : null;
+    for (const b of world.bodies) if (b !== ground && b !== skyStar) this.drawBody(b, now, glows);
+    if (ground) {
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.ONE, gl.ONE);
+      gl.depthMask(false);
+      gl.disable(gl.CULL_FACE);
+      gl.colorMask(true, true, true, false);
+      for (const g of glows) g();
+      gl.colorMask(true, true, true, true);
+      glows.length = 0;
+      gl.depthMask(true);
+      gl.disable(gl.BLEND);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFB);
+      gl.viewport(0, 0, this.sceneW, this.sceneH);
+      this.drawSurfaceSky(this.surface, true);
+      gl.enable(gl.DEPTH_TEST);
+      gl.depthFunc(gl.LEQUAL);
+      this.drawBody(ground, now, glows);
+    }
     // Supernova light: a blinding point that fades over weeks.
     for (const t of world.transients) {
       const L = transientLum(t, world.t);

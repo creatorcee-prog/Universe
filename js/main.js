@@ -233,7 +233,7 @@ class App {
     const h = b.r + 1.7 / 1.495978707e11; // eye 1.7 m above the ground (the terrain is built around it)
     this.cam.override = { eye: [b.x + n[0] * h, b.y + n[1] * h, b.z + n[2] * h], f, r, u };
     this.cam.dist = this.cam.distGoal = b.r * 0.01;
-    sv.up = n; sv.sun = sun; sv.sunPower = star ? 1 : 0; sv.north = north; sv.sunAng = sunAng; sv.sunTemp = sunTemp;
+    sv.up = n; sv.sun = sun; sv.sunPower = star ? 1 : 0; sv.star = star; sv.north = north; sv.sunAng = sunAng; sv.sunTemp = sunTemp;
     // Local conditions for the readout.
     const th = b.th;
     const elev = Math.asin(Math.max(-1, Math.min(1, sun[0] * n[0] + sun[1] * n[1] + sun[2] * n[2])));
