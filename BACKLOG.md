@@ -44,7 +44,10 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
   ground and the glare (the eye adapting), the Sun's disc is cut into a crescent or an annulus, the corona
   shows near totality, and pinch zoom in the surface view (2-75°, a telephoto) brings the crescent close.
   The image's large Moon against blue sky beside the Sun is artistic: an unlit new Moon is invisible in daylight.
-- 5. A red dwarf rising behind a red-lit rocky planet, its surface granulated.
+- (Done) 5. Red dwarf behind a rocky planet: the TRAPPIST-1 scenario (Agol et al. 2021 masses, radii and
+  orbits; book entry; in Create's real objects), red dwarfs given real temperatures, radii and luminosities
+  (the old power law made TRAPPIST-1 1,700 K; now 2,557 K and 5.4e-4 L☉), and their discs mottled by the heavy
+  spotting of active M dwarfs (true granules are far too small to see).
 
 ## New list
 

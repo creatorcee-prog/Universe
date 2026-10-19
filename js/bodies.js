@@ -12,17 +12,36 @@ export function schwarzschild(m) {
   return (2 * G * m) / (C_AU_YR * C_AU_YR);
 }
 
+// Interpolation in log mass through [mass, value] pairs.
+function interpLog(tab, m) {
+  if (m <= tab[0][0]) return tab[0][1];
+  for (let i = 1; i < tab.length; i++) {
+    const [m1, v1] = tab[i];
+    if (m <= m1) { const [m0, v0] = tab[i - 1], f = Math.log(m / m0) / Math.log(m1 / m0); return v0 + (v1 - v0) * f; }
+  }
+  return tab[tab.length - 1][1];
+}
+// Red dwarfs are about as many solar radii as they are solar masses (TRAPPIST-1 0.119 R☉ at 0.090 M☉,
+// Proxima 0.154 at 0.122, Barnard's Star 0.196 at 0.144; Boyajian et al. 2012, ApJ 757, 112).
+const M_DWARF_R = [[0.075, 0.1], [0.09, 0.119], [0.122, 0.154], [0.15, 0.19], [0.2, 0.23], [0.3, 0.32], [0.4, 0.41], [0.5, 0.52], [0.6, Math.pow(0.6, 0.8)]];
 export function starRadius(m) {
-  // Main-sequence mass-radius relation (piecewise power law).
+  // Main-sequence mass-radius relation (piecewise power law; a table for red dwarfs).
+  if (m < 0.6) return SUN_RADIUS * interpLog(M_DWARF_R, m);
   return SUN_RADIUS * (m < 1 ? Math.pow(m, 0.8) : Math.pow(m, 0.57));
 }
 
+// Main-sequence surface temperature. Below 0.7 M☉ the power law runs far too cool (it gave TRAPPIST-1, 0.09 M☉,
+// 1,700 K; it is 2,566 K), so red dwarfs follow a table instead, interpolated in log mass (after Pecaut &
+// Mamajek 2013, ApJS 208, 9, and its online update; joined to the power law at 0.7 M☉).
+const M_DWARF_T = [[0.075, 2300], [0.09, 2560], [0.1, 2700], [0.15, 2990], [0.2, 3150], [0.3, 3350], [0.4, 3500], [0.5, 3700], [0.6, 4100], [0.7, 5772 * Math.pow(0.7, 0.505)]];
 export function starTemp(m) {
-  return 5772 * Math.pow(m, 0.505);
+  if (m >= 0.7) return 5772 * Math.pow(m, 0.505);
+  return interpLog(M_DWARF_T, m);
 }
 
 export function starLuminosity(m) {
-  if (m < 0.43) return 0.23 * Math.pow(m, 2.3);
+  // Red dwarfs: from their radius and temperature, L = R² T⁴ (TRAPPIST-1: 5.5e-4 L☉, as measured).
+  if (m < 0.6) { const R = starRadius(m) / SUN_RADIUS, T = starTemp(m) / 5772; return R * R * T * T * T * T; }
   if (m < 2) return Math.pow(m, 4);
   if (m < 55) return 1.4 * Math.pow(m, 3.5);
   return 32000 * m;
@@ -130,6 +149,7 @@ export const REAL_OBJECTS = [
   real('r-pluto', 'Pluto', 'rocky', 1.303e22, 1188.3, { compKey: 'Pluto', color: [214, 190, 160], style: 'pluto' }),
   real('r-charon', 'Charon', 'rocky', 1.586e21, 606, { compKey: 'icemoon', color: [170, 166, 160], style: 'moon' }),
   { id: 'r-proxima', label: 'Proxima Centauri', kind: 'star', m: 0.1221, named: true, real: true },
+  { id: 'r-trappist', label: 'TRAPPIST-1', kind: 'star', m: 0.0898, named: true, real: true },
   // M42: ~2,000 M☉ within ~12 light years (its glowing part; the molecular cloud behind is far bigger).
   { id: 'r-orion', label: 'Orion Nebula', kind: 'nebula', m: 2000, r: 12 * 63241, color: [235, 90, 110], named: true, real: true },
   { id: 'r-sun', label: 'Sun', kind: 'star', m: 1, named: true, real: true },

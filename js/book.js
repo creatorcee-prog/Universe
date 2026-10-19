@@ -36,7 +36,7 @@ const KEY_COLOR = {
   moonsize: [180, 178, 172], smallrocky: [196, 110, 70],
 };
 const ENTRY_COLOR = {
-  Sun: [255, 240, 220], Mercury: [168, 160, 150], Venus: [232, 204, 150], Earth: [64, 118, 214], Moon: [184, 182, 176], Mars: [200, 104, 62],
+  Sun: [255, 240, 220], 'TRAPPIST-1': [255, 150, 90], Mercury: [168, 160, 150], Venus: [232, 204, 150], Earth: [64, 118, 214], Moon: [184, 182, 176], Mars: [200, 104, 62],
   Ceres: [150, 144, 136], Jupiter: [216, 182, 136], Io: [226, 204, 110], Europa: [210, 196, 176], Ganymede: [160, 150, 138], Callisto: [110, 100, 92],
   Saturn: [228, 208, 162], Uranus: [168, 222, 232], Neptune: [84, 124, 222], Pluto: [214, 190, 160], Theia: [190, 160, 130], 'Proto-Earth': [150, 100, 80],
 };
@@ -162,7 +162,7 @@ export class Book {
     const entry = ENTRIES[key];
     const pages = [];
     if (entry) {
-      pages.push(this.coverPage({ kicker: entry.kicker, title: key, summary: entry.summary, portrait: portrait(key === 'Sun' ? 'star' : key === 'Orion Nebula' ? 'nebula' : 'x', ENTRY_COLOR[key], key === 'Jupiter' || key === 'Saturn' ? [170, 120, 80] : null, key === "Halley's Comet"), stats: entry.stats, statsTitle: 'In the real universe', note: entry.where || 'This object is not in the current scenario. Load the Solar System to visit it.' }));
+      pages.push(this.coverPage({ kicker: entry.kicker, title: key, summary: entry.summary, portrait: portrait(key === 'Sun' || key === 'TRAPPIST-1' ? 'star' : key === 'Orion Nebula' ? 'nebula' : 'x', ENTRY_COLOR[key], key === 'Jupiter' || key === 'Saturn' ? [170, 120, 80] : null, key === "Halley's Comet"), stats: entry.stats, statsTitle: 'In the real universe', note: entry.where || 'This object is not in the current scenario. Load the Solar System to visit it.' }));
       if (entry.facts.length) pages.push(this.listPage('Did you know?', entry.facts));
       pages.push(this.sourcesPage(entry.sources));
     } else {

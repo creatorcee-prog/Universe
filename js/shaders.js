@@ -524,11 +524,15 @@ void main() {
       float warpN = fbm(vObj * uGran * 2.5 + uSeed + vec3(uTime * 0.03), 4);
       float lanes = smoothstep(0.25, 0.7, cellC + 0.35 * (warpN - 0.5));
       float gran = fbm(vObj * 26.0 + vec3(uTime * 0.12, uTime * 0.07, 0.0), 4) * (1.0 - lanes * 0.6) + (1.0 - lanes) * 0.25 * step(uGran, 24.0);
+      // Red dwarfs are magnetically active: spots and bright plage cover a large share of the surface, at all
+      // latitudes (TRAPPIST-1 flares several times a day; Proxima's spots cover ~20%), so the disc looks mottled.
+      float mdw = smoothstep(3600.0, 2800.0, uTemp);
+      gran = mix(gran, fbm(vObj * 11.0 + uSeed + vec3(uTime * 0.01), 4) * 1.6 - 0.3, mdw * 0.7);
       // Sunspots: groups of small dark umbrae with lighter penumbrae, only in the activity belts between
       // ~5° and ~35° latitude, and only where an active region is (patchy, slowly changing).
       float latS = abs(vObj.y);
-      float actReg = smoothstep(0.5, 0.64, fbm(vObj * 3.0 + uSeed + vec3(uTime * 0.002), 3)) * smoothstep(0.06, 0.12, latS) * smoothstep(0.6, 0.45, latS);
-      float sd = crater(vObj * 34.0 + uSeed * 1.3);
+      float actReg = smoothstep(0.5 - 0.12 * mdw, 0.64 - 0.1 * mdw, fbm(vObj * 3.0 + uSeed + vec3(uTime * 0.002), 3)) * mix(smoothstep(0.06, 0.12, latS) * smoothstep(0.6, 0.45, latS), 1.0, mdw);
+      float sd = crater(vObj * mix(34.0, 15.0, mdw) + uSeed * 1.3);
       float umbra = (1.0 - smoothstep(0.06, 0.1, sd)) * actReg;
       float penum = (1.0 - smoothstep(0.1, 0.2, sd)) * actReg;
       float spot = (umbra * 0.85 + penum * 0.45) * uSpots;
@@ -539,7 +543,7 @@ void main() {
       // Giant cells stand out strongly on supergiants (bright plumes, dark cool lanes).
       float big = smoothstep(26.0, 6.0, uGran);
       float act = uMapMode > 8.5 ? mix(1.0, 2.0 * mapTex(uMap, vObj).r, 0.18) : 1.0;
-      float I = act * (0.5 + 0.5 * sqrt(mu)) * (0.9 + 0.2 * gran) * (1.0 - 0.75 * spot) * (1.0 - big * (0.4 * lanes - 0.12)) * (1.0 + big * 0.25 * (warpN - 0.5));
+      float I = act * (0.5 + 0.5 * sqrt(mu)) * (0.9 + (0.2 + 0.25 * mdw) * gran) * (1.0 - 0.75 * spot) * (1.0 - big * (0.4 * lanes - 0.12)) * (1.0 + big * 0.25 * (warpN - 0.5));
       vec3 col = limb * I * (1.05 + 0.25 * facula) + c * glow * 1.5;
       if (uSpectrum == 1) col = inferno(irLevel(uTemp * (0.7 + 0.3 * sqrt(mu))) * 0.92) * (0.85 + 0.15 * gran);
       // Ultraviolet: hot stars bright, cool ones faint (a blackbody's UV share falls steeply with temperature);

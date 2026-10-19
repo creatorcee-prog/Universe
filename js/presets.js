@@ -340,6 +340,30 @@ export const PRESETS = [
     },
   },
   {
+    id: 'trappist', name: 'TRAPPIST-1',
+    blurb: 'A red dwarf a tenth the Sun\'s mass with seven Earth-sized planets, all closer to it than Mercury is to the Sun. From the innermost the star looks about ten times wider than our Sun, a deep orange-red. Three planets lie in the habitable zone.',
+    speed: 1 / 8766 * 2,
+    camera: { follow: 'TRAPPIST-1b', dist: km(7118 * 1.6), pitch: 0.6, yaw: 0 },
+    build(w) {
+      // Agol et al. 2021 (Planet. Sci. J. 2, 1): star 0.0898 M☉, 0.1192 R☉, 2,566 K, ~7.6 billion years old;
+      // planets' masses and radii (Earth = 1) and orbits (AU). Compositions after JWST: b and c show no thick
+      // air (Greene et al. 2023, Nature 618, 39; Zieba et al. 2023, Nature 620, 746); e-g lie in the habitable zone.
+      const st = w.addBody(makeBody({ kind: 'star', m: 0.0898, r: km(82930), name: 'TRAPPIST-1' }));
+      st.age = 7.6e9;
+      const P = [
+        ['b', 0.01154, 1.374, 1.116, 'Mercury', [150, 120, 110]], ['c', 0.0158, 1.308, 1.097, 'Mercury', [140, 115, 100]],
+        ['d', 0.02227, 0.388, 0.788, 'Mars', [176, 120, 90]], ['e', 0.02925, 0.692, 0.92, 'Earth', [90, 110, 150]],
+        ['f', 0.03849, 1.039, 1.045, 'oceanworld', [190, 200, 215]], ['g', 0.04683, 1.321, 1.129, 'oceanworld', [200, 210, 220]],
+        ['h', 0.06189, 0.326, 0.755, 'icemoon', [214, 220, 228]],
+      ];
+      for (const [k, a, mE, rE, compKey, color] of P) {
+        const b = makeBody({ name: 'TRAPPIST-1' + k, kind: 'rocky', m: mE * EARTH_MASS, r: km(6371 * rE), compKey, color });
+        // (b starts on the far side, so the default view looks past its limb at the star.)
+        orbit(w, st, b, a, 0, 0, 0, 0, k === 'b' ? 270 : rand() * 360).host = st;
+      }
+    },
+  },
+  {
     id: 'saturn', name: 'Saturn\'s Rings',
     blurb: 'Saturn, its 63 named moons and its rings. With WebGPU on (Settings), the rings are 250,000 orbiting chunks, and up close a field of individual rocks. Zoom in to skim the ring plane.',
     speed: DAY_YR / 24,

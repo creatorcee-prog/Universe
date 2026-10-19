@@ -228,6 +228,20 @@ export const ENTRIES = {
     ],
     sources: [wiki('486958_Arrokoth'), nasa('new-horizons/', 'NASA: New Horizons')],
   },
+  'TRAPPIST-1': {
+    kicker: 'Red dwarf with seven planets',
+    where: 'This object is not in the current scenario. Load the TRAPPIST-1 scenario to visit it.',
+    summary: 'A cool red dwarf about 40 light-years away, barely bigger than Jupiter, with seven Earth-sized rocky planets. All seven orbits would fit inside Mercury\'s.',
+    stats: [['Distance', 'about 40 light-years'], ['Mass', '0.09 Suns'], ['Radius', '0.12 Suns (1.2 Jupiters)'], ['Surface temperature', '2,566 K'], ['Planets', '7 (b to h)'], ['Planets\' years', '1.5 to 18.8 days']],
+    facts: [
+      'Its planets were found in 2016 and 2017 as they crossed in front of it, by the small TRAPPIST telescope and then NASA\'s Spitzer.',
+      'They form a resonant chain: in the time the outer ones go round a few times, the inner ones go round in simple ratios (8:5, 5:3, 3:2, 3:2, 4:3, 3:2), a sign they migrated inward together.',
+      'The Webb telescope measured planet b\'s day side at about 500 K and found no thick atmosphere on b or c.',
+      'Its planets are almost certainly tidally locked, with permanent day and night sides.',
+      'A star this small burns its hydrogen so slowly that it will shine for trillions of years.',
+    ],
+    sources: [wiki('TRAPPIST-1'), ['Agol et al. 2021, Planet. Sci. J. 2, 1', 'https://doi.org/10.3847/PSJ/abd022'], ['Greene et al. 2023, Nature 618, 39', 'https://doi.org/10.1038/s41586-023-05951-7']],
+  },
   'Orion Nebula': {
     kicker: 'Emission nebula · M42',
     where: 'This object is not in the current scenario. The Stellar Nursery scenario has a nebula like it.',
@@ -519,7 +533,7 @@ export const CONTENTS = [
   ['Planets', ['Mercury', 'Venus', 'Earth', 'Mars', 'Jupiter', 'Saturn', 'Uranus', 'Neptune']],
   ['Moons', ['Moon', 'Io', 'Europa', 'Ganymede', 'Callisto']],
   ['Dwarf planets and small bodies', ['Ceres', 'Pluto', 'Bennu', 'Ryugu', 'Arrokoth', "Halley's Comet"]],
-  ['Beyond the Solar System', ['Orion Nebula']],
+  ['Beyond the Solar System', ['TRAPPIST-1', 'Orion Nebula']],
   ['Deep history', ['Theia', 'Proto-Earth']],
   ['Kinds of object', ['comet', 'asteroid', 'planetesimal', 'terrestrial', 'superearth', 'icegiant', 'gasgiant', 'browndwarf', 'M', 'K', 'G', 'F', 'A', 'B', 'O', 'wd', 'ns', 'bh', 'smbh', 'nebula', 'galaxy']],
 ];
