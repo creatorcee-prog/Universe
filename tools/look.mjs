@@ -1,5 +1,6 @@
 // Picture of a planet from its lit side (the brightest of 8 views around it), for judging looks:
 //   OUT=dir node tools/look.mjs <tag> preset:Name[:dist] ...   -> dir/look-<tag>-<Name>.png
+// DARK=1 takes the darkest view instead (the night side); PITCH sets the camera's pitch (0.25).
 // WEBGPU=1 uses the WebGPU renderer (slow on software GPUs). SPECTRUM=ir|uv|xray shows that band. TERRA=<compKey> adds a made-up world, named as in
 // the target, at 1 AU from the first star, with life (e.g. TERRA=Earth node tools/look.mjs a empty:Terra).
 import { chromium, devices } from 'playwright';
@@ -14,6 +15,7 @@ if (webgpu) await ctx.addInitScript('window.__TEST_WEBGPU = true; window.__TEST_
 const page = await ctx.newPage(); const errs = [];
 page.on('pageerror', (e) => errs.push(e.message));
 page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text().slice(0, 200)); });
+await page.addInitScript(`window.__pitch = ${+(process.env.PITCH || 0.25)};`);
 if (process.env.SPECTRUM) await page.addInitScript(`window.__spectrum = '${process.env.SPECTRUM}';`);
 await page.goto('http://localhost:8080/');
 // A made-up world for tests: TERRA='compKey' places it at 1 AU from the first star.
@@ -41,7 +43,7 @@ for (const t of targets) {
     app.loadPreset(preset); app.ui.setSpeed(0);
     if (window.__extra) { window.__extra(name); app.ui.setSpeed(1 / 3650); }
     const b = app.world.findByName(name); app.cam.focus(b, performance.now());
-    app.cam.dist = app.cam.distGoal = b.r * +dist; app.cam.pitch = 0.25;
+    app.cam.dist = app.cam.distGoal = b.r * +dist; app.cam.pitch = window.__pitch;
     app.r3d.quality = 1; app.r3d.resize();
   }, [preset, name, dist]);
   await page.waitForTimeout(6000);
@@ -50,7 +52,7 @@ for (const t of targets) {
     await page.evaluate((yaw) => { app.cam.yaw = yaw; }, yaw);
     await page.waitForTimeout(webgpu ? 4000 : 1500);
     const r = await grab();
-    if (!best || r.s > best.s) best = { ...r, yaw };
+    if (!best || (process.env.DARK ? r.s < best.s : r.s > best.s)) best = { ...r, yaw };
   }
   // Settle at the best yaw (maps may still be generating), then grab.
   await page.evaluate((yaw) => { app.cam.yaw = yaw; }, best.yaw);

@@ -81,9 +81,23 @@ export function atmosphereOptics(b) {
   if (kind === 'tholin') {
     const hD = 500e3 / R, wD = 40e3 / R, path = 1.81 * Math.sqrt(2 * (1 + hD) * wD);   // grazing path through it
     det = [hD, wD, 0.3 / Math.max(path, 1e-9), 1];
+  } else if (kind === 'dust') {
+    // Mars's detached hazes: water-ice and dust layers floating 30-60 km up, seen as thin bands along the limb
+    // (SPICAM: Montmessin et al. 2006, Icarus 183, 403; Mars Climate Sounder: Heavens et al. 2011, JGR 116).
+    // One layer at 45 km, ~6 km thick, tangent optical depth ~0.15.
+    const hD = 45e3 / R, wD = 6e3 / R, path = 1.81 * Math.sqrt(2 * (1 + hD) * wD);
+    det = [hD, wD, 0.15 / Math.max(path, 1e-9), 1];
   }
+  // Airglow: atoms and molecules excited by daytime ultraviolet give the light back at night. Earth's
+  // oxygen green line (557.7 nm) shines from a layer ~95 km up, ~10 km thick; seen edge-on along the limb it
+  // is ~40x brighter than looking straight down, the green band in astronauts' night photos (Khomich et al.,
+  // Airglow as an Indicator of Upper Atmospheric Structure, 2008). Venus's night side glows faintly in oxygen
+  // too (Venera 9/10; Slanger et al. 2001, Science 291, 463). glow = [r, g, b, height, half-thickness].
+  let glow = null;
+  if (o2 > 0.02) glow = [0.14, 0.48, 0.2, 95e3 / R, 5e3 / R];
+  else if (kind === 'sulphuric') glow = [0.03, 0.06, 0.045, 100e3 / R, 6e3 / R];
   return {
-    kind, P, T, H, HM, g, mu, tauM, tauS, tauE, day, det,
+    kind, P, T, H, HM, g, mu, tauM, tauS, tauE, day, det, glow,
     // per planet radius (shader units)
     betaR: betaR.map((v) => v * R), betaM: betaM.map((v) => v * R), betaA: betaA.map((v) => v * R),
     betaMa: betaMa.map((v) => v * R), hR: H / R, hM: HM / R, mieG: gM,
@@ -140,12 +154,18 @@ export function stretchOptics(o, k) {
   if (!(k > 1)) return o;
   const d = (v) => v.map((x) => x / k);
   return { ...o, hR: o.hR * k, hM: o.hM * k, betaR: d(o.betaR), betaM: d(o.betaM), betaA: d(o.betaA), betaMa: d(o.betaMa),
-    det: o.det && o.det[3] ? [o.det[0] * k, o.det[1] * k, o.det[2] / k, 1] : o.det };
+    det: o.det && o.det[3] ? [o.det[0] * k, o.det[1] * k, o.det[2] / k, 1] : o.det,
+    glow: o.glow ? [o.glow[0], o.glow[1], o.glow[2], o.glow[3] * k, o.glow[4] * k] : null };
 }
 
 // Outer edge of the drawn atmosphere, in planet radii: eight scale heights of whichever layer is taller.
 export function atmosphereTop(o) {
   return 1 + Math.max(0.004, Math.min(0.25, Math.max(8 * Math.max(o.hR, o.hM), o.det && o.det[3] ? o.det[0] + 3 * o.det[1] : 0)));
+}
+// The shell drawn around the planet: the scattering air, or the airglow layer above it (Earth's at ~95 km
+// sits above the 8 scale heights the scattering uses).
+export function shellTop(o) {
+  return Math.max(atmosphereTop(o), o.glow ? 1 + o.glow[3] + 1.5 * o.glow[4] : 0);
 }
 
 // ---------- the same scattering on the CPU (a few rays), for lighting the Surface-view ground ----------

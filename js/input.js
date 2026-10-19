@@ -98,7 +98,7 @@ export class Input {
       const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
       const ang = Math.atan2(b.y - a.y, b.x - a.x);
       const pc = this.pinch;
-      cam.dist = cam.distGoal = cam.clampDist((pc.dist0 * pc.d0) / d);
+      cam.dist = cam.distGoal = cam.zoomFrom(pc.dist0, pc.d0 / d);
       cam.yaw = pc.yaw0 + (ang - pc.ang0);
       const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
       const mdx = mx - pc.mx, mdy = my - pc.my;
@@ -154,7 +154,7 @@ export class Input {
   wheel(e) {
     e.preventDefault();
     const cam = this.app.cam;
-    cam.zoomTo(cam.distGoal * Math.exp(e.deltaY * 0.0015));
+    cam.distGoal = cam.zoomFrom(cam.distGoal, Math.exp(e.deltaY * 0.0015));
     this.app.interacted();
   }
 }

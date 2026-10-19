@@ -3,7 +3,7 @@ import { isLuminous, tempToRGB, schwarzschild } from './bodies.js';
 import { transientLum } from './stellar.js';
 import { EARTH_MASS } from './units.js';
 import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS, RIM_FS, TERRAIN_VS, TERRAIN_FS, RING_FS, CLOUD_FS, GEN_FS, SURFACE_CLOUD_FS, WEATHER_FS } from './shaders.js';
-import { atmosphereOptics, giantOptics, setOpticsUniforms, stretchOptics, atmosphereTop, groundLight } from './optics.js';
+import { atmosphereOptics, giantOptics, setOpticsUniforms, stretchOptics, atmosphereTop, shellTop, groundLight } from './optics.js';
 import { heatOutput } from './thermal.js';
 import { earthMap, moonMap } from './geography.js';
 
@@ -1994,7 +1994,7 @@ export class Renderer3D {
       // stay about 2.5 pixels wide, keeping its colours (see stretchOptics). Close up it is drawn to scale.
       const thick = optics ? (atmosphereTop(optics) - 1) * shownPx : 0;
       const opt = optics && thick > 0 && thick < 2.5 * dpr ? stretchOptics(optics, Math.min(30, (2.5 * dpr) / thick)) : optics;
-      const top = optics ? atmosphereTop(opt) : l.kind === 1 ? 1.015 : 1.035;
+      const top = optics ? shellTop(opt) : l.kind === 1 ? 1.015 : 1.035;
       // Inside the shell (low orbit): draw its far side without depth testing; the shader stops rays at
       // the ground itself. Outside: the near side, depth tested so moons in front hide it.
       const inside = Math.hypot(x, y, z) < R * top;
@@ -2025,6 +2025,11 @@ export class Renderer3D {
           gl.uniform1f(au.uExpo, 5.5 * bandK * (ld[1][0] + ld[1][1] + ld[1][2] > 0 ? 1 : 0));
           gl.uniform3fv(au.uHot, [1, 0.45, 0.15].map((v) => v * hotK * 0.6));
           gl.uniform1f(au.uDiscK, l.kind === 1 ? 0.25 : 1);
+          // Airglow at night-photo exposure, as the city lights are; brighter in the infrared (the hydroxyl
+          // bands outshine the green line there), faint in ultraviolet.
+          const gk = [1, 3, 0.3, 0][band], gw = opt.glow;
+          gl.uniform4f(au.uGlow, gw ? gw[0] * gk : 0, gw ? gw[1] * gk : 0, gw ? gw[2] * gk : 0, gw ? gw[3] : 0);
+          gl.uniform1f(au.uGlowW, gw ? gw[4] : 1);
         } else {
           gl.uniform3fv(au.uAtmo, atmo);
           gl.uniform1f(au.uAtmoK, atmoK);

@@ -1614,23 +1614,52 @@ uniform float uPR;       // planet radius
 uniform float uExpo;
 uniform vec3 uHot;       // thermal glow of a molten world's air
 uniform float uDiscK;    // share drawn over the planet's face (1; giant planets less, see below)
+uniform vec4 uGlow;      // night airglow: colour at its brightest (seen edge-on), layer height (radii); 0 = none
+uniform float uGlowW;    // the layer's half-thickness (radii)
 out vec4 outColor;
+// Length of o + d·t, t in [ta, tb], that lies within the spherical shell between radii r0 and r1.
+float shellPath(vec3 o, vec3 d, float ta, float tb, float r0, float r1) {
+  vec2 out1 = sphereHit(o, d, r1);
+  if (out1.y <= ta) return 0.0;
+  float a = max(out1.x, ta), b = min(out1.y, tb);
+  if (b <= a) return 0.0;
+  float len = b - a;
+  vec2 in0 = sphereHit(o, d, r0);
+  if (in0.y > in0.x) len -= max(0.0, min(in0.y, b) - max(in0.x, a));
+  return max(len, 0.0);
+}
 void main() {
   vec3 d = normalize(vViewPos);
   vec3 o = -uCenterV / uPR;
-  vec2 top = sphereHit(o, d, uTop);
-  if (top.y <= 0.0) discard;
-  float t0 = max(top.x, 0.0);
   vec2 ground = sphereHit(o, d, 1.0);
   bool hit = ground.x > 0.0;
-  float t1 = hit ? ground.x : top.y;
-  vec3 T;
-  vec3 L = scatter(o + d * t0, d, t1 - t0, uL0, 1.0, T);
-  vec3 col = skyTone(max(L, 0.0) * uExpo);
-  float a = clamp(1.0 - dot(T, vec3(0.3333)), 0.0, 1.0);
-  // Over a giant planet's face its photo-based colours already show the haze: only part of it again there.
-  if (hit) { col *= uDiscK; a *= uDiscK; }
-  col += uHot * a;
+  vec3 col = vec3(0.0);
+  float a = 0.0;
+  vec2 top = sphereHit(o, d, uTop);
+  if (top.y > 0.0) {
+    float t0 = max(top.x, 0.0);
+    float t1 = hit ? ground.x : top.y;
+    vec3 T;
+    vec3 L = scatter(o + d * t0, d, t1 - t0, uL0, 1.0, T);
+    col = skyTone(max(L, 0.0) * uExpo);
+    a = clamp(1.0 - dot(T, vec3(0.3333)), 0.0, 1.0);
+    // Over a giant planet's face its photo-based colours already show the haze: only part of it again there.
+    if (hit) { col *= uDiscK; a *= uDiscK; }
+    col += uHot * a;
+  }
+  if (uGlow.w > 0.0) {
+    // A thin glowing shell (it may lie above the scattering air), as bright as the path through it is long,
+    // scaled so the grazing path, the limb, gives uGlow; only where that air is in darkness (by day the sky
+    // outshines it).
+    float r0 = 1.0 + uGlow.w - uGlowW, r1 = 1.0 + uGlow.w + uGlowW, tb = hit ? ground.x : 1e9;
+    float len = shellPath(o, d, 0.0, tb, r0, r1);
+    if (len > 0.0) {
+      vec3 pm = o + d * clamp(-dot(o, d), 0.0, tb);
+      float dark = 1.0 - smoothstep(-0.2, 0.05, dot(normalize(pm), uL0));
+      col += uGlow.rgb * dark * len / (2.0 * sqrt(r1 * r1 - r0 * r0));
+    }
+  }
+  if (a <= 0.0 && dot(col, col) <= 0.0) discard;
   outColor = vec4(col, hit ? min(a, 0.92) : a * 0.5);
   ` + WRITE_DEPTH + `
 }

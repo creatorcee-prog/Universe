@@ -30,9 +30,9 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
   per-body emission models: blackbody heat, hot coronae, accretion disks and pulsars.
 - **Clearer info pages** (done: an "In the book" card on the overview with the entry's first line and a chip
   per book page that opens it there; tidier small numbers: ppm, × 10ⁿ, mm/s²; comets no longer "Moon of Sun").
-- **Atmospheres, further**: airglow on the night side, Mars's layered limb hazes, a low-orbit (ISS)
-  camera to see Earth's thin blue horizon band. (Thickness readouts, rims visible from afar and Titan's
-  detached haze are done.)
+- **Atmospheres, further** (done: oxygen airglow on Earth's (and faintly Venus's) night limb, a detached haze
+  layer above Mars's limb, and zoom down to a low orbit, 2% of the radius up, with the view tilting to the
+  horizon. Thickness readouts, rims visible from afar and Titan's detached haze were done before.)
 - **More lighting**: light reflected by Saturn's rings onto its night side, moonlight on Earth's night
   side, and shadows of big moons on rings. (Planetshine, red eclipses and cast terrain shadows are done.)
 - **Black hole heat** (done: a feeding hole shines at 0.1 Mdot c^2 up to Eddington, lights and heats its

@@ -25,11 +25,30 @@ export class Camera {
     this.follow = body;
   }
 
-  // Closest the camera may get: outside the locked body, never inside it.
+  // Closest the camera may get: outside the locked body, never inside it. Solid bodies (and stars) can be
+  // approached to a low orbit, 2% of the radius up (Earth: ~130 km; the ISS flies at ~420 km, 1.066 radii).
   clampDist(d) {
     const b = this.follow;
-    const min = b ? Math.max(1e-9, (b.kind === 'bh' ? b.r * 3 : b.r) * 1.6) : 1e-9;
+    const min = b ? Math.max(1e-9, b.kind === 'bh' ? b.r * 3 * 1.6 : b.r * (b.kind === 'core' ? 1.6 : 1.02)) : 1e-9;
     return Math.min(1e13, Math.max(min, d));
+  }
+
+  // Zooming scales the height above the followed body's surface rather than the distance to its centre, so
+  // the last stretch down to a low orbit is as easy to control as the zoom far out.
+  zoomFrom(d0, f) {
+    const b = this.follow, R = b && b.kind !== 'bh' && b.kind !== 'core' ? b.r : 0;
+    return this.clampDist(R + (d0 - R) * f);
+  }
+
+  // Close to a body the view tilts up from its centre toward the horizon, as from an orbiting spacecraft:
+  // none beyond 2.4 radii, full at a low orbit, where the horizon sits ~11° above the middle of the view.
+  tilt() {
+    const b = this.follow;
+    if (!b || b.kind === 'bh' || b.kind === 'core') return 0;
+    const x = this.dist / b.r;
+    if (x >= 2.4) return 0;
+    const k = Math.min(1, (2.4 - x) / 1.0), s = k * k * (3 - 2 * k);
+    return s * Math.max(0, Math.asin(Math.min(1, 1 / x)) - 0.2);
   }
 
   zoomTo(d) {
@@ -79,13 +98,20 @@ export class Camera {
     this.rx = rx; this.ry = 0; this.rz = rz;
     // up = right × forward
     this.ux = -rz * fy; this.uy = rz * fx - rx * fz; this.uz = rx * fy;
+    const a = this.tilt();
+    if (a > 0) {
+      // Turn forward toward up, about the right axis.
+      const c = Math.cos(a), s = Math.sin(a), [f0, f1, f2] = [this.fx, this.fy, this.fz], [u0, u1, u2] = [this.ux, this.uy, this.uz];
+      this.fx = f0 * c + u0 * s; this.fy = f1 * c + u1 * s; this.fz = f2 * c + u2 * s;
+      this.ux = u0 * c - f0 * s; this.uy = u1 * c - f1 * s; this.uz = u2 * c - f2 * s;
+    }
   }
 
   // Projects a world point. Writes screen x, y and pixels-per-AU into out; returns depth (<=0 means behind).
   project(x, y, z, out) {
     const dx = x - this.tx - this.ox, dy = y - this.ty - this.oy, dz = z - this.tz - this.oz;
     const cz = dx * this.fx + dy * this.fy + dz * this.fz;
-    if (cz <= this.dist * 1e-6) return -1;
+    if (cz <= this.dist * 1e-6) return -1;   // (with the view tilted, the target itself can be behind)
     const cx = dx * this.rx + dy * this.ry + dz * this.rz;
     const cy = dx * this.ux + dy * this.uy + dz * this.uz;
     const s = this.F / cz;
