@@ -1174,6 +1174,16 @@ export class Renderer3D {
     this.canvas.height = Math.round(h * this.dpr);
   }
 
+  // Anisotropic filtering on the bound texture where the device offers it: maps seen at a slant (toward a
+  // planet's limb, the ground stretching to the horizon) stay sharp instead of blurring to a coarse mip level.
+  aniso(n) {
+    const gl = this.gl;
+    if (this.anisoExt === undefined) this.anisoExt = gl.getExtension('EXT_texture_filter_anisotropic') || null;
+    const e = this.anisoExt;
+    if (!e) return;
+    gl.texParameterf(gl.TEXTURE_2D, e.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(n, gl.getParameter(e.MAX_TEXTURE_MAX_ANISOTROPY_EXT) || 1));
+  }
+
   // One texture per donor image, shared by every world that borrows it.
   donorTex(img) {
     const gl = this.gl;
@@ -1188,6 +1198,7 @@ export class Renderer3D {
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      this.aniso(8);
       gl.activeTexture(gl.TEXTURE0);
       this.dTex.set(img, t);
     }
@@ -1826,6 +1837,7 @@ export class Renderer3D {
           gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, sm.img);
           gl.generateMipmap(gl.TEXTURE_2D);
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+          this.aniso(8);
         } else if (t.ver < 0 || !sm.dirtyRows || t.W !== sm.W || t.sm !== sm) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, sm.W, sm.H, 0, gl.RGBA, gl.UNSIGNED_BYTE, sm.data);
         else {
           const [y0, y1] = sm.dirtyRows;

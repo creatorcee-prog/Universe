@@ -162,8 +162,11 @@ export class GLonGPU {
 
   // ---------- misc state ----------
 
-  getExtension(name) { return /color_buffer_float|color_buffer_half_float|float_blend|texture_float_linear/.test(name) ? {} : null; }
-  getParameter(p) { return p === this.MAX_SAMPLES ? 4 : p === this.MAX_TEXTURE_SIZE ? 8192 : 0; }
+  getExtension(name) {
+    if (/texture_filter_anisotropic/.test(name)) return { TEXTURE_MAX_ANISOTROPY_EXT: 0x84fe, MAX_TEXTURE_MAX_ANISOTROPY_EXT: 0x84ff };
+    return /color_buffer_float|color_buffer_half_float|float_blend|texture_float_linear/.test(name) ? {} : null;
+  }
+  getParameter(p) { return p === this.MAX_SAMPLES ? 4 : p === this.MAX_TEXTURE_SIZE ? 8192 : p === 0x84ff ? 16 : 0; }
   isContextLost() { return false; }
   getContextAttributes() { return { alpha: false, antialias: false, depth: false }; }
   enable(c) { this.setCap(c, true); }
@@ -239,7 +242,9 @@ export class GLonGPU {
     if (!t) return;
     if (p === this.TEXTURE_MIN_FILTER) t.minF = v; else if (p === this.TEXTURE_MAG_FILTER) t.magF = v;
     else if (p === this.TEXTURE_WRAP_S) t.wrapS = v; else if (p === this.TEXTURE_WRAP_T) t.wrapT = v;
+    else if (p === 0x84fe) t.aniso = Math.max(1, Math.min(16, Math.round(v)));
   }
+  texParameterf(target, p, v) { this.texParameteri(target, p, v); }
   allocTex(t, w, h, format) {
     if (t.gpu && t.w === w && t.h === h && t.format === format && t.mips === 1) return;
     if (t.gpu) this.retire(t.gpu);
@@ -455,11 +460,13 @@ struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     const mip = t.mips > 1 && (t.minF === this.LINEAR_MIPMAP_LINEAR || t.minF === this.NEAREST_MIPMAP_LINEAR || t.minF === this.LINEAR_MIPMAP_NEAREST);
     const min = t.minF === this.NEAREST || t.minF === this.NEAREST_MIPMAP_LINEAR || t.minF === this.NEAREST_MIPMAP_NEAREST ? 'nearest' : 'linear';
     const wrap = (w) => (w === this.CLAMP_TO_EDGE ? 'clamp-to-edge' : w === this.MIRRORED_REPEAT ? 'mirror-repeat' : 'repeat');
-    const key = `${min}|${t.magF}|${mip}|${t.wrapS}|${t.wrapT}`;
+    // (WebGPU allows anisotropy only with linear filtering throughout.)
+    const an = mip && min === 'linear' && t.magF !== this.NEAREST ? t.aniso || 1 : 1;
+    const key = `${min}|${t.magF}|${mip}|${t.wrapS}|${t.wrapT}|${an}`;
     let s = this.samplers.get(key);
     if (!s) {
       s = this.device.createSampler({ minFilter: min, magFilter: t.magF === this.NEAREST ? 'nearest' : 'linear', mipmapFilter: mip ? 'linear' : 'nearest',
-        addressModeU: wrap(t.wrapS), addressModeV: wrap(t.wrapT), lodMaxClamp: mip ? 32 : 0 });
+        addressModeU: wrap(t.wrapS), addressModeV: wrap(t.wrapT), lodMaxClamp: mip ? 32 : 0, maxAnisotropy: an });
       this.samplers.set(key, s);
     }
     return s;

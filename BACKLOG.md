@@ -74,7 +74,8 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 2. Done: lens flare (Settings toggle under Glow): starburst, halo ring, six ghosts through the centre, hidden
    when the star is (sampled from the scene; in space also a ray test against bodies). Was: halo, starburst, ghosts along the Sun-to-centre line, faded by how much
    of the disc is visible (depth test) and by the air's transmittance.
-3. Higher-resolution Earth day map: Blue Marble Next Generation, 4096x2048 (8192 would take ~170 MB of GPU
+3. Done: Earth day map from Blue Marble (NASA Visible Earth, July 2004) at 4096x2048, colour-matched to the old
+   map per channel; anisotropic filtering on the photo maps. Was: Blue Marble Next Generation, 4096x2048 (8192 would take ~170 MB of GPU
    memory with mipmaps, risky on iPhone), mipmaps and anisotropic filtering, each file under 15 MB.
 4. Ground detail textures in the surface view: tiling rock, soil, sand (colour + normal), blended by slope,
    height and biome, tinted by the map colour, hash-based tiling, fading with distance.

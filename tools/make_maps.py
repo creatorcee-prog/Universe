@@ -71,7 +71,9 @@ save(finish(recolour(load('neptune'), [0.42, 0.62, 0.90], 0.6)), 'neptune', size
 
 # Earth: the day map's colours, and a new land / sea / mountain / ice map from it (full 360°).
 day = load('earth-day')
-save(day, 'earth-day', q=86)
+# (The shipped earth-day.jpg is now 4096x2048 from Blue Marble, NASA Visible Earth 74092, July 2004, colour-
+# matched per channel to this map's mean with a gamma; this script still derives the land map from the 2048 one
+# and no longer overwrites earth-day.jpg.)
 H, W = 512, 1024
 d = np.asarray(Image.fromarray((day * 255).astype('uint8')).resize((W, H), Image.LANCZOS)).astype(float) / 255
 hsv = np.asarray(Image.fromarray((d * 255).astype('uint8')).convert('HSV')).astype(float) / 255
