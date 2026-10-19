@@ -143,6 +143,7 @@ export class Renderer {
     this.selected = ui.selected;
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
+    this.buildOccluders(ui);
     if (this.overlay) {
       ctx.clearRect(0, 0, W, H);
       this.gridSpacing = Math.pow(10, Math.floor(Math.log10(cam.dist / 1.5)));
@@ -346,6 +347,45 @@ export class Renderer {
     ctx.globalCompositeOperation = 'source-over';
   }
 
+  // Bodies that hide what lies behind them (trails, orbit lines, comet tails, labels): those whose true disc
+  // spans a couple of pixels, a nearby one even if its centre is behind the camera, and the world the camera
+  // stands on (its horizon). Built once a frame.
+  buildOccluders(ui) {
+    const cam = this.cam, p = { x: 0, y: 0, s: 0 }, dpr = this.dpr;
+    const ex = cam.tx + cam.ox, ey = cam.ty + cam.oy, ez = cam.tz + cam.oz;
+    const occ = [];
+    for (const b of this.world.bodies) {
+      if (b.kind === 'nebula' || !(b.r > 0)) continue;   // (a nebula hides nothing)
+      const dc = Math.hypot(b.x - ex, b.y - ey, b.z - ez);
+      const z = cam.project(b.x, b.y, b.z, p);
+      let sx = 0, sy = 0, sr = Infinity;
+      if (z > 0) {
+        if (b.r * p.s < 1.5 * dpr) continue;
+        sx = p.x; sy = p.y; sr = b.r * p.s;
+      } else if (dc > 3 * b.r) continue;
+      if (ui && ui.surface && ui.surface.body === b) sr = Infinity;   // (its disc is no guide when standing on it)
+      // (never around the eye: the eye standing in a valley below the sphere would otherwise see nothing)
+      occ.push({ b, x: b.x, y: b.y, z: b.z, r: Math.min(b.r, dc * 0.99999), sx, sy, sr, depth: z });
+    }
+    this.occ = occ;
+    this.eye = [ex, ey, ez];
+  }
+
+  // Is the world point (x, y, z), at screen (sx, sy), behind one of those bodies (does the sight line to it
+  // pass through one)? skip: a body that does not hide this point (its own label).
+  hiddenAt(x, y, z, sx, sy, skip) {
+    const [ex, ey, ez] = this.eye;
+    for (const o of this.occ) {
+      if (o.b === skip) continue;
+      if (o.sr !== Infinity && (sx - o.sx) ** 2 + (sy - o.sy) ** 2 > o.sr * o.sr) continue;
+      const dx = x - ex, dy = y - ey, dz = z - ez, cx = o.x - ex, cy = o.y - ey, cz = o.z - ez;
+      const t = Math.max(0, Math.min(1, (cx * dx + cy * dy + cz * dz) / (dx * dx + dy * dy + dz * dz)));
+      const qx = ex + t * dx - o.x, qy = ey + t * dy - o.y, qz = ez + t * dz - o.z;
+      if (qx * qx + qy * qy + qz * qz < o.r * o.r) return true;
+    }
+    return false;
+  }
+
   // Orbit lines: the Kepler ellipse each body would follow around what it orbits (its osculating orbit),
   // or the near part of a hyperbola for escaping bodies.
   // Predicted orbit ellipses (Settings → Orbit lines), and always for bodies orbiting too fast for trails.
@@ -397,7 +437,8 @@ export class Renderer {
           const rr = sl / (1 + e * Math.cos(th));
           if (!(rr > 0) || rr > 50 * r) { pen = false; continue; }
           const c = Math.cos(th) * rr * k, s = Math.sin(th) * rr * k;
-          if (cam.project(cx + c * Px + s * Qx, cy + c * Py + s * Qy, cz + c * Pz + s * Qz, p) <= 0) { pen = false; continue; }
+          const X = cx + c * Px + s * Qx, Y = cy + c * Py + s * Qy, Z = cz + c * Pz + s * Qz;
+          if (cam.project(X, Y, Z, p) <= 0 || this.hiddenAt(X, Y, Z, p.x, p.y)) { pen = false; continue; }
           if (pen) path.lineTo(p.x, p.y); else path.moveTo(p.x, p.y);
           pen = true;
         }
@@ -452,11 +493,11 @@ export class Renderer {
           const o = (g % TRAIL_LEN) * 3;
           let x = t.buf[o], y = t.buf[o + 1], z = t.buf[o + 2];
           if (rel) { x += f.x - rel.buf[o]; y += f.y - rel.buf[o + 1]; z += f.z - rel.buf[o + 2]; }
-          if (cam.project(x, y, z, p) <= 0) { pen = false; continue; }
+          if (cam.project(x, y, z, p) <= 0 || this.hiddenAt(x, y, z, p.x, p.y)) { pen = false; continue; }
           if (pen) path.lineTo(p.x, p.y); else path.moveTo(p.x, p.y);
           pen = true;
         }
-        if (c === CH - 1 && pen && cam.project(b.x, b.y, b.z, p) > 0) path.lineTo(p.x, p.y);
+        if (c === CH - 1 && pen && cam.project(b.x, b.y, b.z, p) > 0 && !this.hiddenAt(b.x, b.y, b.z, p.x, p.y, b)) path.lineTo(p.x, p.y);
         ctx.strokeStyle = rgba(col, 0.06 + 0.5 * ((c + 1) / CH) ** 2);
         ctx.stroke(path);
       }
@@ -588,8 +629,8 @@ export class Renderer {
     g.addColorStop(1, rgba(c, 0));
     ctx.fillStyle = g;
     ctx.fillRect(p.x - glow, p.y - glow, glow * 2, glow * 2);
-    // Faint diffraction spikes.
-    if (R < glow * 0.3) {
+    // Faint diffraction spikes (off with the lens flare).
+    if (R < glow * 0.3 && this.settings.flare !== false) {
       ctx.strokeStyle = rgba(lighten(c, 0.5), 0.22);
       ctx.lineWidth = dpr;
       ctx.beginPath();
@@ -751,6 +792,7 @@ export class Renderer {
   // Comet coma and tails. Ice starts sublimating inside a few AU of a star; both tails point away from it,
   // the blue ion tail straight down-sun, the dust tail curving back along the orbit.
   drawCometTail(b, p) {
+    if (this.hiddenAt(b.x, b.y, b.z, p.x, p.y, b)) return;   // (behind a world, or below the horizon)
     let star = null, best = 0;
     for (const s of this.world.bodies) {
       if (!isLuminous(s)) continue;
@@ -770,6 +812,16 @@ export class Renderer {
     vx /= vl; vy /= vl; vz /= vl;
     const { ctx, cam, dpr } = this;
     const tip = { x: 0, y: 0, s: 0 };
+    // The tail streams away behind the head: worlds nearer than the comet cut it off where they cross it.
+    const zc = cam.project(b.x, b.y, b.z, tip);
+    const front = this.occ.filter((o) => o.b !== b && o.sr !== Infinity && o.depth < zc);
+    ctx.save();
+    if (front.length) {
+      ctx.beginPath();
+      ctx.rect(0, 0, this.canvas.width, this.canvas.height);
+      for (const o of front) { ctx.moveTo(o.sx + o.sr, o.sy); ctx.arc(o.sx, o.sy, o.sr, 0, Math.PI * 2); }
+      ctx.clip('evenodd');
+    }
     ctx.globalCompositeOperation = 'lighter';
     const tails = [
       [ux, uy, uz, [150, 196, 255], 0.55, 1.0],
@@ -803,6 +855,7 @@ export class Renderer {
     coma.addColorStop(1, rgba([150, 200, 255], 0));
     ctx.fillStyle = coma;
     ctx.fillRect(p.x - cr * 2.5, p.y - cr * 2.5, cr * 5, cr * 5);
+    ctx.restore();
   }
 
   heatGlow(p, R, heat) {
@@ -897,9 +950,8 @@ export class Renderer {
       const pb = b[0] === ui.selected || b[0] === this.cam.follow ? 1 : 0;
       return pb - pa || b[0].m - a[0].m;
     });
-    // Discs big enough to hide something behind them (a moon behind Saturn has no label showing through it).
-    const discs = entries.filter(([c, p]) => p.R > 6 * dpr && c.kind !== 'nebula');   // (a nebula hides nothing)
-    const hidden = (b, p) => discs.some(([c, q]) => c !== b && q.z < p.z && Math.hypot(p.x - q.x, p.y - q.y) < q.R * 0.98);
+    // No label shows through a world in front (a moon behind Saturn), nor from below the horizon.
+    const hidden = (b, p) => this.hiddenAt(b.x, b.y, b.z, p.x, p.y, b);
     let n = 0;
     for (const [b, p] of entries) {
       if (n > 40) break;

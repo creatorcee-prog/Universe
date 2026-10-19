@@ -303,7 +303,9 @@ function tiltSpin(tilt, ang) {
   // [ ca,      0,    sa     ]
   // [ st*sa,   ct,  -st*ca  ]
   // [-ct*sa,   st,   ct*ca  ]
-  return new Float32Array([ca, st * sa, -ct * sa, 0, ct, st, sa, -st * ca, ct * ca]);
+  // (Double precision: the surface view places the eye a planet's radius out along this; single precision's
+  // error, ~3e-8, is 15 cm on Venus, and the ground bobbed by that from frame to frame.)
+  return new Float64Array([ca, st * sa, -ct * sa, 0, ct, st, sa, -st * ca, ct * ca]);
 }
 
 // Vegetation colour. Early life is purple (retinal-based phototrophs may have dominated before
@@ -1286,7 +1288,7 @@ export class Renderer3D {
     gl.useProgram(p.p);
     gl.uniformMatrix4fv(u.uProj, false, this.P);
     gl.uniformMatrix3fv(u.uView, false, this.V);
-    gl.uniformMatrix3fv(u.uRot, false, rot);
+    gl.uniformMatrix3fv(u.uRot, false, new Float32Array(rot));
     gl.uniform3fv(u.uObs, n); gl.uniform3fv(u.uEast, east); gl.uniform3fv(u.uNorth, north);
     gl.uniform1f(u.uRm, Rm); gl.uniform1f(u.uEyeH, eyeH); gl.uniform1f(u.uAU, AU);
     gl.uniform1f(u.uSeaOK, liquid ? 1 : 0);
@@ -2084,7 +2086,7 @@ export class Renderer3D {
     gl.uniformMatrix4fv(u.uProj, false, this.P);
     gl.uniformMatrix3fv(u.uView, false, this.V);
     gl.uniform3f(u.uCenter, x, y, z);
-    gl.uniformMatrix3fv(u.uRot, false, rot);
+    gl.uniformMatrix3fv(u.uRot, false, new Float32Array(rot));
     gl.uniform1f(u.uRadius, R);
     gl.uniform3fv(u.uTideDir, tide.dir);
     gl.uniform1f(u.uTide, Math.min(0.45, 1.5 * tide.tau));
@@ -2295,7 +2297,7 @@ export class Renderer3D {
         gl.uniformMatrix4fv(cu.uProj, false, this.P);
         gl.uniformMatrix3fv(cu.uView, false, this.V);
         gl.uniform3f(cu.uCenter, x, y, z);
-        gl.uniformMatrix3fv(cu.uRot, false, rot);
+        gl.uniformMatrix3fv(cu.uRot, false, new Float32Array(rot));
         gl.uniform1f(cu.uRadius, R * (1 + deckH));
         gl.uniform3fv(cu.uTideDir, tide.dir);
         gl.uniform1f(cu.uTide, Math.min(0.45, 1.5 * tide.tau));
@@ -2335,7 +2337,7 @@ export class Renderer3D {
         gl.uniformMatrix4fv(au.uProj, false, this.P);
         gl.uniformMatrix3fv(au.uView, false, this.V);
         gl.uniform3f(au.uCenter, x, y, z);
-        gl.uniformMatrix3fv(au.uRot, false, rot);
+        gl.uniformMatrix3fv(au.uRot, false, new Float32Array(rot));
         gl.uniform1f(au.uRadius, R * top);
         gl.uniform3fv(au.uTideDir, tide.dir);
         gl.uniform1f(au.uTide, Math.min(0.45, 1.5 * tide.tau));
@@ -2422,8 +2424,9 @@ export class Renderer3D {
       const L = Math.max(b.lum, 1e-4);
       const glowPx = Math.max(shownPx * 3.2, (6 + 4.5 * Math.log10(1 + L * 10)) * dpr) * (1 + 0.6 * Math.min(1, b.heat));
       const rgb = tempToRGB(b.temp).map((v) => v / 255);
-      // Diffraction spikes only while the star is a point; a resolved disc doesn't show them.
-      const spikes = Math.max(0, Math.min(1, 1.6 - shownPx / 25));
+      // Diffraction spikes only while the star is a point; a resolved disc doesn't show them (and with the
+      // lens flare, so the one setting turns all the rays off).
+      const spikes = this.settings.flare === false ? 0 : Math.max(0, Math.min(1, 1.6 - shownPx / 25));
       glows.push(() => this.sprite(vp, glowPx / pxPerAU, rgb.map((v) => v * (this.post ? 0.75 : 1.1)), 0, 0, spikes));
       if (b.kind === 'ns') {
         const ang = now * 0.004;

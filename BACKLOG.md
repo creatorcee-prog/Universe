@@ -59,6 +59,13 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 - (Done) Photographed ground near the eye (Poly Haven CC0 scans of soil, sand, rock, lunar regolith and
   forest floor) as colour and relief; fine detail fades by the pixel's real footprint on the ground (the
   long axis at a slant), which removed the streaks that ran away from the eye; sand ripples in patches.
+- (Done) Fixed: the ground still shook in Surface view while time ran: the planet's rotation matrix was single
+  precision, so the eye, a planet's radius out, was off by up to ~15 cm (Venus) differently each frame; now
+  double precision (eye height steady to micrometres; consecutive frames identical).
+- (Done) Trails, orbit lines, comet tails and labels are hidden behind worlds and below the horizon (a sight-line
+  test against each world big enough to hide something, and the ground you stand on).
+- (For now) The Sun's rays (lens flare and diffraction spikes) off by default, to see the sky without them;
+  Settings → Lens flare brings them back.
 - Next: the jagged edge of hills' shadows (shaded per vertex of the ring mesh); Earth's land up close.
 
 ## New list
