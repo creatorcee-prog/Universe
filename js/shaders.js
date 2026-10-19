@@ -1040,6 +1040,31 @@ float fineDetail(vec2 p, float rough, float res, float meshRes) {
   }
   return h;
 }
+// Mountain ranges between the map's scale (~20 km a pixel) and the hills: ridged multifractal noise from
+// 24 km down to ~2 km wavelength, crests sharpening where the range is already high; up to ~1.8 km of relief
+// where the map says mountains (mtn), gentle swells elsewhere.
+float rangeHeight(vec2 p, float mtn, float res) {
+  vec2 pp = p + uLocal;
+  float h = 0.0, amp = uRelief * (0.06 + 0.45 * mtn), lam = 24000.0, w = 1.0;
+  for (int i = 0; i < 4; i++) {
+    float f = smoothstep(res * 2.5, res * 6.0, lam);
+    if (f <= 0.0) break;
+    float n = ridge(vec3(pp / lam, float(i) * 5.3 + uSeed + 70.0));
+    n = n * n * w;
+    w = clamp(n * 1.8, 0.0, 1.0);
+    h += amp * (n - 0.3) * f;
+    lam *= 0.45; amp *= 0.45;
+  }
+  return h;
+}
+// Valley floors of those ranges, 0..1: where they are low, between their crests (for the mist).
+float rangeValley(vec2 p) {
+  // At the scales of the valleys in view (the ranges' 2nd and 3rd octaves, ~11 and ~5 km). (Value noise
+  // clusters about 0.5, so a ridge value is mostly high; the floors are its lower third.)
+  vec2 pp = p + uLocal;
+  float n = 0.5 * (ridge(vec3(pp / 10800.0, uSeed + 75.3)) + ridge(vec3(pp / 4860.0, uSeed + 80.6)));
+  return 1.0 - smoothstep(0.45, 0.75, n);
+}
 float smallHeight(vec2 p, float rough, float res) {
   vec2 pp = p + uLocal;
   float h = 0.0, amp = uRelief * (0.012 + 0.04 * rough) * uRough, lam = 2400.0;
@@ -1082,6 +1107,8 @@ out vec2 vPlanar;
 out vec3 vInfo;                        // x: height above sea (m), y: mountains, z: distance (m)
 out vec3 vNrm;                         // smooth ground normal (view space)
 out float vShadow;                     // sunlight left after the terrain's own shadows
+out float vEyeAlt;                     // the eye's height above sea level (m)
+out vec2 vValley;                      // valley floor (0..1) here and at the eye, for the mist
 uniform vec3 uSunO;                    // direction to the Sun, object frame
 uniform float uSunAngT;                // the Sun's angular radius (rad)
 ` + LOGDEPTH_V + `
@@ -1089,7 +1116,7 @@ uniform float uSunAngT;                // the Sun's angular radius (rad)
 float terrainH(vec3 d, vec2 p, float res, out vec2 em) {
   em = bigTerrain(d);
   if (uHMapK > 0.5) return smallHeight(p, uOcean > 0.0 ? clamp(em.y * 1.5 + 0.15, 0.0, 1.0) : 0.45, res);
-  return bigHeight(em) + smallHeight(p, clamp(em.y * 1.5 + 0.15, 0.0, 1.0), res);
+  return bigHeight(em) + rangeHeight(p, clamp(em.y * 1.6, 0.0, 1.0), res) + smallHeight(p, clamp(em.y * 1.5 + 0.15, 0.0, 1.0), res);
 }
 float mapHeight(vec3 d) { return uHMapK > 0.5 ? mapTex(uHMap, uHRot * d).r * uHScale : 0.0; }
 void main() {
@@ -1105,6 +1132,10 @@ void main() {
   float sea = uSeaOK > 0.5 ? 0.0 : -1e9;
   float Href = max(H0, sea);             // stand on the ground, or on the water if it's sea here
   float Hs = max(H, sea);
+  vEyeAlt = Href + uEyeH;
+  // Valleys: low between the ranges' crests (and on any low ground near the sea).
+  float coastal = uSeaOK > 0.5 ? 1.0 - smoothstep(20.0, 300.0, Hs) : 0.0;
+  vValley = vec2(max(rangeValley(p), coastal), max(rangeValley(vec2(0.0)), uSeaOK > 0.5 ? 1.0 - smoothstep(20.0, 300.0, Href) : 0.0));
   float drop = dot(p, p) / (2.0 * uRm);  // the planet curving away
   vec3 rel = uEast * p.x + uNorth * p.y + uObs * (Hs - Href - drop - uEyeH);
   vec3 world = uRot * rel / uAU;
@@ -1157,6 +1188,8 @@ in vec2 vPlanar;
 in vec3 vInfo;
 in vec3 vNrm;
 in float vShadow;
+in float vEyeAlt;
+in vec2 vValley;
 ` + LOGDEPTH_F + `
 uniform vec3 uL0, uSunCol, uAmb;       // sun direction (view), sunlight reaching the ground, sky light
 uniform vec3 uEastV, uNorthV, uUpV;    // local axes in view space
@@ -1165,7 +1198,15 @@ uniform float uLife, uTemp, uLatSpan, uIce, uBoil, uSeaOK, uLapse, uTime, uPxAng
 uniform vec3 uFogExt;                  // ground-level extinction per metre (per channel)
 uniform float uFogH;                   // scale height of that haze (m)
 uniform vec3 uFogSun, uFogAnti, uSkyZen; // sky colour at the horizon toward / away from the sun, zenith
+uniform vec4 uHaze;                    // humid haze: extinction (per m), scale height (m); valley mist: extinction
 out vec4 outColor;
+// Optical depth along a straight ray from height h0 to h1 (m), length L (m), through a layer whose density
+// falls as k·exp(-(h - b)/S) (full below b): exact for the exponential, so long sloping rays are right.
+float layerDepth(float k, float S, float b, float h0, float h1, float L) {
+  float a0 = exp(-max(h0 - b, 0.0) / S), a1 = exp(-max(h1 - b, 0.0) / S);
+  float dh = h1 - h0;
+  return k * L * (abs(dh) < S * 0.01 ? 0.5 * (a0 + a1) : S * (a0 - a1) / dh);
+}
 void main() {
   vec3 sunC = uSunCol * vShadow;         // the Sun's light, where the terrain does not shade it
   float H = vInfo.x, mtnBig = vInfo.y, dist = vInfo.z;
@@ -1281,6 +1322,21 @@ void main() {
   float az = dot(Vh, Vh) > 1e-8 && dot(Lh, Lh) > 1e-8 ? dot(normalize(Vh), normalize(Lh)) : 0.0;
   vec3 fog = mix(uFogAnti, uFogSun, az * 0.5 + 0.5);
   col = col * Tr + fog * (1.0 - Tr);
+  // Humid haze (water droplets, aerosols): grey, so distant hills fade into the horizon's own colour.
+  float hx = max(H, 0.0);
+  float tH = exp(-layerDepth(uHaze.x, uHaze.y, 0.0, vEyeAlt, hx, dist));
+  col = col * tH + fog * (1.0 - tH);
+  // Valley mist: pooled in the low ground (below the regional surface), at the far end of the view and around
+  // the eye if it stands in a valley; white-grey in sunlight, glowing toward the Sun (droplets scatter
+  // forward), dim in the shade of night.
+  if (uHaze.z > 0.0) {
+    float inMist = 0.5 * (vValley.x + vValley.y);
+    float tM = exp(-uHaze.z * min(dist, 30000.0) * inMist);
+    float cosS = dot(-V, uL0);
+    float glow = 0.5 + 1.2 * pow(max(cosS, 0.0), 8.0);
+    vec3 mist = mix(fog, vec3(dot(fog, vec3(0.33))), 0.5) * 1.05 + uSunCol * glow * 0.12 + uAmb * 0.2;
+    col = col * tM + mist * (1.0 - tM);
+  }
   outColor = vec4(max(col, 0.0), 1.0);
   ` + WRITE_DEPTH + `
 }
@@ -2086,10 +2142,14 @@ void main() {
   // The cloud deck (premultiplied colour and coverage), over the sky and the star's disc.
   if (uCloudBuf > 0.5) {
     // (Upscaled from a quarter of the resolution with a Catmull-Rom bicubic: smooth, but sharper than a blur.)
+    // (Catmull-Rom overshoots near sharp edges: coverage is kept in 0..1, or 1 - a < 0 makes pow() NaN and
+    // blacks out the sky around the Sun.)
     vec4 cl = catmullRom(uClouds, vUV);
+    cl.a = clamp(cl.a, 0.0, 1.0);
+    cl.rgb = min(cl.rgb, vec3(4.0));
     col = col * (1.0 - cl.a) + cl.rgb;
     alpha = alpha * (1.0 - cl.a) + cl.a;
-    sunHDR *= pow(1.0 - cl.a, 8.0);   // (16x white: a thick cloud must hide it, not just dim it)
+    sunHDR *= pow(max(1.0 - cl.a, 0.0), 8.0);   // (16x white: a thick cloud must hide it, not just dim it)
   }
   // Fallback: a flat layer seen in perspective, drifting with the wind, lit by the sunlight that got through
   // the air (so it glows orange-pink at sunset), faint at night.

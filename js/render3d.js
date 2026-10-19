@@ -880,7 +880,11 @@ export class Renderer3D {
     const sunT = g ? g.sunT : [1, 1, 1];
     const sunCol = [0, 1, 2].map((i) => ld[1][i] * sunT[i] * adapt * (sunUp > -0.02 ? 1 : 0));
     // Sky light: from the model, or (airless) only faint light from the stars and the ground around.
-    const amb = g ? g.amb.map((v, i) => v * adapt * (ld[1][i] > 0 ? 1 : 0) + 0.004) : sunCol.map((v) => v * 0.04 * Math.max(0, sunUp) + 0.002);
+    // (The model's eight-direction sky average comes out dim, most of all with a low Sun, when shaded slopes go
+    // black; measured skylight at sunrise is ~5-10% of noon sunlight, and the eye adapts to it. Boosted to
+    // match: x1.6 at noon, up to x3 near the horizon.)
+    const ambK = 1.6 + 1.4 * (1 - Math.max(0, Math.min(1, (sunUp - 0.05) / 0.45)));
+    const amb = g ? g.amb.map((v, i) => v * adapt * ambK * (ld[1][i] > 0 ? 1 : 0) + 0.004) : sunCol.map((v) => v * 0.04 * Math.max(0, sunUp) + 0.002);
     const ext = optics ? [0, 1, 2].map((i) => (optics.betaR[i] + optics.betaA[i] + optics.betaM[i] + optics.betaMa[i]) / Rm) : [0, 0, 0];
     const fogH = optics ? ((optics.betaR[1] * optics.hR + optics.betaM[1] * optics.hM) / Math.max(1e-9, optics.betaR[1] + optics.betaM[1])) * Rm : 1;
     const gr = (6.674e-11 * b.m * 1.98847e30) / (Rm * Rm);
@@ -935,6 +939,14 @@ export class Renderer3D {
     gl.uniform3fv(u.uFogSun, g ? g.horSun : [0, 0, 0]);
     gl.uniform3fv(u.uFogAnti, g ? g.horAnti : [0, 0, 0]);
     gl.uniform3fv(u.uSkyZen, g ? g.zen : [0, 0, 0]);
+    // Haze and mist from how wet the world is (its ocean cover) and its air pressure. Humid haze: visibility
+    // (3.9 / extinction) from ~100 km in dry air to ~20 km in humid air, 1.5 km deep. Valley mist: ~60 m deep,
+    // pooled in valleys, thickest at dawn and dusk and where it is cool, none in thin air.
+    const humid = th && liquid ? Math.min(1, th.ocean * 1.2) : 0, Pbar = optics ? optics.P : 0;
+    const airK = Math.min(1.5, Math.sqrt(Math.max(Pbar, 0)));
+    const dawn = 0.35 + 0.65 * Math.max(0, Math.min(1, (0.4 - Math.sin(sv.elev || 0)) / 0.35));
+    const cool = th ? Math.max(0, Math.min(1, (305 - temp) / 25)) : 0;
+    gl.uniform4f(u.uHaze, 4e-5 * (0.3 + 1.7 * humid) * airK, 1500, Pbar > 0.05 ? 1.2e-3 * humid * dawn * (0.3 + 0.7 * cool) * airK : 0, 0);
     if (window.__tdbg) window.__tdbg = { n, eyeH, wr, br: b.r, upWorld: [rot[0] * n[0] + rot[3] * n[1] + rot[6] * n[2], rot[1] * n[0] + rot[4] * n[1] + rot[7] * n[2], rot[2] * n[0] + rot[5] * n[1] + rot[8] * n[2]], svUp: sv.up, upV, ex: [this.ex, this.ey, this.ez], b: [b.x, b.y, b.z] };
     const m = this.terrainMesh();
     gl.disable(gl.CULL_FACE);

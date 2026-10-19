@@ -93,7 +93,10 @@ on the phone.
   puffy sunlit tops, dark undersides, rims near the Sun, hides the Sun when thick. To refine: fine streaks in
   cloud bases from the step count; thin high cirrus; crisper detail (temporal accumulation would allow more
   steps for the same cost).
-- S2: stronger aerial perspective and valley fog, scaled by how thick the air is.
+- S2 done (first version): humid haze (visibility ~100 km dry to ~20 km humid, 1.5 km deep) and valley mist
+  (pooled between the mountain ranges' crests and on low coasts, thickest at dawn and dusk), integrated along
+  each view ray; mountain ranges at 2-24 km wavelengths (up to ~1.8 km relief in mountain country); more
+  skylight on shaded ground (it went black at dawn). To refine: mist could drift and thin with the wind.
 - S3: planets and moons in the sky veiled by the air in front of them (they are drawn opaque over the sky).
 - S4: weather: rain streaks under thick warm cloud, lightning glowing inside the deck.
 - S5: ground detail textures and sharper mountains (items 4 and 8 above).

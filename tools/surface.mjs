@@ -1,7 +1,8 @@
 // The surface view, for judging looks: stands on a world with the Sun at a chosen elevation and looks at a
 // chosen angle from it.
 //   node tools/surface.mjs out.png [sunElevDeg=20] [yawFromSunDeg=40] [pitchDeg=4]
-// TERRA=<compKey> stands on a made-up world (Terra, 1 AU from a star) instead of Earth. CLOUD=<0..1> overrides
+// TERRA=<compKey> stands on a made-up world (Terra, 1 AU from a star) instead of Earth; with MOUNTAIN=1, in its
+// most mountainous land (MOUNTAIN=high: its highest). CLOUD=<0..1> overrides
 // its cloud cover. WEBGPU=1 uses the WebGPU renderer. SETTLE=<ms> waits longer before the picture (the clouds
 // accumulate over frames, and software rendering here is slow).
 import { chromium, devices } from 'playwright';
@@ -36,11 +37,43 @@ await page.evaluate(async ([terra, cloud]) => {
 await page.waitForTimeout(4000);   // climate settles
 await page.evaluate(() => { app.ui.setSpeed(0); app.state.paused = true; app.enterSurface(window.__b, 'day'); });
 await page.waitForTimeout(4000);
-// Walk away from the subsolar point until the Sun stands at the wanted elevation, then face it (plus yaw).
-await page.evaluate(([elev]) => {
-  const sv = app.surface;
-  sv.lon -= (90 - elev) * Math.PI / 180;
-}, [+elevS]);
+if (process.env.TERRA && process.env.MOUNTAIN) {
+  // Stand in the mountains: the land point with the highest ridges in the world's generated terrain map;
+  // then turn the planet until the Sun stands at the wanted elevation (morning side).
+  await page.waitForFunction(() => { const m = app.r3d.genMaps && app.r3d.genMaps.get(window.__b); return m && m.done; }, null, { timeout: 120000 });
+  await page.evaluate(([elev, mode]) => {
+    const r = app.r3d, g = r.gl, m = r.genMaps.get(window.__b), W = 2048, H = 1024, b = window.__b;
+    g.bindFramebuffer(g.FRAMEBUFFER, m.fbo);
+    g.framebufferTexture2D(g.FRAMEBUFFER, g.COLOR_ATTACHMENT0, g.TEXTURE_2D, m.tex, 0);
+    const px = new Float32Array(W * H * 4); g.readPixels(0, 0, W, H, g.RGBA, g.FLOAT, px);
+    g.bindFramebuffer(g.FRAMEBUFFER, null);
+    const sea = 0.3 + 0.36 * (b.th ? b.th.ocean : 0.7);
+    let best = -1, bi = 0;
+    for (let y = H * 0.25; y < H * 0.75; y += 2) for (let x = 0; x < W; x += 2) {
+      const o = (y * W + x) * 4, score = (mode === "high" ? px[o] + 0.14 * px[o + 1] : px[o + 1]) * (px[o] > sea + 0.03 ? 1 : 0);   // the most mountainous (or MOUNTAIN=high: the highest) land
+      if (score > best) { best = score; bi = y * W + x; }
+    }
+    const u = (bi % W + 0.5) / W, v = (Math.floor(bi / W) + 0.5) / H;
+    const sv = app.surface;
+    sv.lat = (0.5 - v) * Math.PI; sv.lon = -(u - 0.5) * 2 * Math.PI; sv.place = false;
+    const sp = r.spin.get(b);
+    let bestA = sp.ang, bestE = 1e9;
+    for (let k = 0; k < 360; k++) {
+      sp.ang = (k / 360) * Math.PI * 2;
+      app.updateSurface();
+      const s = sv.sun, n = sv.up, e = Math.asin(s[0] * n[0] + s[1] * n[1] + s[2] * n[2]) * 180 / Math.PI;
+      const de = Math.abs(e - elev);
+      if (de < bestE) { bestE = de; bestA = sp.ang; }
+    }
+    sp.ang = bestA; app.updateSurface();
+  }, [+elevS, process.env.MOUNTAIN]);
+} else {
+  // Walk away from the subsolar point until the Sun stands at the wanted elevation.
+  await page.evaluate(([elev]) => {
+    const sv = app.surface;
+    sv.lon -= (90 - elev) * Math.PI / 180;
+  }, [+elevS]);
+}
 await page.waitForTimeout(3000);
 const info = await page.evaluate(([yaw, pitch]) => {
   const sv = app.surface, s = sv.sun, n = sv.up, N = sv.north;
