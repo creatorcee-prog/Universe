@@ -65,7 +65,9 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 
 ## Visual to-do from the user (ranked by impact for effort), with notes
 
-1. Tonemap once, at the end. Partly done: the surface sky's Sun disc now reaches the HDR buffer at full
+1. Tonemap once, at the end. Done (hybrid): one curve at the end (shaders.js TONEMAP: untouched below 0.75,
+   Reinhard shoulder keeping gradations to ~10x white); the sky and atmosphere keep a camera-like compression
+   for ordinary brightness, but light past ~3x (the glow around the Sun) passes on to bloom. Earlier: the surface sky's Sun disc now reaches the HDR buffer at full
    brightness (capped at 16x white) and is dimmed by the air once, not twice; the sky keeps its curve. A full
    move to scene-linear output would mean retuning every shader (planets, rings, sprites are display-referred,
    tuned in 0..1). Per-channel transmittance needs dual-source blending (not in WebGL 2; optional in WebGPU).

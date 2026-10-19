@@ -157,7 +157,6 @@ function scatterRay(o, oo, d, tMax, sun, bias) {
   }
   return L;
 }
-const tone = (x) => { const m = Math.max(x[0], x[1], x[2], 1e-9), k = (1 - Math.exp(-m)) / m; return x.map((v) => v * k); };
 
 // Colours the ground needs, in the same exposure as the sky shader: the sky at the horizon toward and away
 // from the sun, at the zenith, sunlight reaching the ground (transmittance), and the diffuse sky light.
@@ -171,7 +170,8 @@ export function groundLight(o, sunUp, expo) {
     const b = oo[0] * d[0] + oo[1] * d[1] + oo[2] * d[2], c = 1.00002 ** 2 - top * top;
     return scatterRay(o, oo, d, -b + Math.sqrt(b * b - c), sun, 2.2);
   };
-  const ex = (L) => tone(L.map((v) => v * expo));
+  // (As the sky shader's skyTone, without its highlight excess: the horizon's colour for the haze.)
+  const ex = (L) => { const x = L.map((v) => v * expo), m = Math.max(x[0], x[1], x[2], 1e-9), k = (1 - Math.exp(-m)) / m; return x.map((v) => v * k); };
   const horSun = ex(ray(2, 0)), horAnti = ex(ray(2, 180)), zen = ex(ray(90, 0));
   // Diffuse light on a horizontal surface: average of the sky over the hemisphere (a few directions),
   // in units where full sunlight is 1.

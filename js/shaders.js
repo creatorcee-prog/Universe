@@ -1431,10 +1431,14 @@ vec3 scatter(vec3 o, vec3 d, float tMax, vec3 sun, float bias, out vec3 T) {
   T = exp(-tau);
   return L;
 }
-// Hue-preserving exposure: compress by the brightest channel so bright skies keep their colour.
-vec3 tone(vec3 x) {
+// The sky's exposure: compressed by the brightest channel (hue kept) into the screen's range, as a camera's
+// sky would be; only light far past white (the glow close around the Sun, ~3x and up) passes its excess on, so
+// bloom and the composite's tone curve (TONEMAP) see a real highlight there.
+vec3 skyTone(vec3 x) {
   float m = max(max(x.r, x.g), max(x.b, 1e-9));
-  return x * (1.0 - exp(-m)) / m;
+  vec3 t = x * (1.0 - exp(-m)) / m;
+  float e = max(m - 3.0, 0.0);
+  return t * (1.0 + 0.12 * e * e / (e + 2.0));   // (starts with zero slope: no visible edge where it begins)
 }
 // Distance along o + d·t to a sphere of radius R (far root if inside, near if outside); -1 if missed.
 vec2 sphereHit(vec3 o, vec3 d, float R) {
@@ -1471,7 +1475,7 @@ void main() {
   float t1 = hit ? ground.x : top.y;
   vec3 T;
   vec3 L = scatter(o + d * t0, d, t1 - t0, uL0, 1.0, T);
-  vec3 col = tone(max(L, 0.0) * uExpo);
+  vec3 col = skyTone(max(L, 0.0) * uExpo);
   float a = clamp(1.0 - dot(T, vec3(0.3333)), 0.0, 1.0);
   col += uHot * a;
   outColor = vec4(col, hit ? min(a, 0.92) : a * 0.5);
@@ -2013,26 +2017,36 @@ void main() {
 
 // Final image: scene plus bloom, with a soft shoulder so bright lava and stars roll off to white
 // instead of clipping.
-export const COMPOSITE_FS = HEAD + FINITE + `
+// The one tone curve, at the very end (composite and pixel view): the scene is in linear light, with
+// highlights up to ~10x white (the Sun, its glare, sunlit horizons, bright limbs). Below 0.75 it is untouched
+// (planets, rings and sprites were tuned in 0..1); above, a Reinhard shoulder on the excess keeps gradations to
+// ~10 instead of clipping at ~1.5, by the brightest channel so hues hold; light past ~3x turns towards white.
+const TONEMAP = `
+vec3 tonemap(vec3 c) {
+  float l = max(c.r, max(c.g, c.b));
+  if (l > 0.75) {
+    float x = l - 0.75, m = 0.75 + x / (1.0 + x / 0.25);
+    c *= m / l;
+    c = mix(c, vec3(m), clamp((l - 3.0) / 10.0, 0.0, 0.35));
+  }
+  return c;
+}
+`;
+
+export const COMPOSITE_FS = HEAD + FINITE + TONEMAP + `
 in vec2 vUV;
 uniform sampler2D uScene, uBloom;
 uniform float uBloomK;
 out vec4 outColor;
 void main() {
   vec3 c = finite(texture(uScene, vUV).rgb) + finite(texture(uBloom, vUV).rgb) * uBloomK;
-  float l = max(c.r, max(c.g, c.b));
-  if (l > 0.82) {
-    float m = 0.82 + 0.18 * (1.0 - exp(-(l - 0.82) / 0.18));
-    c *= m / l;
-    c = mix(c, vec3(m), clamp((l - 1.8) / 6.0, 0.0, 0.3));
-  }
-  outColor = vec4(c, 1.0);
+  outColor = vec4(tonemap(c), 1.0);
 }
 `;
 
 // Pixel view: nearest-neighbour upscale of a low-resolution render, posterised to a small palette
 // with 4x4 ordered (Bayer) dithering, like hand-made pixel art.
-export const PIXEL_FS = HEAD + FINITE + `
+export const PIXEL_FS = HEAD + FINITE + TONEMAP + `
 in vec2 vUV;
 uniform sampler2D uScene, uBloom;
 uniform vec2 uLow;
@@ -2043,8 +2057,7 @@ void main() {
   vec2 p = floor(gl_FragCoord.xy / uScale);
   vec2 uv = (p + 0.5) / uLow;
   vec3 c = finite(texelFetch(uScene, ivec2(min(p, uLow - 1.0)), 0).rgb) + finite(texture(uBloom, uv).rgb) * uBloomK;
-  float l = max(c.r, max(c.g, c.b));
-  if (l > 0.82) { float m = 0.82 + 0.18 * (1.0 - exp(-(l - 0.82) / 0.18)); c *= m / l; }
+  c = tonemap(c);
   int i = int(mod(p.y, 4.0)) * 4 + int(mod(p.x, 4.0));
   float d = BAYER[i] / 16.0; // 0..0.94: near-black stays black, so the sky has no dot grid
   c = pow(max(c, 0.0), vec3(0.85));
@@ -2139,7 +2152,7 @@ void main() {
     }
   }
   vec3 Lall = L + Lring * ringA * T;
-  vec3 col = tone(Lall * uExpo);
+  vec3 col = skyTone(Lall * uExpo);
   float alpha = clamp(max(col.r, max(col.g, col.b)) * 1.4, 0.0, 1.0);
   alpha = max(alpha, ringA * dot(T, vec3(0.3333)));
   // The star's disc at its full brightness (dimmed once by the air in front of it), not squeezed by the curve
