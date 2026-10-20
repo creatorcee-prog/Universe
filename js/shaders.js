@@ -1445,6 +1445,17 @@ float terrainH(vec3 d, vec2 p, float res, out vec2 em) {
   return bigHeight(em) + rangeHeight(p, clamp(em.y * 1.6, 0.0, 1.0), res) + smallHeight(p, clamp(em.y * 1.5 + 0.15, 0.0, 1.0), res) + mesaH(p, res);
 }
 float mapHeight(vec3 d) { return uHMapK > 0.5 ? mapTex(uHMap, uHRot * d).r * uHScale : 0.0; }
+// The direction from the world's centre to the ground at q (m east, north of the observer). On a small world
+// (under 300 km) q is measured along the ground (arc length, capped short of the far side), so ground features
+// keep their size all the way round; on bigger ones, out on the tangent plane (the same within the ~150 km drawn).
+vec3 dirAt(vec2 q) {
+  if (uRm < 3e5) {
+    float l = length(q), ang = min(l / uRm, 2.9);
+    vec2 u = l > 1e-6 ? q / l : vec2(0.0);
+    return normalize(uObs * cos(ang) + (uEast * u.x + uNorth * u.y) * sin(ang));
+  }
+  return normalize(uObs + (uEast * q.x + uNorth * q.y) / uRm);
+}
 void main() {
   // A rock: placed at its centre, on the ground as drawn there (the same heights, at the mesh's spacing).
   float rk = aRock.z;
@@ -1452,7 +1463,7 @@ void main() {
   float r = rk != 0.0 ? length(p) : aPolar.x;
   vRock = rk > 0.0 ? 1.0 : rk < 0.0 ? 2.0 : 0.0;
   vRockL = aLocal;
-  vec3 d = normalize(uObs + (uEast * p.x + uNorth * p.y) / uRm);
+  vec3 d = dirAt(p);
   float res = 0.1 * r + 0.05;            // the mesh's spacing here (rings ~10% apart)
   vec2 em, em0;
   float Hm = mapHeight(d), H0m = mapHeight(uObs);
@@ -1468,6 +1479,10 @@ void main() {
   vValley = vec2(max(rangeValley(p), coastal), max(rangeValley(vec2(0.0)), uSeaOK > 0.5 ? 1.0 - smoothstep(20.0, 300.0, Href) : 0.0));
   float drop = dot(p, p) / (2.0 * uRm);  // the planet curving away
   vec3 rel = uEast * p.x + uNorth * p.y + uObs * (Hs - Href - drop - uEyeH);
+  // On a small world (under 300 km) the ground drawn reaches round much of it, where the flat-map
+  // approximation above fails (the drop x²/2R outruns the radius, and the ground rose in spires): place it
+  // on the sphere exactly instead (precise enough in single precision at this size: ~1 cm).
+  if (uRm < 3e5) rel = (d - uObs) * uRm + d * Hs - uObs * (Href + uEyeH);
   vec3 rockOff = vec3(0.0), rockN = vec3(0.0, 0.0, 1.0);
   if (rk > 0.0) {
     // Which rocks lie here: more where the ground is rocky and on slopes, in patches (boulder fields), none in the
@@ -1495,8 +1510,8 @@ void main() {
   // instead of faceted triangle by triangle.
   float ep = max(res * 0.7, 0.05);
   vec2 emx, emy;
-  vec3 dxp = normalize(uObs + (uEast * (p.x + ep) + uNorth * p.y) / uRm);
-  vec3 dyp = normalize(uObs + (uEast * p.x + uNorth * (p.y + ep)) / uRm);
+  vec3 dxp = dirAt(p + vec2(ep, 0.0));
+  vec3 dyp = dirAt(p + vec2(0.0, ep));
   float gx = (max(terrainH(dxp, p + vec2(ep, 0.0), res, emx) + Hm, sea) - Hs) / ep;
   float gy = (max(terrainH(dyp, p + vec2(0.0, ep), res, emy) + Hm, sea) - Hs) / ep;
   if (uHMapK > 0.5) {
@@ -1505,7 +1520,7 @@ void main() {
     gx += (mapHeight(normalize(uObs + (uEast * (p.x + ep2) + uNorth * p.y) / uRm)) - Hm) / ep2;
     gy += (mapHeight(normalize(uObs + (uEast * p.x + uNorth * (p.y + ep2)) / uRm)) - Hm) / ep2;
   }
-  vNrm = uView * (uRot * normalize(uObs - uEast * gx - uNorth * gy));
+  vNrm = uView * (uRot * normalize((uRm < 3e5 ? d : uObs) - uEast * gx - uNorth * gy));
   if (rk > 0.0) {
     // The rock's vertex: out from its centre, tilted with the slope underneath.
     rel += uEast * rockOff.x + uNorth * rockOff.y + uObs * (rockOff.z + gx * rockOff.x + gy * rockOff.y);
@@ -1574,7 +1589,7 @@ void main() {
     for (int i = 0; i < 14; i++) {
       if (i >= steps) break;
       vec2 q = p + hd * x;
-      vec3 dq = normalize(uObs + (uEast * q.x + uNorth * q.y) / uRm);
+      vec3 dq = dirAt(q);
       vec2 emq;
       float hq = max(terrainH(dq, q, max(res, x * 0.08), emq) + mapHeight(dq), sea);
       float ray = Hs + x * tE + x * x / (2.0 * uRm);

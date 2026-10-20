@@ -1531,7 +1531,9 @@ export class Renderer3D {
     this.bindEarthDay(u, b, th);
     this.bindHeight(u, b, false);
     this.bindGen(u, b, Infinity);
-    gl.uniform1f(u.uRelief, 4000 * reliefK);
+    // (Capped at ~2.5% of the radius on small worlds: the 1/g rule would raise peaks a fifth of the radius high on
+    // a 60 km moon; Epimetheus's own ~10 km departures from a sphere are its overall shape, not local peaks.)
+    gl.uniform1f(u.uRelief, Math.min(4000 * reliefK, 0.025 * b.r * 1.495978707e11));
     gl.uniform1f(u.uCraters, l.craters ? Math.min(1, l.craters * 2.5) : 0);
     // Venus-thick air: few dunes (Magellan found only two fields), and broken basalt slabs and rubble
     // underfoot, as in the Venera 13 and 14 panoramas.
@@ -1939,6 +1941,9 @@ export class Renderer3D {
     if (HEIGHTS[name] !== file) {
       const gB = (6.674e-11 * b.m * 1.98847e30) / (b.r * 1.495978707e11) ** 2;
       k *= Math.max(0.25, Math.min(4, HEIGHT_G[file] / Math.max(gB, 0.05)));
+      // (and never more than ~5% of the radius: the Moon's ±9 km would otherwise stand ±40 km high on a 60 km
+      // moon such as Epimetheus, whose whole shape departs from a sphere by ~6 km)
+      k = Math.min(k, (0.05 * b.r * 1.495978707e11) / 9000);
     }
     gl.uniformMatrix3fv(u.uHRot, false, rot);
     gl.uniform1f(u.uHScale, k);
@@ -1998,15 +2003,34 @@ export class Renderer3D {
 
   // The planet a tidally locked moon keeps one face toward: the one closest in tidal terms (smallest
   // distance / cube root of mass). Null for a world that is not locked.
+  // Worlds without a set look are locked when tides would have locked them in the age of the Solar System:
+  // a moon of a planet (not a planet of a star: Mercury's tides hold it in a 3:2 spin instead), with the
+  // despinning time t ≈ 6 a⁶ R μ / (m M²) × 10¹⁰ yr (SI units, rigidity μ = 3×10¹⁰ Pa; Gladman et al.
+  // 1996, Icarus 122, 166) under 4.5 billion years. That locks nearly every regular moon (Epimetheus in
+  // centuries, our Moon in a few million years) and none of the far, irregular ones such as Phoebe (~10¹³ yr).
+  // Rechecked every few seconds; moons do not move far enough to change it sooner.
   tidalParent(world, b) {
-    if (!this.look(b).locked) return null;
+    const l = this.look(b);
+    if (l.locked === 0) return null;
+    this.lockAt ||= new Map();
+    const now = performance.now(), c = this.lockAt.get(b);
+    if (!l.locked && c && now - c.t < 3000 && c.n === world.bodies.length) return c.par && c.par.alive !== false ? c.par : null;
     let par = null, best = Infinity;
     for (const o of world.bodies) {
       if (o === b || o.m <= b.m || o.kind === 'nebula') continue;
       const k = Math.hypot(o.x - b.x, o.y - b.y, o.z - b.z) / Math.cbrt(o.m);
       if (k < best) { best = k; par = o; }
     }
-    return par;
+    if (l.locked) return par;
+    let locked = null;
+    if (par && b.kind === 'rocky' && !isLuminous(par) && par.kind !== 'bh' && par.kind !== 'wd' && par.kind !== 'ns' && b.r > 0) {
+      const AU = 1.495978707e11, MSUN = 1.98847e30;
+      const a = Math.hypot(par.x - b.x, par.y - b.y, par.z - b.z) * AU, R = b.r * AU, m = b.m * MSUN, M = par.m * MSUN;
+      const tLock = (6 * a ** 6 * R * 3e10) / (m * M * M) * 1e10;
+      if (tLock < 4.5e9) locked = par;
+    }
+    this.lockAt.set(b, { t: now, n: world.bodies.length, par: locked });
+    return locked;
   }
 
   // Spin bodies (capped so fast time-warp doesn't strobe). Called by the main loop before the surface view
@@ -2018,7 +2042,7 @@ export class Renderer3D {
       const l = this.look(b);
       let s = this.spin.get(b);
       if (!s) { s = { ang: seeded(b.id) * 6.28 }; this.spin.set(b, s); }
-      if (l.locked) {
+      if (l.locked || (l.locked === undefined && b.kind === 'rocky')) {
         // Tidally locked: the same face (body +x, longitude 0) always points at the parent planet.
         const par = this.tidalParent(world, b);
         if (par) { s.ang = Math.atan2(-(par.z - b.z), par.x - b.x); continue; }

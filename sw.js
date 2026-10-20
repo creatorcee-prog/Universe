@@ -1,6 +1,6 @@
 // Offline support: the code and pages network-first (so one reload brings an update), falling back to the
 // cache offline; the big images and sounds cache-first, refreshed in the background.
-const CACHE = 'pocket-universe-v114';
+const CACHE = 'pocket-universe-v115';
 const SHELL = [
   './', 'index.html', 'css/style.css', 'manifest.webmanifest',
   'js/main.js', 'js/units.js', 'js/bodies.js', 'js/physics.js', 'js/presets.js',
