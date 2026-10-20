@@ -2812,12 +2812,14 @@ float billowR(vec3 x) {
 // filaments drawn out radially into fingers (Rayleigh-Taylor), with cavities (bubbles) between; and cool dust
 // glowing in the infrared as a grey-violet smoke. Not a sphere: the explosion is lopsided.
 vec4 remnant(vec3 o, vec3 dw, float t0, float t1, vec3 sd) {
-  const int N = 80;
-  float dt = (t1 - t0) / float(N);
+  // (56 samples through it, started at a different fraction of a step at each pixel, so the thin blast-wave rim
+  // does not band; the buffer is then smoothed as it is enlarged)
+  const int N = 56;
+  float dt = (t1 - t0) / float(N), jit = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
   vec3 col = vec3(0.0);
   float T = 1.0;
   for (int i = 0; i < N; i++) {
-    vec3 p = o + dw * (t0 + (float(i) + 0.5) * dt);
+    vec3 p = o + dw * (t0 + (float(i) + jit) * dt);
     float r = length(p);
     if (r > 1.0) continue;
     vec3 u = p / max(r, 1e-4);

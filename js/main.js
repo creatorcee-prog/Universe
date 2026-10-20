@@ -709,7 +709,9 @@ class App {
       // kept inside a third of the pair's Hill sphere around whatever they orbit.
       const b2 = makeBody({ kind: item.kind, m: item.m, r: item.r, color: item.color, band: item.band, atmo: item.atmo, comet: item.comet, compKey: item.compKey, name: name ? `${name} B` : undefined, bhStar: item.bhStar, wdAge: item.wdAge });
       if (item.ageFrac) b2.age = b.age;
-      let sep = item.kind === 'star' ? 0.1 * Math.sqrt(item.m) : item.kind === 'bh' ? 0.005 : 20 * (b.r || 1e-5);
+      // (black holes as stars: a 0.005 AU pair of 10 M☉ holes circles in 40 minutes, and following it would cap
+      // the simulation's speed at a few days a second)
+      let sep = item.kind === 'star' || item.kind === 'bh' ? 0.1 * Math.sqrt(item.m) : 20 * (b.r || 1e-5);
       if (a.parent) {
         const d = Math.hypot(x - a.parent.x, y - a.parent.y, z - a.parent.z);
         sep = Math.min(sep, (d * Math.cbrt((2 * b.m) / (3 * a.parent.m))) / 3);
@@ -1092,6 +1094,7 @@ class App {
     this.renderer.draw(now, ui);
     if (this.snapPending) { this.snapPending(); this.snapPending = null; }
     this.perfReadout(now, dtReal, performance.now() - tr);
+    if (this.r3d) this.r3d.cpuMs = (this.physMs || 0) + (performance.now() - tr);   // (adaptQuality: is the GPU the limit?)
     this.ui.tick(now);
   }
 }

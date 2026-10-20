@@ -965,13 +965,38 @@ export class Renderer3D {
       list.push([pseudo, vp]);
     }
     if (!list.length) return;
-    // (Quarter resolution; half for a remnant, whose knots and filaments are fine.)
-    const div = list.some((e) => e[0].rem) ? 2 : 4;
+    // (Quarter resolution, enlarged smoothly below; half for a remnant while it is small on screen, so its fine
+    // knots and filaments stay sharp where they cost little: big on screen, a quarter.)
+    const tanY = Math.tan(cam.fov / 2);
+    const big = list.some(([b, vp]) => b.rem && b.r / Math.max(-vp[2] * tanY, 1e-30) > 0.35 || -vp[2] < b.r);
+    const div = list.some((e) => e[0].rem) && !big ? 2 : 4;
     const w = Math.max(16, Math.ceil(W / div)), h = Math.max(16, Math.ceil(H / div));
+    let fresh = false;
     if (!this.nebRT || this.nebRT.w !== w || this.nebRT.h !== h) {
       if (this.nebRT) { gl.deleteTexture(this.nebRT.tex); gl.deleteFramebuffer(this.nebRT.fbo); }
       this.nebRT = this.makeTarget(w, h);
+      fresh = true;
     }
+    // Ray-marching a nebula or a remnant is the heaviest thing drawn (tens of noise samples per step), and it
+    // changes slowly: drawn again only when one has moved, grown or brightened noticeably on screen (0.2% of its
+    // size, 1% in brightness), or the view's shape or spectral band changed; otherwise last frame's is reused.
+    const band = this.spectrumMode(), tanX = Math.tan(cam.fov / 2) * (this.canvas.width / this.canvas.height);
+    const sig = list.map(([b, vp]) => [vp[0] / b.r, vp[1] / b.r, vp[2] / b.r, b.r, b.glow === undefined ? 1 : b.glow]);
+    const last = this.nebSig;
+    let same = !fresh && last && last.band === band && last.tanX === tanX && last.items.length === sig.length;
+    if (same) {
+      for (let k = 0; k < sig.length && same; k++) {
+        const a = sig[k], c = last.items[k];
+        if (Math.abs(a[0] - c[0]) + Math.abs(a[1] - c[1]) + Math.abs(a[2] - c[2]) > 0.002 * Math.max(1, Math.hypot(a[0], a[1], a[2])) || Math.abs(a[3] / c[3] - 1) > 0.002 || Math.abs(a[4] - c[4]) > 0.01 * Math.max(c[4], 0.05)) same = false;
+      }
+    }
+    if (same && this.nebView) {
+      // (view rotation: the same check on the camera's axes)
+      for (let k = 0; k < 9 && same; k++) if (Math.abs(this.V[k] - this.nebView[k]) > 0.0015) same = false;
+    }
+    if (same) { this.compositeNebulae(fbo, W, H, w, h); return; }
+    this.nebSig = { band, tanX, items: sig };
+    this.nebView = Float32Array.from(this.V);
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.nebRT.fbo);
     gl.viewport(0, 0, w, h);
     gl.clearColor(0, 0, 0, 0);
@@ -995,8 +1020,17 @@ export class Renderer3D {
       gl.bindVertexArray(this.quad);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     }
+    this.compositeNebulae(fbo, W, H, w, h);
+  }
+
+  // The nebulae's buffer onto the scene, enlarged smoothly.
+  compositeNebulae(fbo, W, H, w, h) {
+    const gl = this.gl;
     gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
     gl.viewport(0, 0, W, H);
+    gl.disable(gl.DEPTH_TEST);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     const up = this.pUpsample || (this.pUpsample = this.program(FULL_VS, UPSAMPLE_FS));
     gl.useProgram(up.p);
     this.bindTex(0, this.nebRT.tex, up.u.uTex);
@@ -2088,8 +2122,10 @@ export class Renderer3D {
     // Settings → Full resolution: never trade sharpness for frame rate.
     if (this.settings.sharp) { this.quality = 1; if (this.samples === 0) this.samples = 4; }
     else if (this.ft > 1 / 40) {
+      // (down to 70%; to 55% when the graphics chip is the limit, the CPU's share of the frame under 40%)
+      const gpuBound = (this.cpuMs || 0) < 0.4 * this.ft * 1000;
       if (this.samples > 0) this.samples = 0;
-      else this.quality = Math.max(0.7, this.quality - 0.15);
+      else this.quality = Math.max(gpuBound ? 0.55 : 0.7, this.quality - 0.15);
     } else if (this.ft < 1 / 56 && now - (this.qUp || 0) > 4000) {
       this.qUp = now;
       if (this.quality < 1) this.quality = Math.min(1, this.quality + 0.1);
