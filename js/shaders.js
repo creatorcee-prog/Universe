@@ -437,6 +437,8 @@ in vec3 vN;
 ` + LOGDEPTH_F + `
 uniform int uKind;        // 0 rocky, 1 gas/ice giant, 2 star, 3 white dwarf / neutron star, 4 black-hole shadow
 uniform vec3 uColA, uColB, uColC;
+uniform vec3 uCutA, uCutB; // cutaway (CUT_FS): the wedge where both are positive is taken out (object frame)
+uniform float uCutOn;
 uniform float uSeed, uOcean, uCloud, uCraters, uLife, uBands, uVolc, uLineae, uSpots, uFacet;
 uniform float uDayNight;
 uniform float uBandK;    // band contrast // day-night temperature swing: large for airless worlds, small where air and oceans store heat
@@ -551,6 +553,7 @@ float lightTerm(vec3 N, vec3 L) {
 }
 
 void main() {
+  if (uCutOn > 0.5 && dot(vObj, uCutA) > 0.0 && dot(vObj, uCutB) > 0.0) discard;
   vec3 V = normalize(-vViewPos);
   vec3 N = normalize(vN);
   float hsh = 1.0;   // sunlight left after the shadows the ground casts on itself (from its elevation map)
@@ -3775,5 +3778,58 @@ void main() {
   float edge = min(abs(l - lIn), abs(l - lOut));
   col *= 0.85 + 0.15 * smoothstep(0.0, 0.05, edge);
   outColor = vec4(col * a * uAlpha, a * uAlpha);
+}
+`;
+
+// A world's interior, where a cutaway wedge is taken out of it (BODY_FS discards the surface there): the two cut
+// faces, ray-traced, coloured by the layer at each radius (interior.js), glowing more toward the hot middle,
+// mottled by convection. View space; the sphere's centre and radius in AU.
+export const CUT_FS = HEAD + NOISE + `
+in vec2 vUV;
+uniform mat3 uView;
+uniform vec2 uTan;
+uniform vec3 uC;          // centre (view space, AU)
+uniform float uR;         // radius (AU)
+uniform vec3 uA, uB;      // the wedge's normals (view space): taken out where both dot products are positive
+uniform float uLR[8];     // layers' outer radii (fractions), from the centre out
+uniform vec3 uLC[8];      // their colours
+uniform int uLN;
+uniform float uSeed;
+out vec4 outColor;
+vec3 layerCol(float r, vec3 p) {
+  vec3 c = uLC[0];
+  float r0 = 0.0, r1 = uLR[0];
+  for (int i = 0; i < 8; i++) {
+    if (i >= uLN) break;
+    if (r <= uLR[i]) { c = uLC[i]; r1 = uLR[i]; break; }
+    r0 = uLR[i];
+  }
+  float f = clamp((r - r0) / max(r1 - r0, 1e-4), 0.0, 1.0);
+  // brighter at a layer's inner edge, toward the heat; slow convection cells
+  float cells = vnoise(p * 9.0 + uSeed) * 0.6 + vnoise(p * 23.0 + uSeed) * 0.4;
+  return c / 255.0 * (1.15 - 0.35 * f) * (0.82 + 0.3 * cells) * (0.85 + 0.6 * (1.0 - r));
+}
+void main() {
+  vec3 d = normalize(vec3((vUV.x * 2.0 - 1.0) * uTan.x, (vUV.y * 2.0 - 1.0) * uTan.y, -1.0));
+  vec3 o = -uC / uR;                              // the eye, in units of the radius, about the centre
+  float b = dot(o, d), c = dot(o, o) - 1.0, D = b * b - c;
+  if (D <= 0.0) discard;
+  float q = sqrt(D), t0 = -b - q;
+  if (t0 <= 0.0) discard;
+  vec3 ps = o + d * t0;
+  if (!(dot(ps, uA) > 0.0 && dot(ps, uB) > 0.0)) discard;   // the surface is there: drawn by BODY_FS
+  // The nearest cut face behind the opening.
+  float best = 1e9;
+  vec3 hit = vec3(0.0);
+  float dn = dot(d, uA);
+  if (abs(dn) > 1e-6) { float t = -dot(o, uA) / dn; vec3 p = o + d * t; if (t > t0 - 1e-4 && dot(p, p) <= 1.0 && dot(p, uB) >= 0.0 && t < best) { best = t; hit = p; } }
+  dn = dot(d, uB);
+  if (abs(dn) > 1e-6) { float t = -dot(o, uB) / dn; vec3 p = o + d * t; if (t > t0 - 1e-4 && dot(p, p) <= 1.0 && dot(p, uA) >= 0.0 && t < best) { best = t; hit = p; } }
+  if (best > 1e8) discard;
+  float r = length(hit);
+  vec3 col = layerCol(r, hit * mat3(uView));     // (noise in a frame that turns with the view: fine for a still cut)
+  // thin dark lines at the layers' boundaries
+  for (int i = 0; i < 8; i++) { if (i >= uLN - 1) break; col *= 1.0 - 0.45 * exp(-pow((r - uLR[i]) * 160.0, 2.0)); }
+  outColor = vec4(col * 1.6, 1.0);
 }
 `;

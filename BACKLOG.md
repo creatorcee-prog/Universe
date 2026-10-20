@@ -106,6 +106,10 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
   adapts to its light (it adapted as if in the dark: a planet near Betelgeuse bloomed into a white blot).
 - (Done) Zone views for everything: Settings switches show temperature zones for every heat source and gravity
   zones for the 40 heaviest bodies (each drawn where it is big enough to see), beside per-object ones.
+- (Done) Interiors (js/interior.js; user's Earth cross-section as the visual aid): layers with depths, what they
+  are, centre temperature and pressure (PREM for Earth, InSight for Mars, Apollo for the Moon, MESSENGER, Juno,
+  Cassini, Galileo; elsewhere built from the composition, P ~ M²/R⁴); a drawn cutaway in the Composition tab and
+  a 3D cutaway (an orange-segment wedge taken out, CUT_FS ray-tracing the layered faces).
 - TODO (user, added): shattering destruction (match a user photo to ~80%); composition
   info (core, mantle, crust) with a cutaway like the user's Earth cross-section.
 - (Done) The Solar System's Moon rides on Earth (minors.js partner): the pair's centre of mass in IAS15, the

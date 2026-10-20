@@ -475,3 +475,10 @@ body:has(.sheet.open) .dock .readout, body:has(.sheet.open) .addbar { visibility
   text-align: center; font: 500 11px/1.3 ui-monospace, "SF Mono", Menlo, monospace; color: #9fb4d8;
   text-shadow: 0 1px 2px #000; pointer-events: auto; cursor: pointer; z-index: 30;
 }
+
+.int-cut { width: 100%; max-width: 300px; height: auto; display: block; margin: 4px auto 2px; }
+.int-layers { list-style: none; margin: 4px 0 8px; padding: 0; display: grid; gap: 6px; font-size: 12px; }
+.int-layers li { display: grid; grid-template-columns: 12px 1fr; gap: 2px 8px; align-items: baseline; }
+.int-layers i { width: 10px; height: 10px; border-radius: 50%; background: var(--c); align-self: center; }
+.int-layers b { font-weight: 600; }
+.int-layers span { grid-column: 2; opacity: 0.75; }

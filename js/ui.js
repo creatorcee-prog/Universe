@@ -6,6 +6,7 @@ import { Book } from './book.js';
 import { tempZones, localTemp, localHab, listReasons, exoticLife } from './thermal.js';
 import { lifetime } from './stellar.js';
 import { atmosphereOptics } from './optics.js';
+import { interiorOf, formatPressure } from './interior.js';
 import { renderThumb, category } from './thumbs.js';
 import { CHALLENGES } from './challenges.js';
 
@@ -200,6 +201,13 @@ export class UI {
       this.refreshInfo(true);
     });
     $('i-stand').addEventListener('click', () => { if (app.state.selected) app.enterSurface(app.state.selected, 'day'); });
+    $('i-cutaway').addEventListener('click', () => {
+      const b = app.state.selected;
+      if (!b) return;
+      b.cutaway = !b.cutaway;
+      this.intKey = null;
+      this.refreshInfo(true);
+    });
     $('i-lock').addEventListener('click', () => {
       const b = app.state.selected, r = app.r3d;
       if (!b || !r) return;
@@ -795,6 +803,56 @@ export class UI {
     } else {
       $('atm-bar').innerHTML = ''; $('atm-legend').textContent = b.kind === 'gas' ? 'The whole planet is mostly gas' : 'None';
     }
+    this.refreshInterior(b);
+  }
+
+  // The interior: a drawn cutaway (a wedge taken out of the globe, the layers glowing by their heat) and the
+  // layers listed with their depths, plus the centre's temperature and pressure.
+  refreshInterior(b) {
+    const it = interiorOf(b), cv = $('int-cut'), list = $('int-layers');
+    const show = !!it;
+    cv.hidden = list.hidden = $('int-centre').hidden = $('i-cutaway').hidden = !show;
+    if (!show) return;
+    const key = b.id + ':' + it.layers.map((l) => l.key + l.r.toFixed(3)).join();
+    $('i-cutaway').textContent = b.cutaway ? 'Hide the cutaway in 3D' : 'Show the cutaway in 3D';
+    if (this.intKey === key) return;
+    this.intKey = key;
+    const Rkm = b.r * 1.495978707e8;
+    const km = (f) => { const v = (1 - f) * Rkm; return v < 10 ? `${v.toFixed(1)} km` : `${Math.round(v).toLocaleString('en-US')} km`; };
+    $('int-centre').textContent = `At the centre: about ${formatTemp(it.T)} and ${formatPressure(it.P)}.` + (it.known ? '' : ' (Modelled from its make-up; not measured.)');
+    let prev = 0;
+    list.innerHTML = it.layers.map((l) => {
+      const from = prev; prev = l.r;
+      const c = `rgb(${l.col.join(',')})`;
+      const depth = from === 0 ? `centre to ${km(l.r)} deep` : l.r >= 0.9999 ? `top ${km(from)}` : `${km(l.r)} to ${km(from)} deep`;
+      return `<li style="--c:${c}"><i></i><b>${l.name}</b><span>${depth} · ${l.what}</span></li>`;
+    }).join('');
+    // The drawing: the globe in its own colour, a quarter cut away toward the viewer, the layers as rings.
+    const g = cv.getContext('2d'), W = cv.width, H = cv.height, cx = W / 2, cy = H / 2 + 6, R = Math.min(W, H) * 0.42;
+    g.clearRect(0, 0, W, H);
+    const base = b.color || [150, 150, 150];
+    const sph = g.createRadialGradient(cx - R * 0.35, cy - R * 0.35, R * 0.1, cx, cy, R);
+    sph.addColorStop(0, `rgb(${base.map((v) => Math.min(255, v * 1.25 + 20)).join(',')})`);
+    sph.addColorStop(1, `rgb(${base.map((v) => v * 0.35).join(',')})`);
+    g.fillStyle = sph; g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.fill();
+    // the wedge: from 12 o'clock to 3 o'clock, opened toward the viewer
+    const a0 = -Math.PI / 2 - 0.15, a1 = 0.15;
+    for (let i = it.layers.length - 1; i >= 0; i--) {
+      const l = it.layers[i], rr = R * l.r, inner = i > 0 ? R * it.layers[i - 1].r : 0;
+      const gr = g.createRadialGradient(cx, cy, inner, cx, cy, Math.max(rr, inner + 0.5));
+      gr.addColorStop(0, `rgb(${l.col.map((v) => Math.min(255, v * 1.1)).join(',')})`);
+      gr.addColorStop(1, `rgb(${l.col.map((v) => v * 0.75).join(',')})`);
+      g.fillStyle = gr;
+      g.beginPath(); g.moveTo(cx, cy); g.arc(cx, cy, rr, a0, a1); g.closePath(); g.fill();
+    }
+    // cut faces' edges and a soft glow from the hot middle
+    const glow = g.createRadialGradient(cx, cy, 0, cx, cy, R * 0.6);
+    glow.addColorStop(0, 'rgba(255,240,200,0.35)'); glow.addColorStop(1, 'rgba(255,200,120,0)');
+    g.globalCompositeOperation = 'lighter';
+    g.fillStyle = glow; g.beginPath(); g.moveTo(cx, cy); g.arc(cx, cy, R, a0, a1); g.closePath(); g.fill();
+    g.globalCompositeOperation = 'source-over';
+    g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(cx + Math.cos(a0) * R, cy + Math.sin(a0) * R); g.lineTo(cx, cy); g.lineTo(cx + Math.cos(a1) * R, cy + Math.sin(a1) * R); g.stroke();
   }
 
   refreshStar(b) {

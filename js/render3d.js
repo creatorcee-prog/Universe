@@ -3,9 +3,10 @@ import { isLuminous, tempToRGB, schwarzschild } from './bodies.js';
 import { transientLum } from './stellar.js';
 import { EARTH_MASS, KPC_AU } from './units.js';
 import { starCatalog, bvToTemp, GAL_N, GAL_C } from './stars.js';
-import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, GALGLOW_VS, GALGLOW_FS, GALCOMP_FS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS, RIM_FS, TERRAIN_VS, TERRAIN_FS, RING_FS, CLOUD_FS, GEN_FS, SURFACE_CLOUD_FS, WEATHER_FS, NEBULA_FS, BLIT_FS } from './shaders.js';
+import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, GALGLOW_VS, GALGLOW_FS, GALCOMP_FS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS, RIM_FS, TERRAIN_VS, TERRAIN_FS, RING_FS, CLOUD_FS, GEN_FS, SURFACE_CLOUD_FS, WEATHER_FS, NEBULA_FS, BLIT_FS, CUT_FS } from './shaders.js';
 import { atmosphereOptics, giantOptics, setOpticsUniforms, stretchOptics, atmosphereTop, shellTop, groundLight } from './optics.js';
 import { heatOutput } from './thermal.js';
+import { interiorOf } from './interior.js';
 import { earthMap, moonMap } from './geography.js';
 
 let EARTH_MAP = null, MOON_MAP = null; // built once, on first use
@@ -553,6 +554,7 @@ export class Renderer3D {
     this.pSurfCloud = this.program(FULL_VS, SURFACE_CLOUD_FS);
     this.pWeather = this.program(FULL_VS, WEATHER_FS);
     this.pNebula = this.program(FULL_VS, NEBULA_FS);
+    this.pCut = this.program(FULL_VS, CUT_FS);
     this.pBlit = this.program(FULL_VS, BLIT_FS);
     this.hdr = !!gl.getExtension('EXT_color_buffer_float');
     this.post = null;
@@ -2725,11 +2727,45 @@ export class Renderer3D {
     gl.uniform3fv(u.uAtmo, atmo || [0, 0, 0]);
     gl.uniform1f(u.uAtmoK, atmo ? atmoK : 0);
     const g = this.spheres[lod];
+    // Cutaway (the info panel's Composition tab): a wedge facing the viewer, opened a little from above, taken
+    // out of the surface; CUT_FS then draws the layers on its two faces.
+    const cutInt = b.cutaway && shownPx > 12 ? interiorOf(b) : null;
+    let cutA = null, cutB = null;
+    if (cutInt) {
+      // (A 90° wedge like a segment taken out of an orange: its edge runs up through the centre, its middle
+      // turned 25° to one side of the viewer, so one cut face is seen broadly and the other at a slant.)
+      const pc = Math.atan2(-z, -x) + 0.44;
+      cutA = [Math.cos(pc + Math.PI / 4), 0, Math.sin(pc + Math.PI / 4)];
+      cutB = [Math.cos(pc - Math.PI / 4), 0, Math.sin(pc - Math.PI / 4)];
+      const toObj = (w) => [0, 1, 2].map((i) => rot[i * 3] * w[0] + rot[i * 3 + 1] * w[1] + rot[i * 3 + 2] * w[2]);
+      gl.uniform3fv(u.uCutA, toObj(cutA)); gl.uniform3fv(u.uCutB, toObj(cutB));
+    }
+    gl.uniform1f(u.uCutOn, cutInt ? 1 : 0);
     gl.bindVertexArray(g.vao);
     gl.drawElements(gl.TRIANGLES, g.n, g.type, 0);
+    if (cutInt) {
+      const cp = this.pCut, cu = cp.u, t = Math.tan(this.cam.fov / 2);
+      gl.useProgram(cp.p);
+      gl.uniformMatrix3fv(cu.uView, false, this.V);
+      gl.uniform2f(cu.uTan, t * (this.canvas.width / this.canvas.height), t);
+      gl.uniform3fv(cu.uC, this.viewOf(x, y, z));
+      gl.uniform1f(cu.uR, R);
+      gl.uniform3fv(cu.uA, this.viewOf(...cutA)); gl.uniform3fv(cu.uB, this.viewOf(...cutB));
+      const LR = new Float32Array(8), LC = new Float32Array(24), ls = cutInt.layers.slice(0, 8);
+      ls.forEach((ly, i) => { LR[i] = ly.r; LC.set(ly.col, i * 3); });
+      gl.uniform1fv(cu.uLR, LR); gl.uniform3fv(cu.uLC, LC); gl.uniform1i(cu.uLN, ls.length);
+      gl.uniform1f(cu.uSeed, seeded(b.id) * 40);
+      const dt = gl.isEnabled(gl.DEPTH_TEST);
+      gl.disable(gl.DEPTH_TEST);
+      gl.bindVertexArray(this.quad);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      if (dt) gl.enable(gl.DEPTH_TEST);
+      gl.useProgram(p.p);
+      gl.bindVertexArray(g.vao);
+    }
 
     // The cloud layer: its own shell just above the ground, alpha-blended, under the atmosphere's glow.
-    if (cover > 0.001 && shownPx > 3 && !(this.surface && this.surface.body === b) && Math.hypot(x, y, z) > R * (1 + deckH) * 1.0005) {
+    if (!cutInt && cover > 0.001 && shownPx > 3 && !(this.surface && this.surface.body === b) && Math.hypot(x, y, z) > R * (1 + deckH) * 1.0005) {
       const lc = ld.map((v) => Array.from(v)), colC = l.colC || [0.95, 0.96, 1];
       glows.push(() => {
         const c = this.pCloud, cu = c.u;
@@ -2761,7 +2797,7 @@ export class Renderer3D {
       });
     }
     // Glows and other additive layers, drawn after all solid bodies.
-    if ((atmo || optics) && shownPx > 3 && !(this.surface && this.surface.body === b)) {
+    if (!cutInt && (atmo || optics) && shownPx > 3 && !(this.surface && this.surface.body === b)) {
       // Seen from afar a real atmosphere is thinner than a pixel (Earth's is 1% of its radius): stretch it to
       // stay about 2.5 pixels wide, keeping its colours (see stretchOptics). Close up it is drawn to scale.
       const thick = optics ? (atmosphereTop(optics) - 1) * shownPx : 0;
