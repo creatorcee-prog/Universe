@@ -2633,6 +2633,22 @@ export class Renderer3D {
     return this.spheres[4];
   }
 
+  // For the info panel's Surface tab: the picture of the world (its photo map, Earth's Blue Marble, or the map a
+  // made-up world borrows, with that borrowing's turn) and its real elevation, when it has them.
+  surfaceInfo(b) {
+    let img = null, rot = null, borrowed = false;
+    if (/^Earth( \d+)?$/.test(b.name) && b.kind === 'rocky') img = loadImage('earth-day');
+    else if (b.surfaceMap && b.surfaceMap.img) img = (b.surfaceMap.lo || b.surfaceMap).img;
+    else if (b.donor && b.donor.file) { img = loadImage(b.donor.file); rot = b.donor.rot; borrowed = true; }
+    else { const pm = photoMap(b); if (pm) img = pm.img; }
+    let file = null;
+    const name = b.name.replace(/ \d+$/, '');
+    if (b.kind === 'rocky' && HEIGHTS[name]) file = HEIGHTS[name];
+    else if (b.donor && DONOR_HEIGHT[b.donor.file]) { file = DONOR_HEIGHT[b.donor.file][0]; rot = rot || b.donor.rot; }
+    const hm = file ? heightMap(file) : null;
+    return { img, rot, borrowed, height: hm, hRot: file && HEIGHTS[name] === file ? null : rot };
+  }
+
   // The world's surface map on the GPU (texture unit 5), uploaded when it changes (a photo replacing its
   // stand-in, a close-up map swapped in or out, painted rows).
   syncMapTex(b) {

@@ -27,6 +27,9 @@ const LADDER = [MIN_S, 10 * MIN_S, 60 * MIN_S, 600 * MIN_S, 1 / 8766, 6 / 8766, 
 // Colour scales for the surface maps.
 const TEMP_STOPS = [[0, [40, 40, 160]], [0.25, [40, 150, 230]], [0.45, [80, 210, 160]], [0.6, [240, 220, 80]], [0.78, [240, 120, 40]], [0.92, [200, 40, 40]], [1, [255, 240, 230]]];
 const HAB_STOPS = [[0, [14, 26, 60]], [0.35, [60, 90, 70]], [0.7, [190, 190, 90]], [1, [40, 170, 70]]];
+const ELEV_STOPS = [[0, [38, 92, 60]], [0.25, [120, 150, 80]], [0.5, [190, 170, 110]], [0.75, [140, 100, 70]], [0.92, [210, 205, 200]], [1, [255, 255, 255]]];
+const DRY_STOPS = [[0, [28, 30, 58]], [0.35, [92, 82, 110]], [0.6, [168, 138, 108]], [0.85, [220, 202, 172]], [1, [255, 255, 255]]];   // relief on worlds without seas
+const SEA_STOPS = [[0, [8, 24, 70]], [0.7, [30, 80, 150]], [1, [80, 150, 210]]];
 function ramp(stops, t) {
   t = Math.max(0, Math.min(1, t));
   for (let i = 1; i < stops.length; i++) {
@@ -75,7 +78,7 @@ export class UI {
     this.toastTimer = 0;
     this.book = new Book(app);
     this.tab = 'overview';
-    this.mapMode = 'temp';
+    this.mapMode = null;   // (the Surface tab's map: null picks the world's picture when it has one)
     this.buildCreate();
     this.buildScenarios();
     this.bind();
@@ -795,20 +798,32 @@ export class UI {
       const R = app.r3d ? app.r3d.bodyRotation(b) : [1, 0, 0, 0, 1, 0, 0, 0, 1];
       so = [R[0] * v[0] + R[1] * v[1] + R[2] * v[2], R[3] * v[0] + R[4] * v[1] + R[5] * v[2], R[6] * v[0] + R[7] * v[1] + R[8] * v[2]];
     }
+    // The world itself: its picture or its relief, when it has them (else the temperature map).
+    const si = app.r3d ? app.r3d.surfaceInfo(b) : {};
+    const hasImg = !!(si.img && si.img.complete && si.img.naturalWidth), hasH = !!(si.height && si.height.data);
+    document.querySelector('[data-map=surf]').hidden = !hasImg;
+    document.querySelector('[data-map=elev]').hidden = !hasH;
+    let mode = this.mapMode || (hasImg ? 'surf' : 'temp');
+    if ((mode === 'surf' && !hasImg) || (mode === 'elev' && !hasH) || (mode === 'hab' && b.kind !== 'rocky')) mode = 'temp';
+    document.querySelectorAll('[data-map]').forEach((x) => x.classList.toggle('on', x.dataset.map === mode));
+    if ((mode === 'surf' && hasImg) || (mode === 'elev' && hasH)) {
+      this.drawWorldMap(b, mode, si, so, star, ctx, W, H);
+      return;
+    }
     const T = new Float32Array(W * H);
     let lo = Infinity, hi = -Infinity;
     for (let j = 0; j < H; j++) {
       const lat = (0.5 - (j + 0.5) / H) * Math.PI, cl = Math.cos(lat), sl = Math.sin(lat);
       for (let i = 0; i < W; i++) {
         const lon = ((i + 0.5) / W) * 2 * Math.PI - Math.PI;
-        const se = star ? cl * Math.cos(lon) * so[0] + sl * so[1] + cl * Math.sin(lon) * so[2] : -1;
+        const se = star ? cl * Math.cos(lon) * so[0] + sl * so[1] - cl * Math.sin(lon) * so[2] : -1;
         const t = localTemp(b, lat, se);
         T[j * W + i] = t;
         if (t < lo) lo = t; if (t > hi) hi = t;
       }
     }
     const img = ctx.createImageData(W, H);
-    const hab = this.mapMode === 'hab' && b.kind === 'rocky';
+    const hab = mode === 'hab';
     // Fixed temperature scale (50 K to 1,000 K, log) so maps of different worlds compare directly.
     const tScale = (t) => Math.log(t / 50) / Math.log(1000 / 50);
     for (let k = 0; k < W * H; k++) {
@@ -818,7 +833,7 @@ export class UI {
     ctx.putImageData(img, 0, 0);
     // Sub-solar point.
     if (star) {
-      const lat = Math.asin(Math.max(-1, Math.min(1, so[1]))), lon = Math.atan2(so[2], so[0]);
+      const lat = Math.asin(Math.max(-1, Math.min(1, so[1]))), lon = Math.atan2(-so[2], so[0]);
       const x = ((lon + Math.PI) / (2 * Math.PI)) * W, y = (0.5 - lat / Math.PI) * H;
       ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.arc(x, y, 5, 0, 6.283); ctx.stroke();
@@ -829,6 +844,70 @@ export class UI {
     if (hab) { $('map-lo').textContent = '0'; $('map-hi').textContent = '100% habitable'; }
     else { $('map-lo').textContent = '50 K'; $('map-hi').textContent = `1,000 K · here ${Math.round(lo)}–${Math.round(hi)} K`; }
     document.querySelector('[data-map=hab]').hidden = b.kind !== 'rocky';
+  }
+
+  // The Surface and Elevation maps (same frame as the temperature map: 0° longitude in the middle, east to
+  // the right), with the day side lit and the sub-solar point marked.
+  drawWorldMap(b, mode, si, so, star, ctx, W, H) {
+    const src = new Float32Array(W * H * 3);
+    const turn = (r, x, y, z) => r ? [r[0] * x + r[3] * y + r[6] * z, r[1] * x + r[4] * y + r[7] * z, r[2] * x + r[5] * y + r[8] * z] : [x, y, z];
+    let px = null, PW = 0, PH = 0, lo = 0, hi = 0;
+    if (mode === 'surf') {
+      const k = this.mapPix && this.mapPix.img === si.img ? this.mapPix : null;
+      if (k) ({ px, PW, PH } = k);
+      else {
+        PW = 512; PH = 256;
+        const c = document.createElement('canvas'); c.width = PW; c.height = PH;
+        const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(si.img, 0, 0, PW, PH);
+        try { px = g.getImageData(0, 0, PW, PH).data; } catch { px = null; }
+        this.mapPix = { img: si.img, px, PW, PH };
+      }
+      if (!px) return;
+    } else {
+      const d = si.height.data; lo = Infinity; hi = -Infinity;
+      for (let i = 0; i < d.length; i += 7) { if (d[i] < lo) lo = d[i]; if (d[i] > hi) hi = d[i]; }
+    }
+    const rot = mode === 'surf' ? si.rot : si.hRot, ocean = b.th && b.th.ocean > 0;
+    const img = ctx.createImageData(W, H);
+    for (let j = 0; j < H; j++) {
+      const lat = (0.5 - (j + 0.5) / H) * Math.PI, cl = Math.cos(lat), sl = Math.sin(lat);
+      for (let i = 0; i < W; i++) {
+        const lon = ((i + 0.5) / W) * 2 * Math.PI - Math.PI;
+        const x = cl * Math.cos(lon), y = sl, z = -cl * Math.sin(lon);
+        const q = turn(rot, x, y, z);
+        const u = Math.atan2(-q[2], q[0]) / (2 * Math.PI) + 0.5, v = 0.5 - Math.asin(Math.max(-1, Math.min(1, q[1]))) / Math.PI;
+        let c;
+        if (mode === 'surf') {
+          const ix = Math.min(PW - 1, Math.floor(u * PW)), iy = Math.min(PH - 1, Math.floor(v * PH)), o = (iy * PW + ix) * 4;
+          c = [px[o], px[o + 1], px[o + 2]];
+        } else {
+          const hm = si.height, ix = Math.min(hm.W - 1, Math.floor(u * hm.W)), iy = Math.min(hm.H - 1, Math.floor(v * hm.H));
+          const e = hm.data[iy * hm.W + ix];
+          c = ocean && e < 0 ? ramp(SEA_STOPS, Math.max(0, 1 + e / Math.max(1, -lo))) : ramp(ocean ? ELEV_STOPS : DRY_STOPS, (e - Math.max(ocean ? 0 : lo, lo)) / Math.max(1, hi - Math.max(ocean ? 0 : lo, lo)));
+        }
+        // Night side a little darker, so the map reads like the globe.
+        const se = star ? x * so[0] + y * so[1] + z * so[2] : 1, k = mode === 'surf' ? 0.42 + 0.58 * Math.max(0, Math.min(1, se * 4 + 0.5)) : 1;
+        const o = (j * W + i) * 4;
+        img.data[o] = c[0] * k; img.data[o + 1] = c[1] * k; img.data[o + 2] = c[2] * k; img.data[o + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    if (star) {
+      const lat = Math.asin(Math.max(-1, Math.min(1, so[1]))), lon = Math.atan2(-so[2], so[0]);
+      const x = ((lon + Math.PI) / (2 * Math.PI)) * W, y = (0.5 - lat / Math.PI) * H;
+      ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(x, y, 5, 0, 6.283); ctx.stroke();
+    }
+    const bar = $('map-bar');
+    if (mode === 'surf') {
+      bar.style.background = 'none';
+      $('map-lo').textContent = si.borrowed ? `Pattern borrowed from ${si.img.src.split('/').pop().split('.')[0].replace(/^./, (m) => m.toUpperCase())}` : 'Day side lit · ○ sub-solar point';
+      $('map-hi').textContent = '';
+    } else {
+      bar.style.background = gradientCss(ocean ? ELEV_STOPS : DRY_STOPS);
+      const km = (m) => `${(m / 1000).toFixed(Math.abs(m) < 10000 ? 1 : 0)} km`;
+      $('map-lo').textContent = km(ocean ? Math.max(lo, 0) : lo); $('map-hi').textContent = km(hi) + (ocean ? ' · seas in blue' : '');
+    }
   }
 
   refreshComp(b) {
