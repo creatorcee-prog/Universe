@@ -198,6 +198,8 @@ on the phone.
 - (Done) Livelier giants: their jets, ovals, the Great Red Spot's turning and short-lived convective outbreaks
   (bright plumes that swell and fade over days, carried by the jets) run on the weather's clock (sim time);
   generic giants' bands flow with alternating jets; a measured layout can be recoloured (Rhodon).
+- (Done) Giants in layers turning at their own rates: deeper, darker clouds through gaps in the deck (lagging),
+  a high haze in fast streaks (parallax against the deck, shadows at a low Sun).
 - Next: Rhodon to look more realistic (the user is finding a reference).
 
 ## Plan: towards SpaceEngine's look (from the user, ranked by visual payoff for the effort)

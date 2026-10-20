@@ -771,6 +771,30 @@ void main() {
       float eddy = fbm(vec3(vObj.x * 6.0, vObj.y * 24.0, vObj.z * 6.0) + turb * 2.5 + uSeed + vec3(uCloudT * 0.08, 0.0, 0.0), 5);
       col = mix(col, mix(uColA * 1.06, uColB * 0.78, step(0.52, eddy)), edgeW * 0.45 * smoothstep(0.38, 0.68, eddy) * uBandK);
     }
+    // Layered decks (as on Jupiter: a high thin haze, the main ammonia-ice deck, and deeper, darker water
+    // clouds), each turning at its own rate. The deep layer shows through where the main deck thins (it lags,
+    // so the gaps open onto a pattern that slides beneath); the haze above runs ahead in thin east-west
+    // streaks, offset by parallax (it is higher, so it shifts against the deck as the view tilts), and shades
+    // the deck where the Sun is low.
+    {
+      mat3 toObj = transpose(uRot) * transpose(uView);
+      vec3 Vo = normalize(toObj * V), Lo = normalize(toObj * uL0);
+      float latY = vObj.y, calm = uProfile > 2.5 ? 0.45 : 1.0;
+      float aD = -0.025 * uCloudT, aH = 0.06 * uCloudT;
+      vec3 vD = vec3(vObj.x * cos(aD) - vObj.z * sin(aD), latY, vObj.x * sin(aD) + vObj.z * cos(aD));
+      float gaps = smoothstep(0.58, 0.78, fbm(vec3(vD.x * 5.0, vD.y * 26.0, vD.z * 5.0) + uSeed + 61.0, 4));
+      float deepN = fbm(vec3(vD.x * 9.0, vD.y * 40.0, vD.z * 9.0) + uSeed + 67.0, 3);
+      col = mix(col, col * vec3(0.52, 0.55, 0.62) * (0.8 + 0.4 * deepN), gaps * 0.45 * calm);
+      float hh = 0.012;                                                    // the haze's height (radii), drawn high
+      vec3 pH = normalize(vObj + (Vo - vObj * dot(Vo, vObj)) * hh / max(mu, 0.25));
+      vec3 vH = vec3(pH.x * cos(aH) - pH.z * sin(aH), pH.y, pH.x * sin(aH) + pH.z * cos(aH));
+      float haze = smoothstep(0.55, 0.8, fbm(vec3(vH.x * 4.0, vH.y * 60.0, vH.z * 4.0) + uSeed + 71.0, 4)) * 0.5;
+      vec3 pS = normalize(vObj + (Lo - vObj * dot(Lo, vObj)) * hh / max(dot(vObj, Lo), 0.08));
+      vec3 vS = vec3(pS.x * cos(aH) - pS.z * sin(aH), pS.y, pS.x * sin(aH) + pS.z * cos(aH));
+      float hazeS = smoothstep(0.55, 0.8, fbm(vec3(vS.x * 4.0, vS.y * 60.0, vS.z * 4.0) + uSeed + 71.0, 4));
+      col *= 1.0 - 0.22 * hazeS * calm * (1.0 - smoothstep(0.1, 0.5, dot(vObj, Lo)));   // its shadows, long at a low Sun
+      col = mix(col, vec3(dot(col, vec3(0.33))) * 1.15 + vec3(0.04), haze * calm);
+    }
     if (uStorm.w > 0.0 && dot(vObj, normalize(uStorm.xyz)) > 0.0) {
       // A great storm (Jupiter's Great Red Spot, Neptune's Dark Spot): an anticyclone about twice as
       // wide as it is tall, its clouds spiralling inward, ringed by a pale collar, with a turbulent wake.
