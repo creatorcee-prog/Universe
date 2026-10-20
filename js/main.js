@@ -16,6 +16,7 @@ import { UI } from './ui.js';
 import { Challenges } from './challenges.js';
 import { atmosphereOptics } from './optics.js';
 import { showersAt, upcoming, radiantDir } from './events.js';
+import { startLive } from './live.js';
 const $id = (id) => document.getElementById(id);
 const SAT_SIZE = (b) => b.r * 2 * 1.495978707e11;   // a spacecraft's size (m): presets.js gives it a radius of half
 
@@ -69,6 +70,7 @@ class App {
     // The WebGPU renderer (beta): the same renderer, drawing through js/glgpu.js.
     if (this.settings.webgpu || window.__TEST_WEBGPU) this.useWebGPU(true);
     this.loadPreset('solar');
+    startLive(this);   // (live satellite elements and Kp, in the web copy: js/live.js)
     this.last = performance.now();
     this.frame = this.frame.bind(this);
     document.getElementById('perf').addEventListener('click', () => this.startFpsTest());
@@ -258,6 +260,21 @@ class App {
     if (!e) return;
     this.enterSurface(e, { dir: radiantDir(s), shower: s.name }, true);
     if (this.surface) { this.ui.setSpeed(60 / 3.15576e7); this.ui.toast(`${s.name}: meteors stream from the radiant in front of you. Time runs at a minute a second.`); }
+  }
+
+  // A geomagnetic storm (js/live.js Kp): Earth from its night side, where the aurora ovals show.
+  watchAurora() {
+    // (back to today if the simulation's clock has run away from it: the storm is now)
+    const real = window.__EPOCH ? Date.parse(window.__EPOCH) : Date.now();
+    const simMs = this.world.epoch ? this.world.epoch + this.world.t * 365.25 * 86400e3 : NaN;
+    if (!this.state.preset || this.state.preset.id !== 'solar' || !(Math.abs(simMs - real) < 86400e3)) this.loadPreset('solar');
+    const e = this.world.findByName('Earth'), s = this.world.findByName('Sun');
+    if (!e || !s) return;
+    this.cam.focus(e, performance.now());
+    const d = [e.x - s.x, e.z - s.z];
+    this.cam.yaw = Math.atan2(d[0], d[1]); this.cam.pitch = 0.75;   // (above the night side, the north oval in view)
+    this.cam.distGoal = e.r * 3.2;
+    this.ui.setSpeed(1 / 8766);   // (an hour a second)
   }
 
   // Ride along with a spacecraft (the ISS's cupola view): the eye just behind and beside it in its orbit frame (along
@@ -522,6 +539,8 @@ class App {
     const p = PRESETS.find((x) => x.id === id) || PRESETS[0];
     this.world.reset();
     this.world.collisions = this.settings.collisions;
+    this.world.epoch = undefined;   // (dated scenarios set their own: presets.js solarSystem)
+    this.world.kp = this.live ? this.live.kp : null;   // (live geomagnetic activity: js/live.js)
     p.build(this.world);
     thermalStep(this.world, 0); // every planet starts in climate equilibrium
     this.state.preset = p;

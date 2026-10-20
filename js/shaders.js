@@ -512,6 +512,7 @@ uniform float uProfile;    // giant planets with measured band layouts: 1 Jupite
 uniform float uTintBands;  // 1: a measured layout recoloured with this planet's own colours (uColA zones, uColB belts)
 uniform float uPx;         // the body's radius on screen (pixels): more detail octaves when it is large
 uniform float uAurora;     // 1 Earth-like (oxygen green/red), 2 giant planet (H2, violet-pink)
+uniform float uKp;         // geomagnetic activity (Kp 0-9; 3 when not known): the oval widens equatorward and brightens
 out vec4 outColor;
 
 // Belts and zones by latitude (degrees): Jupiter after Voyager/Cassini/Juno maps (north polar region,
@@ -1246,9 +1247,9 @@ void main() {
       float colat = degrees(acos(clamp(dot(vObj, ax), -1.0, 1.0)));
       vec3 e1 = normalize(cross(ax, vec3(0.0, 0.0, 1.0))), e2 = cross(ax, e1);
       float az = atan(dot(vObj, e2), dot(vObj, e1));
-      float ring = uAurora < 1.5 ? 22.0 : 14.0;
+      float ring = uAurora < 1.5 ? 17.0 + 2.2 * uKp : 14.0;   // (Kp 3: 23.6° from the magnetic pole; Kp 9: ~37°)
       float wob = 2.0 * (fbm(vec3(cos(az) * 2.0, sin(az) * 2.0, uTime * 0.03 + float(hemi) * 5.0), 3) - 0.5);
-      float band = exp(-pow((colat - ring - wob) / 1.6, 2.0));
+      float band = exp(-pow((colat - ring - wob) / (1.2 + 0.15 * uKp), 2.0)) * (uAurora < 1.5 ? 0.45 + 0.18 * uKp : 1.0);
       float curtain = 0.4 + 0.6 * smoothstep(0.35, 0.8, vnoise(vec3(az * 40.0, uTime * 0.25, float(hemi))));
       vec3 ac = uAurora < 1.5 ? mix(vec3(0.2, 1.0, 0.45), vec3(0.9, 0.2, 0.25), smoothstep(0.0, 2.5, ring - colat + wob) * 0.6) : vec3(0.65, 0.45, 1.0);
       outc += ac * band * curtain * night * (uAurora < 1.5 ? 0.9 : 0.35) * smoothstep(40.0, 120.0, uPx);

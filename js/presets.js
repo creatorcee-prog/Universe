@@ -2,6 +2,7 @@ import { G, EARTH_MASS, MOON_MASS, KPC_AU, DAY_YR, SUN_RADIUS, km, kms, massFrom
 import { makeBody, tiltSpin, spinFacing, subsolarLon } from './bodies.js';
 import { PK, circularSpeed } from './physics.js';
 import { MOONS } from './moons.js';
+import { LIVE_DATA } from './livedata.js';
 
 const D2R = Math.PI / 180;
 const LUNAR_A = 381815; // km, starting osculating semi-major axis (see solarSystem)
@@ -268,6 +269,18 @@ const CRAFT = [
 ];
 // Geostationary: name, longitude (deg east). GPS: 24 slots in 6 planes 60° apart at 55°, 20,200 km up.
 const GEO = [['GOES-19 (GOES-East)', -75.2], ['GOES-18 (GOES-West)', -137.2], ['Meteosat-10', 0], ['Himawari-9', 140.7], ['Intelsat 37e', -18], ['Fengyun-4B', 105]];
+// Real orbital elements (CelesTrak GP: js/livedata.js, or fresher ones fetched by js/live.js into window.__LIVE),
+// carried to the scenario's date: mean motion, and the drift of the node and perigee from Earth's flattening
+// (J2 = 1.0826e-3). Equatorial frame of date ≈ the app's (the 0.36° of precession since J2000 is left out).
+const liveData = () => (typeof window !== 'undefined' && window.__LIVE) || LIVE_DATA;
+export function gpState(earth, g, epochMs) {
+  const MU = 398600.4418, RE = 6378.137, J2 = 1.0826e-3, R = Math.PI / 180;
+  const n = (g.n * 2 * Math.PI) / 86400, a = Math.cbrt(MU / (n * n)), p = a * (1 - g.e * g.e), ci = Math.cos(g.i * R);
+  const dt = (epochMs - Date.parse(g.epoch + 'Z')) / 1000, k = 1.5 * n * J2 * (RE / p) ** 2;
+  const raan = g.raan - (k * ci * dt) / R, w = g.w + (0.5 * k * (5 * ci * ci - 1) * dt) / R, M = g.M + (n * dt) / R;
+  return moonState(earth, ['Earth', g.name, a, g.e, g.i, ((raan % 360) + 360) % 360, ((w % 360) + 360) % 360, ((M % 360) + 360) % 360, 'Q', 0], G * earth.m);
+}
+
 function addSatellites(world, earth, sun, epochMs) {
   const R = Math.PI / 180, kg = 1 / 1.98847e30;
   const add = (name, model, kind, mass, size, s, extra = {}) => {
@@ -278,11 +291,17 @@ function addSatellites(world, earth, sun, epochMs) {
     world.addBody(b);
   };
   const mu = G * earth.m;
+  const L = liveData();
   CRAFT.forEach(([name, model, h, inc, mass, size, kind], k) => {
+    const g = L && L.gp && L.gp[name];
+    if (g) { add(name, model, kind, mass, size, gpState(earth, g, epochMs), { live: true }); return; }
     const [hp, ha] = Array.isArray(h) ? h : [h, h], rp = RE_KM + hp, ra = RE_KM + ha;
     add(name, model, kind, mass, size, moonState(earth, ['Earth', name, (rp + ra) / 2, (ra - rp) / (ra + rp), inc, k * 47 % 360, k * 83 % 360, k * 131 % 360, 'Q', 0], mu));
   });
-  for (let p = 0; p < 6; p++) for (let s = 0; s < 4; s++) {
+  // GPS: the real operational constellation when known (31-32 craft), else the 24 nominal slots.
+  if (L && L.gps && L.gps.length) {
+    for (const g of L.gps) add(g.name.replace(/\s+/g, ' ').replace(/^NAVSTAR \d+ /, '').replace(/^GPS /, 'GPS '), null, 'Navigation satellite (GPS)', 2000, 5, gpState(earth, g, epochMs), { live: true });
+  } else for (let p = 0; p < 6; p++) for (let s = 0; s < 4; s++) {
     add(`GPS ${'ABCDEF'[p]}${s + 1}`, null, 'Navigation satellite (GPS)', 2000, 5, moonState(earth, ['Earth', 'GPS', RE_KM + 20200, 0.005, 55, p * 60, 0, s * 90 + p * 15, 'Q', 0], mu));
   }
   // Geostationary: over its longitude, moving east with the ground (the same spin the renderer starts Earth with).
@@ -290,6 +309,8 @@ function addSatellites(world, earth, sun, epochMs) {
   const ang = spinFacing(tilt, u.map((v) => v / ul), subsolarLon(epochMs)), rG = km(42164), vG = Math.sqrt(mu / rG);
   const dirAt = (a, lon) => { const M = tiltSpin(tilt, a), d = [Math.cos(lon * R), 0, -Math.sin(lon * R)]; return [0, 1, 2].map((i) => M[i] * d[0] + M[3 + i] * d[1] + M[6 + i] * d[2]); };
   for (const [name, lon] of GEO) {
+    const g = L && L.gp && L.gp[name];
+    if (g) { add(name, null, 'Weather/communications satellite (geostationary)', 5000, 8, gpState(earth, g, epochMs), { live: true }); continue; }
     const w = dirAt(ang, lon), w2 = dirAt(ang + 1e-4, lon), v = w2.map((c, i) => c - w[i]), vl = Math.hypot(...v);
     add(name, null, 'Weather/communications satellite (geostationary)', 5000, 8, [...w.map((c) => c * rG), ...v.map((c) => (c / vl) * vG)]);
   }
@@ -324,7 +345,22 @@ const PROBES = [
 ];
 function addProbes(world, sun, epochMs) {
   const E = 23.4393 * Math.PI / 180, kg = 1 / 1.98847e30;
+  const HV = (liveData() || {}).probes || {};
+  const fromVec = (b, h) => {
+    // (Horizons: heliocentric ecliptic J2000, AU and AU/day, at Julian date h.jd; coast to the scenario's date)
+    const dd = (epochMs - (h.jd - 2440587.5) * 86400e3) / 86400e3;
+    const X = h.x + h.vx * dd, Y = h.y + h.vy * dd, Z = h.z + h.vz * dd;
+    b.x = sun.x + X; b.y = sun.y + Z; b.z = sun.z - Y;
+    b.vx = sun.vx + h.vx * 365.25; b.vy = sun.vy + h.vz * 365.25; b.vz = sun.vz - h.vy * 365.25;
+  };
   for (const [name, model, au, date, kms_, ra, dec, mass, size, kind] of PROBES) {
+    if (HV[name]) {
+      const b = makeBody({ name, kind: 'rocky', m: mass * kg, r: km(size / 2000), color: [200, 200, 205] });
+      Object.assign(b, { sat: model, craft: kind, round: true, live: true });
+      fromVec(b, HV[name]);
+      world.addBody(b);
+      continue;
+    }
     const a = (ra * 15 * Math.PI) / 180, d = (dec * Math.PI) / 180;
     const xe = Math.cos(d) * Math.cos(a), ye = Math.cos(d) * Math.sin(a), ze = Math.sin(d);
     const X = xe, Y = ye * Math.cos(E) + ze * Math.sin(E), Z = -ye * Math.sin(E) + ze * Math.cos(E);   // ecliptic
@@ -342,6 +378,7 @@ function addProbes(world, sun, epochMs) {
   const pb = makeBody({ name: 'Parker Solar Probe', kind: 'rocky', m: 685 * kg, r: km(0.0015), color: [200, 200, 205] });
   Object.assign(pb, { sat: 'parker', craft: 'Solar probe (closest to the Sun)', round: true, minor: true, host: sun });
   orbit(world, sun, pb, 0.3889, 0.882, 3.4, 76.7, 0, ((pt / P) % 1) * 360);
+  if (HV['Parker Solar Probe']) { fromVec(pb, HV['Parker Solar Probe']); pb.live = true; }
 }
 
 function solarSystem(world, { belts = true, moon = true, moons = true } = {}) {

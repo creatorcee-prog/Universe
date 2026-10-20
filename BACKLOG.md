@@ -14,7 +14,7 @@ Done items move to the README. (October 2026: the user cleared everything else; 
 - [ ] Rename objects.
 - [x] Artificial satellites in their proper places, with NASA models, plus Voyager 1/2, New Horizons, Pioneers, Parker, LRO, MRO, Vanguard 1, and a ride-along view from the ISS.
 - [x] Real-time events: e.g. tonight's meteor shower (annual showers by date, radiant, ZHR; maybe eclipses).
-- [ ] Live feeds (GitHub Pages copy; the artifact's CSP blocks other hosts): CelesTrak elements + SGP4 for real satellite positions, NOAA SWPC Kp for aurora alerts and strength, JPL Horizons for probe positions if it allows browser requests; cached offline by the service worker, falling back to the built-in tables.
+- [x] Live feeds (GitHub Pages copy; the artifact's CSP blocks other hosts): CelesTrak elements + SGP4 for real satellite positions, NOAA SWPC Kp for aurora alerts and strength, JPL Horizons for probe positions if it allows browser requests; cached offline by the service worker, falling back to the built-in tables.
 
 ## Done (history)
 

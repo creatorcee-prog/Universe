@@ -229,8 +229,8 @@ export class UI {
       if (b.craft && b.minor) app.rideAlong(b); else app.enterSurface(b, 'day');
     });
     $('ride-chip').addEventListener('click', () => app.exitRide());
-    $('ev-watch').addEventListener('click', () => { $('event-card').hidden = true; if (this.skyNow) app.watchShower(this.skyNow); });
-    $('ev-close').addEventListener('click', () => { $('event-card').hidden = true; this.skyDismissed = this.skyNow && this.skyNow.name; });
+    $('ev-watch').addEventListener('click', () => { $('event-card').hidden = true; if (this.skyNow === 'storm') app.watchAurora(); else if (this.skyNow) app.watchShower(this.skyNow); });
+    $('ev-close').addEventListener('click', () => { $('event-card').hidden = true; this.skyDismissed = this.skyNow === 'storm' ? 'storm' : this.skyNow && this.skyNow.name; });
     $('i-cutaway').addEventListener('click', () => {
       const b = app.state.selected;
       if (!b) return;
@@ -607,6 +607,7 @@ export class UI {
     this.closeSheets(true);
     this.app.audio.ui('open-panel');
     if (id === 'sheet-sim') this.refreshSky();
+    if (id === 'sheet-settings' && this.app.live) $('live-status').textContent = `Live data: ${this.app.live.status}${this.app.live.kp != null ? ` · geomagnetic Kp ${this.app.live.kp.toFixed(1)} (NOAA)` : ''}.`;
     $(id).hidden = false;
     // Side panels on wide screens leave the simulation usable; phones get a modal sheet.
     $('scrim').hidden = false;
@@ -1102,6 +1103,18 @@ export class UI {
     const app = this.app, w = app.world, card = $('event-card');
     const dated = app.state.preset && app.state.preset.id === 'solar' && w.epoch;
     if (!dated || app.surface || app.ride) { card.hidden = true; return; }
+    // A geomagnetic storm (live Kp, js/live.js; NOAA G scale: G1 at Kp 5 ... G5 at Kp 9) comes first: the aurora
+    // reaches roughly 66.5 - 2.3 Kp degrees of magnetic latitude (NOAA's aurora view line, approximately).
+    const kp = app.world.kp;
+    if (kp != null && kp >= 5 && this.skyDismissed !== 'storm') {
+      $('ev-title').textContent = `Geomagnetic storm now: Kp ${kp.toFixed(1)} (G${Math.min(5, Math.floor(kp) - 4)})`;
+      $('ev-text').textContent = `Aurora may be seen as far from the poles as ~${Math.round(66.5 - 2.3 * kp)}° magnetic latitude tonight (NOAA Space Weather Prediction Center).`;
+      $('ev-watch').textContent = 'Show Earth\'s aurora';
+      this.skyNow = 'storm';
+      card.hidden = false;
+      return;
+    }
+    $('ev-watch').textContent = 'Watch from Earth';
     // (the real date: the card is about tonight, wherever the simulation's clock has run to)
     const ms = (typeof window !== 'undefined' && window.__EPOCH) ? Date.parse(window.__EPOCH) : Date.now(), now = showersAt(ms).filter((x) => x.zhr >= 3)[0];
     if (!now || this.skyDismissed === now.s.name) { card.hidden = true; return; }

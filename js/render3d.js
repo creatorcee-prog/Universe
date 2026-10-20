@@ -2862,6 +2862,7 @@ export class Renderer3D {
     gl.uniform1f(u.uProfile, l.profile || (l.kind === 1 ? 5 : 0));   // (giants without a measured layout: the layered style)
     gl.uniform1f(u.uTintBands, l.tintBands ? 1 : 0);
     gl.uniform1f(u.uAurora, l.aurora || 0);
+    gl.uniform1f(u.uKp, /^Earth$/.test(b.ident || b.name) && this.world.kp != null ? this.world.kp : 3);   // (live: js/live.js)
     gl.uniform1f(u.uPx, shownPx);
     gl.uniform1f(u.uSoft, l.atmo && l.kind === 0 ? 0.08 : 0.02);
     gl.uniform1f(u.uDayNight, l.kind === 1 ? 0.02 : l.atmo ? (l.cloud >= 1 ? 0.01 : 0.06) : 0.35);
