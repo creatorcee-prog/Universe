@@ -90,7 +90,8 @@ export function ktxMap(file, gl) {
         };
         worker.onerror = (ev) => { broken = true; console.warn('Close-up map worker:', ev.message); };
       }
-      e.url = new URL(`assets/maps/${file}.bin`, location.href).href;
+      // (the artifact build names them .bin.wasm, a type its host serves: tools/build-single.mjs)
+      e.url = new URL(`assets/maps/${file}${(typeof window !== 'undefined' && window.__KTX_EXT__) || '.bin'}`, location.href).href;
       worker.postMessage({ url: e.url, base: new URL('js/vendor/', location.href).href, tf: f.tf });
     } catch (err) { e.state = 'failed'; console.warn('Close-up map:', err); }
   }

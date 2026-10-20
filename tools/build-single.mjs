@@ -41,6 +41,8 @@ if (!external) for (const f of readdirSync(mapDir)) {
   if (m) maps[m[1]] = `data:image/${m[2] === 'png' ? 'png' : 'jpeg'};base64,` + readFileSync(join(mapDir, f)).toString('base64');
 }
 js += `window.__MAPS__ = ${JSON.stringify(maps)};\n`;
+// (the compressed 8k maps, js/ktx.js: published beside the artifact as <name>.bin.wasm)
+if (external) js += `window.__KTX_EXT__ = '.bin.wasm';\n`;
 for (const name of ORDER) {
   let src = readFileSync(join(root, 'js', name + '.js'), 'utf8');
   src = src.replace(/^import\s*\{([\s\S]*?)\}\s*from\s*['"]\.\/([\w-]+)\.js['"];?/gm, (_, names, mod) => {
