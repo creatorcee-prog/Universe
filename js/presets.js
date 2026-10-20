@@ -562,6 +562,28 @@ export const PRESETS = [
     },
   },
   {
+    id: 'ptde', name: 'Repeating Tidal Disruption',
+    blurb: 'A Sun-like star on a tight 20-day orbit grazes a million-solar-mass black hole. Each pass tears off part of it in a stream that wraps around the hole and lights its disk, piece by piece, as for the star in ASASSN-14ko, which flares every 114 days.',
+    speed: 2 / 365.25,
+    camera: { follow: 'Black hole', dist: 22, pitch: 1.05, yaw: 1.75 },
+    build(w) {
+      const bh = w.addBody(makeBody({ kind: 'bh', m: 1e6, name: 'Black hole' }));
+      // Periapsis 1.2 times the distance at which the star would be destroyed outright (~0.53 AU for this young
+      // Sun, 0.9 R☉), so each pass strips about a fifth of it (Guillochon & Ramirez-Ruiz 2013).
+      // Period 20 days: a = 14.4 AU, e = 0.96.
+      const st = makeBody({ kind: 'star', m: 1, name: 'S-star' });
+      const mu = G * bh.m, P = 20 / 365.25, a = Math.cbrt((mu * P * P) / (4 * Math.PI * Math.PI));
+      // (0.9: the young star's radius, set on its first step)
+      const q = 1.2 * 0.9 * st.r * Math.cbrt((2 * bh.m) / st.m), e = 1 - q / a;
+      const nu = -2.2;   // still on its way in
+      const p = a * (1 - e * e), r = p / (1 + e * Math.cos(nu)), h = Math.sqrt(mu * p);
+      st.x = r * Math.cos(nu); st.y = 0; st.z = -r * Math.sin(nu);
+      const vr = (mu / h) * e * Math.sin(nu), vt = (mu / h) * (1 + e * Math.cos(nu));
+      st.vx = vr * Math.cos(nu) - vt * Math.sin(nu); st.vy = 0; st.vz = -(vr * Math.sin(nu) + vt * Math.cos(nu));
+      w.addBody(st);
+    },
+  },
+  {
     id: 'supernova', name: 'Supernova',
     blurb: 'A red supergiant like Betelgeuse, 18 times the Sun\'s mass, is about a year from collapse. Watch its core implode and the shell of hydrogen, oxygen, silicon and iron fly out.',
     speed: 0.08,

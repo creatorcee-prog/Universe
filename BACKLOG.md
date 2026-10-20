@@ -316,3 +316,5 @@ on the phone.
    after every step; regenerate the WebGPU shader translations after any shader edit.
 
 - [x] Gravity view as a warped-space grid (rubber sheet / Flamm's paraboloid shape, exaggerated depth, compressed so planets show beside the Sun); temperature and gravity switches moved to Settings beside Magnetic fields.
+- [x] Tidal disruption: black holes (and other dense bodies) pull stars/planets apart piece by piece into a stream that wraps around and feeds an accretion disk and jets (user photos: NASA/CXC TDE, ESO spaghettification); more realistic black holes.
+  - Done: partial disruption (gas stripped from L1/L2 each pass, Guillochon & Ramirez-Ruiz 2013; stripped stars stay puffed, Ryu et al. 2020), new Repeating Tidal Disruption preset (ASASSN-14ko-like), stream coloured by distance from the hole, disk sized/lit by Eddington ratio and tilted to the fed gas's angular momentum, super-Eddington wind as a faint haze. Not done: relativistic jets (only ~1% of TDEs launch one: Swift J1644+57).

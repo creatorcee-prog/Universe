@@ -12,7 +12,7 @@ const TRAIL_LEN = 360;
 const PARTICLE_RGB = {
   [PK.DEBRIS]: [196, 150, 116], [PK.HOT]: [255, 196, 130], [PK.STAR_BLUE]: [168, 196, 255], [PK.STAR_GOLD]: [255, 218, 168],
   [PK.ICE]: [214, 220, 232], [PK.DUST]: [190, 160, 128], [PK.GAS]: [214, 184, 146], [PK.ROCK]: [164, 148, 132],
-  [PK.SN_H]: [255, 80, 100], [PK.SN_O]: [80, 230, 210], [PK.SN_SI]: [255, 205, 90], [PK.SN_FE]: [230, 228, 255],
+  [PK.SN_H]: [255, 80, 100], [PK.SN_O]: [80, 230, 210], [PK.SN_SI]: [255, 205, 90], [PK.SN_FE]: [230, 228, 255], [PK.WIND]: [255, 110, 80],
 };
 
 // On-screen radius in device pixels that both views give a body (tiny bodies get a minimum size).
@@ -413,40 +413,48 @@ export class Renderer {
     const { ctx, cam, dpr, world } = this;
     if (ui.surface) return;
     const p = this.tmp, cx = cam.tx, cy = cam.ty, cz = cam.tz;
-    const L = Math.max(cam.dist * 2.2, 1e-9), N = 36, S = 72;
+    const L = Math.max(cam.dist * 2.2, 1e-9), N = 28, M = 56;   // 29 lines each way, 57 points along each
     // The masses that matter here: on or near the grid (a far star's pull only tilts it), heaviest by mass over
     // distance (at most 16).
     const ms = world.bodies.filter((b) => b.alive && b.m > 0 && b.kind !== 'nebula' && Math.hypot(b.x - cx, b.z - cz) < L * 1.6)
       .map((b) => ({ b, w: b.m / (Math.hypot(b.x - cx, b.z - cz) + L) })).sort((a, c) => c.w - a.w).slice(0, 16).map((o) => o.b);
     if (!ms.length) return;
-    const phi = (x, z) => {
-      let f = 0;
-      for (const b of ms) f += b.m / Math.max(Math.hypot(x - b.x, z - b.z), b.r * 1.5, b.soft || 0, L * 0.025);
-      return f;
-    };
-    // scale: the deepest point on the grid sinks 0.25 L; its edge stays level
-    const grid = new Float64Array((N + 1) * (N + 1));
+    const nm = ms.length, bx = new Float64Array(nm), bz = new Float64Array(nm), bm = new Float64Array(nm), bs2 = new Float64Array(nm);
+    for (let k = 0; k < nm; k++) {
+      const b = ms[k], s0 = Math.max(b.r * 1.5, b.soft || 0, L * 0.025);
+      bx[k] = b.x; bz[k] = b.z; bm[k] = b.m; bs2[k] = s0 * s0;
+    }
+    // The potential, compressed, on one lattice shared by the lines both ways (computed once a frame).
+    const W = M + 1, F = this._gg && this._gg.length === W * W ? this._gg : (this._gg = new Float64Array(W * W));
     let fmax = 0, fedge = Infinity;
-    for (let i = 0; i <= N; i++) for (let j = 0; j <= N; j++) {
-      const x = cx - L + (2 * L * i) / N, z = cz - L + (2 * L * j) / N, f = Math.pow(phi(x, z), 0.6);
-      grid[i * (N + 1) + j] = f;
-      if (f > fmax) fmax = f;
-      if ((i === 0 || j === 0 || i === N || j === N) && f < fedge) fedge = f;
+    for (let i = 0; i < W; i++) {
+      const x = cx - L + (2 * L * i) / M;
+      for (let j = 0; j < W; j++) {
+        const z = cz - L + (2 * L * j) / M;
+        let f = 0;
+        for (let k = 0; k < nm; k++) {
+          const dx = x - bx[k], dz = z - bz[k];
+          f += bm[k] / Math.sqrt(Math.max(dx * dx + dz * dz, bs2[k]));
+        }
+        f = Math.pow(f, 0.6);
+        F[i * W + j] = f;
+        if (f > fmax) fmax = f;
+        if ((i === 0 || j === 0 || i === M || j === M) && f < fedge) fedge = f;
+      }
     }
     if (!(fmax > fedge)) return;
-    const depth = (x, z) => -0.25 * L * Math.max(0, Math.pow(phi(x, z), 0.6) - fedge) / (fmax - fedge);
-    ctx.globalCompositeOperation = 'lighter';
+    // scale: the deepest point on the grid sinks 0.25 L; its edge stays level
+    const kd = (-0.25 * L) / (fmax - fedge);
     ctx.lineWidth = dpr;
     for (let dir = 0; dir < 2; dir++) {
       for (let i = 0; i <= N; i++) {
         const u = -L + (2 * L * i) / N;
-        const a = 0.42 * (1 - Math.pow(Math.abs(u) / L, 3));   // (fading toward the grid's edge)
-        ctx.strokeStyle = `rgba(170,200,255,${a})`;
+        ctx.strokeStyle = `rgba(170,200,255,${(0.42 * (1 - Math.pow(Math.abs(u) / L, 3))).toFixed(3)})`;   // (fading toward the edge)
         ctx.beginPath();
         let pen = false;
-        for (let k = 0; k <= S; k++) {
-          const v = -L + (2 * L * k) / S;
-          const x = cx + (dir ? v : u), z = cz + (dir ? u : v), y = cy + depth(x, z);
+        for (let k = 0; k <= M; k++) {
+          const ii = dir ? k : 2 * i, jj = dir ? 2 * i : k;
+          const x = cx - L + (2 * L * ii) / M, z = cz - L + (2 * L * jj) / M, y = cy + kd * Math.max(0, F[ii * W + jj] - fedge);
           if (cam.project(x, y, z, p) <= 0 || this.hiddenAt(x, y, z, p.x, p.y)) { pen = false; continue; }
           if (pen) ctx.lineTo(p.x, p.y); else ctx.moveTo(p.x, p.y);
           pen = true;
@@ -454,7 +462,6 @@ export class Renderer {
         ctx.stroke();
       }
     }
-    ctx.globalCompositeOperation = 'source-over';
   }
 
   // Magnetic fields (Settings → Magnetic fields; js/magnetic.js): each magnetised world's field lines, closed

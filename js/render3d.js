@@ -459,9 +459,9 @@ const PARTICLE_RGB = {
   [PK.ICE]: c3(214, 206, 190), [PK.DUST]: c3(150, 126, 100), [PK.GAS]: c3(214, 184, 146), [PK.ROCK]: c3(120, 112, 104),
   // Supernova and nebula materials, coloured like their emission lines: hydrogen-alpha red,
   // oxygen teal, silicon/sulfur gold, iron white-hot.
-  [PK.SN_H]: c3(255, 70, 90), [PK.SN_O]: c3(70, 230, 210), [PK.SN_SI]: c3(255, 200, 80), [PK.SN_FE]: c3(230, 225, 255),
+  [PK.SN_H]: c3(255, 70, 90), [PK.SN_O]: c3(70, 230, 210), [PK.SN_SI]: c3(255, 200, 80), [PK.SN_FE]: c3(230, 225, 255), [PK.WIND]: c3(255, 110, 80),
 };
-const GLOW_KINDS = new Set([PK.HOT, PK.STAR_BLUE, PK.STAR_GOLD, PK.SN_H, PK.SN_O, PK.SN_SI, PK.SN_FE]);
+const GLOW_KINDS = new Set([PK.HOT, PK.STAR_BLUE, PK.STAR_GOLD, PK.SN_H, PK.SN_O, PK.SN_SI, PK.SN_FE, PK.WIND]);
 
 export class Renderer3D {
   static supported() {
@@ -2945,12 +2945,19 @@ export class Renderer3D {
       }
     }
     if (l.kind === 4) {
-      const heat = Math.min(1, b.heat);
+      // Feeding: the Eddington ratio of what it swallows (physics.js feedingLight). A hole being fed has a
+      // bright disk out to where infalling gas settles (the circularisation radius, twice the tidal radius
+      // of a Sun-like star); a hungry one, only a faint ring close in (the hot inner flow).
+      const edd = b.mdot > 0 ? b.mdot / (2.16e-8 * b.m) : 0;
+      const feed = Math.min(1, Math.log10(1 + edd * 3) / 2);
+      const heat = Math.min(1, Math.max(feed, 0.6 * b.heat));
+      const rc = 2 * 0.00465 * Math.cbrt(b.m), outer = Math.max(R * 3.4, R * 3.4 + (rc - R * 3.4) * Math.sqrt(feed));
       glows.push(() => {
-        this.disk(vp, R, heat, now);
+        this.disk(vp, R, heat, now, outer, b.diskL);
         this.sprite(vp, R * 1.9, [1, 0.75, 0.45].map((v) => v * (0.7 + 0.4 * heat)), 2, 0, 1 / 1.9);
         // Lensed far side of the disk and the photon ring, oriented by the disk's axis on screen.
-        const n = this.viewOf(0, 1, 0);
+        const L = b.diskL, ln = L ? Math.hypot(L[0], L[1], L[2]) : 0;
+        const n = ln > 0 ? this.viewOf(L[0] / ln, L[1] / ln, L[2] / ln) : this.viewOf(0, 1, 0);
         const edgeOn = 1 - Math.min(1, Math.abs(n[2]));
         this.sprite(vp, R * 3.8, [1, 0.86, 0.68].map((v) => v * (0.55 + 0.5 * heat)), 4, Math.atan2(n[1], n[0]) - Math.PI / 2, edgeOn);
       });
@@ -2981,18 +2988,25 @@ export class Renderer3D {
   }
 
   // Accretion disk in the black hole's equatorial plane (world x-z), sized from the shadow radius.
-  disk(vp, shadow, heat, now) {
+  disk(vp, shadow, heat, now, outer = shadow * 3.4, L = null) {
     const gl = this.gl, d = this.pDisk, u = d.u;
-    const outer = shadow * 3.4;
-    const ax = this.viewOf(outer, 0, 0), az = this.viewOf(0, 0, outer);
+    // In the plane across the angular momentum of the gas it was fed (else the world's x-z plane).
+    const ln = L ? Math.hypot(L[0], L[1], L[2]) : 0;
+    let n = ln > 0 ? [L[0] / ln, L[1] / ln, L[2] / ln] : [0, 1, 0];
+    const t = Math.abs(n[0]) < 0.9 ? [1, 0, 0] : [0, 0, 1];
+    let e1 = [n[1] * t[2] - n[2] * t[1], n[2] * t[0] - n[0] * t[2], n[0] * t[1] - n[1] * t[0]];
+    const e1n = Math.hypot(e1[0], e1[1], e1[2]);
+    e1 = e1.map((v) => v / e1n);
+    const e2 = [n[1] * e1[2] - n[2] * e1[1], n[2] * e1[0] - n[0] * e1[2], n[0] * e1[1] - n[1] * e1[0]];
+    const ax = this.viewOf(e1[0] * outer, e1[1] * outer, e1[2] * outer), az = this.viewOf(e2[0] * outer, e2[1] * outer, e2[2] * outer);
     gl.useProgram(d.p);
     gl.uniformMatrix4fv(u.uProj, false, this.P);
     gl.uniform3fv(u.uCenter, vp);
     gl.uniform3fv(u.uAxU, ax);
     gl.uniform3fv(u.uAxV, az);
-    gl.uniform1f(u.uInner, 1.25 / 3.4);
+    gl.uniform1f(u.uInner, (1.25 * shadow) / outer);
     gl.uniform1f(u.uTime, now / 1000);
-    gl.uniform1f(u.uHeat, 0.35 + heat);
+    gl.uniform1f(u.uHeat, 0.15 + heat);   // (hungry, only a faint glow)
     gl.uniform1f(u.uLogDepthFC, this.logFC);
     gl.bindVertexArray(this.quad);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
@@ -3049,15 +3063,17 @@ export class Renderer3D {
     this.ensure(glow, total);
     let ns = 0, ng = 0;
     const tx = cam.tx + cam.ox, ty = cam.ty + cam.oy, tz = cam.tz + cam.oz;
-    const add = (x, y, z, kind, size, shade, k) => {
-      const c = PARTICLE_RGB[kind];
+    const add = (x, y, z, kind, size, shade, k, col) => {
+      const c = col || PARTICLE_RGB[kind];
       const v = 0.82 + 0.36 * ((k * 0.61803) % 1);
       if (GLOW_KINDS.has(kind)) {
         glow.pos[ng * 3] = x; glow.pos[ng * 3 + 1] = y; glow.pos[ng * 3 + 2] = z;
         // (Supernova ejecta: faint knots once the remnant's own volume draws the shell; bright before it.)
         const a = kind === PK.HOT ? 0.45 : kind >= PK.SN_H ? (world.remnants && world.remnants.length ? 0.3 : 1.1) : 0.55;
         glow.col[ng * 3] = c[0] * a * v; glow.col[ng * 3 + 1] = c[1] * a * v; glow.col[ng * 3 + 2] = c[2] * a * v;
-        glow.size[ng] = kind === PK.HOT ? size : 0;
+        // (a stream of gas: soft points, so it reads as a band; the wind blown off a feeding black hole: a faint
+        // haze of wide ones)
+        glow.size[ng] = kind === PK.WIND ? -11 * this.dpr : col ? -5.5 * this.dpr : kind === PK.HOT ? size : 0;
         glow.shade[ng] = 1;
         ng++;
       } else {
@@ -3072,13 +3088,30 @@ export class Renderer3D {
     // From the ground only what is near the world shows (debris of an impact overhead): the sky's own light
     // lies in front of anything far, and drawn over it a sunlit asteroid would be a dark speck in the blue.
     const sb = this.surface ? this.surface.body : null, reach2 = sb ? (50 * sb.r) ** 2 : 0;
+    // Gas torn from a star near a black hole: white-hot and yellow where it is squeezed and shocked close to
+    // the hole, cooling to orange and deep red as the stream stretches out (thousands of K falling as it
+    // expands). Distances in units of the tidal radius of a Sun-like star, R☉ (M/M☉)^⅓.
+    const holes = [];
+    if (!(world.remnants && world.remnants.length)) for (const b of world.bodies) if (b.kind === 'bh' && b.alive) holes.push([b.x, b.y, b.z, 1 / (0.00465 * Math.cbrt(b.m))]);
+    const sc = [0, 0, 0], LQ = 1 / Math.log(40);
     for (let i = 0; i < world.np; i++) {
       if (sb && (px[i] - sb.x) ** 2 + (py[i] - sb.y) ** 2 + (pz[i] - sb.z) ** 2 > reach2) continue;
       const m = pm[i];
       const h = ((i * 2654435761) >>> 0) / 4294967296;
       // Chunk radius from its mass at rock density; massless belt particles get 30-120 km.
       const size = m > 0 ? Math.cbrt(m * 2.567e-8) : (2e-7 + h * 6e-7);
-      add(px[i] - tx, py[i] - ty, pz[i] - tz, pk[i], size, 1, i);
+      let col = null;
+      if (pk[i] === PK.WIND) {
+        sc[0] = 0.07; sc[1] = 0.024; sc[2] = 0.016;
+        col = sc;
+      } else if (holes.length && pk[i] === PK.SN_H) {
+        let q = Infinity;
+        for (const H of holes) q = Math.min(q, Math.hypot(px[i] - H[0], py[i] - H[1], pz[i] - H[2]) * H[3]);
+        const t = Math.min(1, Math.max(0, Math.log(Math.max(q, 1e-9) / 1.5) * LQ)), b = 0.42 - 0.36 * t;
+        sc[0] = b; sc[1] = b * (0.95 - 0.72 * t); sc[2] = b * (0.62 - 0.5 * Math.sqrt(t));
+        col = sc;
+      }
+      add(px[i] - tx, py[i] - ty, pz[i] - tz, pk[i], size, 1, i, col);
     }
     // Ring debris: shadowed where the planet blocks the Sun.
     const tmp = [0, 0, 0, 0, 0, 0];

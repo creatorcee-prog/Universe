@@ -1,5 +1,5 @@
 import { G, C_AU_YR } from './units.js';
-import { reclassify, refresh, isLuminous, makeBody } from './bodies.js';
+import { reclassify, refresh, isLuminous, makeBody, starRadius } from './bodies.js';
 import { thermalStep, mergeThermal, finishMerge, accreteHeat, accreteMaterial } from './thermal.js';
 import { evolveStar, stellarDeath, transientLum } from './stellar.js';
 import { IAS15, IAS15_NODES } from './ias15.js';
@@ -8,10 +8,16 @@ import { coagulate } from './coagulate.js';
 import { prepareMinors, stepMinors } from './minors.js';
 
 // Particle kinds (purely visual categories; particles carry mass but do not attract each other).
-export const PK = { DEBRIS: 0, HOT: 1, STAR_BLUE: 2, STAR_GOLD: 3, ICE: 4, DUST: 5, GAS: 6, ROCK: 7, SN_H: 8, SN_O: 9, SN_SI: 10, SN_FE: 11 };
+export const PK = { DEBRIS: 0, HOT: 1, STAR_BLUE: 2, STAR_GOLD: 3, ICE: 4, DUST: 5, GAS: 6, ROCK: 7, SN_H: 8, SN_O: 9, SN_SI: 10, SN_FE: 11, WIND: 12 };
 
 const PCAP = 16000; // free particles
 const RCAP = 30000; // ring particles locked to a host body
+const COMPACT = new Set(['bh', 'ns', 'wd']);
+// Partial tidal disruption: a star passing within this factor of the distance that destroys it outright loses
+// part of its mass. Guillochon & Ramirez-Ruiz 2013 (ApJ 767, 25), for a Sun-like star: mass loss starts at
+// β = r_t / r_p ≈ 0.6 and is total near 0.9; here total is the Roche distance (β ≈ 0.8), so stripping starts
+// at 0.8 / 0.6 ≈ 1.33 times it.
+const STRIP_K = 1.33;
 const MAX_STEPS = 3000; // body substeps per frame
 const MAX_ATTRACTORS = 24; // bodies that pull on particles
 const PRIORITY = { rocky: 0, gas: 1, star: 2, wd: 3, ns: 4, bh: 5, core: 6 };
@@ -136,9 +142,17 @@ export class World {
   }
 
   // Particles created during a frame's substeps are held back and drifted to the frame's end time.
-  spawnParticle(x, y, z, vx, vy, vz, m, kind) {
+  spawnParticle(x, y, z, vx, vy, vz, m, kind, src = null) {
     if (this.np + this.pending.length >= PCAP) return;
-    this.pending.push([x, y, z, vx, vy, vz, m, kind, this.t]);
+    this.pending.push([x, y, z, vx, vy, vz, m, kind, this.t, src]);
+  }
+
+  // Gas just shed by a body (src._shed: the particle ids, and until when) is not swept back into it as it
+  // leaves: it moves under Newton's gravity, the body near a black hole under 1PN, and the slight difference
+  // would carry it through the body.
+  shedBy(i, b) {
+    const s = b && b._shed;
+    return !!s && this.t < s.until && this.pid[i] >= s.lo && this.pid[i] <= s.hi;
   }
 
   removeParticle(i) {
@@ -309,7 +323,7 @@ export class World {
       const eligible = !b.noRoche && (b.kind === 'rocky' || b.kind === 'gas' || b.kind === 'star') && mMax > 30 * b.m;
       // Rubble piles assembled from debris break up further out than solid moons: between the rigid (1.26) and
       // fluid (2.456) Roche coefficients, since their own gravity and friction hold them partly together.
-      b._roche = eligible ? b.r * Math.cbrt((2 * mMax) / b.m) * (b.formed ? 1.5 : 1) : 0;
+      b._roche = eligible ? b.r * Math.cbrt((2 * mMax) / b.m) * (b.formed ? 1.5 : 1) * STRIP_K : 0;
     }
     for (let i = 0; i < n; i++) {
       const a = bs[i];
@@ -333,6 +347,9 @@ export class World {
             this.disrupt(small, big);
             changed = true;
             continue;
+          }
+          if (COMPACT.has(big.kind) && !small.formed && d2 < (STRIP_K * rRoche) ** 2 && d2 > contact * contact) {
+            if (this.strip(small, big, Math.sqrt(d2), rRoche)) { changed = true; continue; }
           }
         }
         if (!this.collisions) continue;
@@ -591,7 +608,7 @@ export class World {
   disrupt(small, big) {
     const free = PCAP - this.np - this.pending.length;
     // Rubble moonlets break back into a few clumps; planets and stars into a fine spray.
-    const count = Math.min(free, small.formed ? Math.max(6, Math.min(40, Math.round(small.m / 2.5e-10))) : small.kind === 'star' ? 1400 : small.m > 1e-7 ? 900 : 300);
+    const count = Math.min(free, small.formed ? Math.max(6, Math.min(40, Math.round(small.m / 2.5e-10))) : small.kind === 'star' ? (COMPACT.has(big.kind) ? Math.max(600, Math.round(6000 * (small._strip ? small.m / small._strip.m0 : 1))) : 1400) : small.m > 1e-7 ? 900 : 300);
     // A shredded star is hydrogen plasma (glows, never clumps); planets break into gas or rock.
     const kind = small.kind === 'star' ? PK.SN_H : small.kind === 'gas' ? PK.GAS : PK.ROCK;
     const vesc = Math.sqrt((2 * G * small.m) / small.r);
@@ -602,19 +619,7 @@ export class World {
     // The 1PN energy itself drifts at the 2PN level this close in (0.3 c), so prefer the orbit's energy
     // recorded while the body was still far from the hole (see noteFarEnergy), which is what decides
     // whether the debris escapes.
-    let bvx = small.vx, bvy = small.vy, bvz = small.vz;
-    if (big.kind === 'bh' || big.kind === 'ns') {
-      const rx = small.x - big.x, ry = small.y - big.y, rz = small.z - big.z;
-      const wx = small.vx - big.vx, wy = small.vy - big.vy, wz = small.vz - big.vz;
-      const r = Math.hypot(rx, ry, rz), v2 = wx * wx + wy * wy + wz * wz, u = (G * big.m) / r, c2 = C_AU_YR * C_AU_YR;
-      const far = small.eFar && small.eFar.host === big ? small.eFar.E : null;
-      const E1 = far ?? v2 / 2 - u + ((3 / 8) * v2 * v2 + 1.5 * u * v2 + 0.5 * u * u) / c2;
-      const want = 2 * (E1 + u);
-      if (want > 0 && v2 > 0) {
-        const k = Math.sqrt(want / v2);
-        bvx = big.vx + wx * k; bvy = big.vy + wy * k; bvz = big.vz + wz * k;
-      }
-    }
+    const [bvx, bvy, bvz] = this.handover(small, big);
     for (let k = 0; k < count; k++) {
       const u = randUnit();
       const rr = small.r * Math.cbrt(rand());
@@ -629,6 +634,81 @@ export class World {
     small.mergedInto = null;
     this.flashes.push({ x: small.x, y: small.y, z: small.z, r: small.r * 6, born: performance.now(), life: 1500, color: [255, 210, 160] });
     this.events.push({ text: `${small.name} crossed ${big.name}'s Roche limit and was torn apart by tides`, torn: small.name, body: big, big: true, snd: 'tidal', power: small.kind === 'star' ? 1 : 0.6, at: [small.x, small.y, small.z] });
+  }
+
+  // The velocity to give debris shed by small near big: its own, except near a black hole or neutron star (below).
+  handover(small, big) {
+    let bvx = small.vx, bvy = small.vy, bvz = small.vz;
+    if (big.kind === 'bh' || big.kind === 'ns') {
+      const rx = small.x - big.x, ry = small.y - big.y, rz = small.z - big.z;
+      const wx = small.vx - big.vx, wy = small.vy - big.vy, wz = small.vz - big.vz;
+      const r = Math.hypot(rx, ry, rz), v2 = wx * wx + wy * wy + wz * wz, u = (G * big.m) / r, c2 = C_AU_YR * C_AU_YR;
+      const far = small.eFar && small.eFar.host === big ? small.eFar.E : null;
+      const E1 = far ?? v2 / 2 - u + ((3 / 8) * v2 * v2 + 1.5 * u * v2 + 0.5 * u * u) / c2;
+      const want = 2 * (E1 + u);
+      if (want > 0 && v2 > 0) {
+        const k = Math.sqrt(want / v2);
+        bvx = big.vx + wx * k; bvy = big.vy + wy * k; bvz = big.vz + wz * k;
+      }
+    }
+    return [bvx, bvy, bvz];
+  }
+
+  // Partial tidal disruption (stars, planets passing a black hole, neutron star or white dwarf just outside the
+  // distance that destroys them): gas pours off the side facing the hole (the inner Lagrange point, L1) and the
+  // far side (L2), a fraction growing as the body closes in. The near side's gas is more tightly bound and
+  // falls in first; the far side's is flung out. What is left goes on round its orbit, to lose more the next
+  // time (as the star in ASASSN-14ko does every 114 days: Payne et al. 2021, ApJ 910, 125).
+  // Returns true when what remains was too little to hold together and was torn apart.
+  strip(small, big, d, rRoche) {
+    // How close this pass comes (from its orbit: the closest point is crossed too fast to be caught by sampling)
+    const rx = small.x - big.x, ry = small.y - big.y, rz = small.z - big.z;
+    const wx = small.vx - big.vx, wy = small.vy - big.vy, wz = small.vz - big.vz, mu = G * (big.m + small.m);
+    const hx = ry * wz - rz * wy, hy = rz * wx - rx * wz, hz = rx * wy - ry * wx, h2 = hx * hx + hy * hy + hz * hz;
+    const E = (wx * wx + wy * wy + wz * wz) / 2 - mu / d, ecc = Math.sqrt(Math.max(0, 1 + (2 * E * h2) / (mu * mu)));
+    const q = rx * wx + ry * wy + rz * wz < 0 ? h2 / (mu * (1 + ecc)) : d;
+    // 1 at the distance of total disruption, 1/STRIP_K where stripping starts. A pass that will go inside the
+    // total-disruption distance strips by the distance reached so far (the rest goes at that distance).
+    const x = rRoche / (q < rRoche ? d : q);
+    const f = Math.pow(Math.max(0, (x - 1 / STRIP_K) / (1 - 1 / STRIP_K)), 1.5);
+    const v = Math.hypot(small.vx - big.vx, small.vy - big.vy, small.vz - big.vz) || 1;
+    let ps = small._strip;
+    if (!ps || this.t - ps.t > (4 * d) / v) {   // a new pass by the hole
+      ps = small._strip = { m0: small.m, f: 0, t: this.t, told: false };
+    }
+    ps.t = this.t;
+    if (f <= ps.f + 0.004) return false;
+    const dm = (f - ps.f) * ps.m0;
+    ps.f = f;
+    if (small.m - dm < 0.04 * ps.m0) { this.disrupt(small, big); return true; }
+    const free = PCAP - this.np - this.pending.length;
+    const count = Math.min(free, Math.max(2, Math.round((dm / ps.m0) * 6000)));
+    const kind = small.kind === 'star' ? PK.SN_H : small.kind === 'gas' ? PK.GAS : PK.ROCK;
+    const [bvx, bvy, bvz] = this.handover(small, big);
+    const ux = (big.x - small.x) / d, uy = (big.y - small.y) / d, uz = (big.z - small.z) / d;
+    const vesc = Math.sqrt((2 * G * small.m) / small.r);
+    for (let k = 0; k < count; k++) {
+      const side = k % 2 ? 1 : -1, w = randUnit(), o = small.r * (1.45 + 0.35 * rand());   // (clear of the star, which would sweep it back up)
+      const px = ux * side * o + w[0] * small.r * 0.3, py = uy * side * o + w[1] * small.r * 0.3, pz = uz * side * o + w[2] * small.r * 0.3;
+      const sp = vesc * 0.1 * rand();
+      this.spawnParticle(small.x + px, small.y + py, small.z + pz, bvx + w[0] * sp, bvy + w[1] * sp, bvz + w[2] * sp, dm / count, kind, small);
+    }
+    const m1 = small.m - dm, rNew = small.r * Math.cbrt(m1 / small.m);
+    if (small.kind === 'star') {
+      // A stripped star does not shrink to a main-sequence star of its new mass: heated and out of balance, it
+      // stays puffed up (Ryu et al. 2020, ApJ 904, 100) — here at the same density, so torn as easily next pass.
+      const base = (small.r / (1 + (small.puff || 0))) * (starRadius(m1) / starRadius(small.m));
+      small.puff = Math.max(0, rNew / base - 1);
+    }
+    small.r = rNew;
+    small.m = m1;
+    big.heat = Math.min(1.5, (big.heat || 0) + 0.2);
+    if (!ps.told) {
+      ps.told = true;
+      this.events.push({ text: `${small.name} is being torn apart piece by piece: passing close to ${big.name}, its tides pull gas off both sides of it in a stream`, torn: small.name, body: big, big: true, snd: 'tidal', power: 0.5, at: [small.x, small.y, small.z] });
+    }
+    this.dirty = true;
+    return false;
   }
 
   // Blow a body apart when it holds more heat than its gravitational binding energy (3/5 GM²/R):
@@ -822,6 +902,8 @@ export class World {
       const rc = 2 * 0.00465047 * Math.cbrt(h.m), rc2 = rc * rc;
       const tVisc = 10 * 2 * Math.PI * Math.sqrt((rc * rc * rc) / (G * h.m));
       const pTake = 1 - Math.exp(-dt / tVisc);
+      const edd = 2.16e-8 * h.m;   // the Eddington rate (M☉/yr): 3.2e4 L☉ per M☉ at 10% efficiency
+      const wind = h.mdot > edd ? Math.min(0.7, 1 - edd / h.mdot) : 0;
       for (let i = this.np - 1; i >= 0; i--) {
         const dx = this.px[i] - h.x, dy = this.py[i] - h.y, dz = this.pz[i] - h.z;
         const r2 = dx * dx + dy * dy + dz * dz;
@@ -829,6 +911,22 @@ export class World {
         const vx = this.pvx[i] - h.vx, vy = this.pvy[i] - h.vy, vz = this.pvz[i] - h.vz;
         if ((vx * vx + vy * vy + vz * vz) / 2 - (G * h.m) / Math.sqrt(r2) >= 0) continue; // unbound: escapes
         if (rand() > pTake) continue;
+        // Fed faster than its Eddington limit, the disk's own light pushes the excess away: it leaves as a wind
+        // in two wide cones about the disk's axis (Dai et al. 2018, ApJ 859, L20), here a little faster than
+        // escape speed. Most of a star's debris goes this way at the peak of a tidal disruption.
+        if (wind > 0 && rand() < wind) {
+          const L = h.diskL, ln = L ? Math.hypot(L[0], L[1], L[2]) : 0;
+          const ax = ln > 0 ? [L[0] / ln, L[1] / ln, L[2] / ln] : [0, 1, 0];
+          const sg = rand() < 0.5 ? -1 : 1, w = randUnit(), c = 0.55;   // (cone half-angle ~30°)
+          let dx2 = ax[0] * sg + w[0] * c, dy2 = ax[1] * sg + w[1] * c, dz2 = ax[2] * sg + w[2] * c;
+          const dn = Math.hypot(dx2, dy2, dz2);
+          dx2 /= dn; dy2 /= dn; dz2 /= dn;
+          const r0 = rc * 1.05, sp = Math.sqrt((2 * G * h.m) / r0) * (1.1 + 0.4 * rand());
+          this.px[i] = h.x + dx2 * r0; this.py[i] = h.y + dy2 * r0; this.pz[i] = h.z + dz2 * r0;
+          this.pvx[i] = h.vx + dx2 * sp; this.pvy[i] = h.vy + dy2 * sp; this.pvz[i] = h.vz + dz2 * sp;
+          this.pk[i] = PK.WIND;
+          continue;
+        }
         this.absorbParticle(i, h, touched);
         this.removeParticle(i);
       }
@@ -897,7 +995,13 @@ export class World {
         }
       }
       const idx = this.addParticle(p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7]);
-      if (into && idx >= 0) { this.absorbParticle(idx, into, touched); this.removeParticle(idx); }
+      const src = p[9];
+      if (src && idx >= 0) {
+        const sh = src._shed && src._shed.until > this.t ? src._shed : (src._shed = { lo: this.pid[idx], hi: 0, until: 0 });
+        sh.hi = this.pid[idx];
+        sh.until = this.t + 2e-3;   // (~18 hours)
+      }
+      if (into && idx >= 0 && !(src && into === src)) { this.absorbParticle(idx, into, touched); this.removeParticle(idx); }
     }
     this.pending.length = 0;
     this.finishAbsorb(touched);
@@ -1116,6 +1220,7 @@ export class World {
     for (let k = absorbed.length - 2; k >= 0; k -= 2) {
       const i = absorbed[k];
       const b = this.resolve(att[absorbed[k + 1]]);
+      if (this.shedBy(i, b)) continue;
       if (b) this.absorbParticle(i, b, touched);
       this.removeParticle(i);
     }
@@ -1129,9 +1234,14 @@ export class World {
     const dvx = this.pvx[i] - b.vx, dvy = this.pvy[i] - b.vy, dvz = this.pvz[i] - b.vz;
     accreteHeat(b, m, dvx * dvx + dvy * dvy + dvz * dvz);
     accreteMaterial(b, m, this.pk[i]);
-    if (b.kind === 'bh') b.fed = (b.fed || 0) + m;   // (mass swallowed this frame: see feedingLight)
+    if (b.kind === 'bh') {
+      b.fed = (b.fed || 0) + m;   // (mass swallowed this frame: see feedingLight)
+      // The disk lies across the angular momentum of the gas it is fed (decaying, so a new feed turns it).
+      const rx = this.px[i] - b.x, ry = this.py[i] - b.y, rz = this.pz[i] - b.z, L = b.diskL || (b.diskL = [0, 0, 0]);
+      L[0] = L[0] * 0.995 + m * (ry * dvz - rz * dvy); L[1] = L[1] * 0.995 + m * (rz * dvx - rx * dvz); L[2] = L[2] * 0.995 + m * (rx * dvy - ry * dvx);
+    }
     // Meteors leave craters too (rate-limited so a shower doesn't wipe older scars at once).
-    if (b.kind === 'rocky' && this.pk[i] !== PK.GAS && this.pk[i] !== PK.SN_H) {
+    if (b.kind === 'rocky' && this.pk[i] !== PK.GAS && this.pk[i] !== PK.SN_H && this.pk[i] !== PK.WIND) {
       const now = performance.now();
       const recent = b.impacts ? b.impacts.filter((h) => now - h.t < 400).length : 0;
       if (recent < 6) {

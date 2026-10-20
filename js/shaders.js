@@ -2485,25 +2485,39 @@ void main() {
   float r = length(vC);
   if (r > 1.0 || r < uInner) discard;
   float ang = atan(vC.y, vC.x);
-  float t = 1.0 - (r - uInner) / (1.0 - uInner);
-  float swirl = vnoise(vec3(r * 16.0, ang * 3.0 + uTime * 1.5 / (r * r + 0.05), 0.0));
-  float swirl2 = vnoise(vec3(r * 40.0, ang * 7.0 + uTime * 2.2 / (r * r + 0.05), 3.0));
-  // Relativistic beaming: gas orbits at β = √(r_s / 2(r − r_s)) (half light speed at the innermost stable
-  // orbit, 3 r_s, taken as the inner edge). Seen with Doppler factor δ = √(1−β²)/(1 − β cosθ), intensity
-  // scales as δ⁴ and colour temperature as δ: the approaching side is brighter and bluer, the receding
-  // side dim and red. Gravitational redshift √(1 − 1.5 r_s/r) dims the innermost ring further.
+  // Radius in Schwarzschild radii (the inner edge, the innermost stable orbit, is 3 r_s).
   float rs = 3.0 * r / uInner;
+  // A thin disk (Shakura & Sunyaev 1973): temperature T ∝ r^-3/4 (1 - √(r_in/r))^1/4, so the light it gives
+  // off falls steeply outward: white-hot close in, orange and red further out. (Here as r^-2, a little
+  // flatter than the true r^-3, so the outer disk stays in view.) Its gas turns at the orbital speed, ∝ r^-3/2:
+  // the swirl, in streaks along the orbit, winds faster close in.
+  float edge = 1.0 - sqrt(3.0 / rs);
+  float prof = pow(3.0 / rs, 2.0) * edge * 14.0;
+  float tc = pow(3.0 / rs, 0.75) * pow(max(edge, 0.0), 0.25) * 1.9;
+  // (Two copies of the pattern, each wound only through a 6-second cycle and faded in and out half a cycle
+  // apart: wound on for ever, differential rotation would shear it into rings finer than a pixel.)
+  float lr = log(rs), om = 0.9 * pow(3.0 / rs, 1.5), ph = fract(uTime / 6.0), swirl = 0.0;
+  for (int k = 0; k < 2; k++) {
+    float p = fract(ph + 0.5 * float(k)), spin = ang + (p - 0.5) * 6.0 * om, sd = float(k) * 7.3 + floor(uTime / 6.0 + 0.5 * float(k)) * 2.1;
+    float n = vnoise(vec3(lr * 7.0, spin * 3.0, sd)) * 0.6 + vnoise(vec3(lr * 19.0, spin * 8.0, sd + 3.0)) * 0.4;
+    swirl += n * (1.0 - abs(2.0 * p - 1.0));
+  }
+  // Relativistic beaming: gas orbits at β = √(r_s / 2(r − r_s)) (half light speed at the innermost stable
+  // orbit). Seen with Doppler factor δ = √(1−β²)/(1 − β cosθ), intensity scales as δ⁴ and colour temperature
+  // as δ: the approaching side is brighter and bluer, the receding side dim and red. Gravitational redshift
+  // √(1 − 1.5 r_s/r) dims the innermost ring further.
   float beta = sqrt(0.5 / max(rs - 1.0, 0.5));
   vec3 tang = normalize(-sin(ang) * normalize(uAxU) + cos(ang) * normalize(uAxV));
   float delta = sqrt(1.0 - beta * beta) / (1.0 - beta * dot(tang, normalize(-vViewPos)));
   float grav = sqrt(max(1.0 - 1.5 / rs, 0.05));
   float shift = delta * grav;
-  vec3 hotc = mix(vec3(0.95, 0.38, 0.1), vec3(1.0, 0.94, 0.82), clamp(pow(t, 1.4) * shift, 0.0, 1.0));
-  hotc = mix(hotc, vec3(0.75, 0.85, 1.0), clamp((shift - 1.15) * 0.8, 0.0, 0.6));
-  float beam = pow(shift, 3.5) * 0.7;
-  float I = pow(t, 1.3) * (0.45 + 0.4 * swirl + 0.25 * swirl2) * (0.3 + 0.7 * clamp(uHeat, 0.0, 1.0)) * beam;
-  I *= smoothstep(uInner, uInner + 0.06, r) * smoothstep(1.0, 0.8, r);
-  outColor = vec4(hotc * I * 1.2, 1.0);
+  float hot = clamp(tc * shift, 0.0, 1.0);
+  vec3 col = mix(vec3(0.85, 0.22, 0.06), vec3(1.0, 0.62, 0.22), smoothstep(0.0, 0.45, hot));
+  col = mix(col, vec3(1.0, 0.95, 0.85), smoothstep(0.45, 0.95, hot));
+  col = mix(col, vec3(0.75, 0.85, 1.0), clamp((shift - 1.15) * 0.8, 0.0, 0.6));
+  float I = prof * (0.55 + 0.6 * swirl) * (0.25 + 0.75 * clamp(uHeat, 0.0, 1.0)) * pow(shift, 3.5) * 0.7;
+  I *= smoothstep(uInner, uInner * 1.08, r) * smoothstep(1.0, 0.75, r);
+  outColor = vec4(col * min(I, 3.0), 1.0);
   ` + WRITE_DEPTH + `
 }
 `;
@@ -2528,7 +2542,7 @@ void main() {
   gl_Position = uProj * vec4(vp, 1.0);
   float px = 2.0 * aSize * uF / max(-vp.z, 1e-30);
   vPx = px;
-  gl_PointSize = clamp(px, uMinPx, uMaxPx);
+  gl_PointSize = aSize < 0.0 ? -aSize : clamp(px, uMinPx, uMaxPx);   // (negative: a fixed size in pixels)
   vCol = aCol;
   vShade = aShade;
   vSeed = fract(float(gl_VertexID) * 0.6180339887) * 97.0;

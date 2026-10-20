@@ -11,7 +11,7 @@
 import { G } from './units.js';
 import { makeBody } from './bodies.js';
 
-const PK_GAS = 6, PK_SN_H = 8; // gas and hydrogen do not clump
+const PK_GAS = 6, PK_SN_H = 8, PK_WIND = 12; // gas and hydrogen do not clump
 const AU_M = 1.495978707e11, MSUN = 1.98847e30;
 // Material density (kg/m³) by particle kind: debris/hot/rock 3000, ice 1000, dust 2000, SN O/Si/Fe.
 const RHO = [3000, 3000, 3000, 3000, 1000, 2000, 1000, 3000, 1000, 2000, 2500, 7800];
@@ -33,7 +33,7 @@ export function coagulate(world, dt) {
   const idx = [];
   // Solid material only, and only clumps below the moonlet size: the coarse chunks of a whole shredded
   // planet are a numerical sampling, not real fragments, and must not each turn into a body.
-  for (let i = 0; i < np; i++) if (pm[i] > 0 && pm[i] < PROMOTE && pk[i] !== PK_GAS && pk[i] !== PK_SN_H && pk[i] !== 2 && pk[i] !== 3) idx.push(i);
+  for (let i = 0; i < np; i++) if (pm[i] > 0 && pm[i] < PROMOTE && pk[i] !== PK_GAS && pk[i] !== PK_SN_H && pk[i] !== PK_WIND && pk[i] !== 2 && pk[i] !== 3) idx.push(i);
   const n = idx.length;
   if (n < 2) return;
   const bodies = world.bodies, nb = bodies.length;
