@@ -13,6 +13,7 @@ import { Input } from './input.js';
 import { Sound } from './audio.js';
 import { UI } from './ui.js';
 import { Challenges } from './challenges.js';
+import { atmosphereOptics } from './optics.js';
 
 const SETTINGS_KEY = 'universe-pocket-settings';
 
@@ -157,9 +158,14 @@ class App {
 
   // ---------- surface view ----------
 
-  enterSurface(b, where = 'day') {
+  // Going down to a surface from space: the camera swings over the landing place (the day side, the night
+  // side or a pole, as asked) and dives in, easing, over ~2.4 s; near the ground the view fades through the
+  // colour of the entry (bright air, or black on an airless world), and the surface view fades in beneath.
+  // (Already on a surface, or asked to skip, it switches at once.)
+  enterSurface(b, where = 'day', now = false) {
     if (!this.r3d || !this.renderer.overlay) { this.audio.ui('glitch'); this.ui.toast('Switch to the Realistic or Pixel view to stand on a surface.'); return; }
     if (b.kind !== 'rocky') { this.audio.ui('glitch'); this.ui.toast(`${b.name} has no solid surface to stand on.`); return; }
+    if (!now && !this.surface && !this.descent && !window.__TEST_NO_DESCENT) { this.startDescent(b, where); return; }
     this.audio.ui('affirm');
     const keep = this.surface ? this.surface.prevSpeed : this.state.speed;
     this.surface = { body: b, where, lat: 0, lon: 0, yaw: 0, pitch: 0.15, place: true, up: [0, 1, 0], sun: [1, 0, 0], sunPower: 0, prevSpeed: keep };
@@ -169,6 +175,51 @@ class App {
     this.cam.follow = b;
     this.select(null);
     this.ui.showSurface(this.surface);
+  }
+
+  startDescent(b, where) {
+    const cam = this.cam;
+    // Where to come down: toward the star (day), away from it (night), or along the spin axis (poles).
+    let star = null, best = 0;
+    for (const s of this.world.bodies) {
+      if (s === b || !(s.lum > 0)) continue;
+      const f = s.lum / ((s.x - b.x) ** 2 + (s.y - b.y) ** 2 + (s.z - b.z) ** 2);
+      if (f > best) { best = f; star = s; }
+    }
+    let n = star ? [star.x - b.x, star.y - b.y, star.z - b.z] : [0, 0, 1];
+    if (where === 'night') n = n.map((v) => -v);
+    if (where === 'north' || where === 'south') {
+      const R = this.r3d.bodyRotation(b), s = where === 'north' ? 1 : -1;
+      n = [R[3] * s + n[0] * 0.15 / Math.hypot(...n), R[4] * s + n[1] * 0.15 / Math.hypot(...n), R[5] * s + n[2] * 0.15 / Math.hypot(...n)];
+    }
+    const l = Math.hypot(...n); n = n.map((v) => v / l);
+    cam.follow = b; cam.trans = null; cam.override = null;
+    const toYaw = Math.atan2(n[0], n[2]), toPitch = Math.asin(Math.max(-1, Math.min(1, n[1])));
+    let dy = toYaw - cam.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));   // (the shorter way round)
+    this.descent = { b, where, t0: performance.now(), dur: 2400, yaw0: cam.yaw, dYaw: dy, pitch0: cam.pitch, pitch1: Math.max(-1.45, Math.min(1.45, toPitch)),
+      d0: Math.max(cam.dist, b.r * 1.6), d1: b.r * 1.015, air: !!atmosphereOptics(b) };
+    this.select(null);
+    this.audio.ui('affirm');
+  }
+
+  stepDescent(now) {
+    const D = this.descent, cam = this.cam;
+    if (!D.b.alive) { this.descent = null; return; }
+    const k = Math.min(1, (now - D.t0) / D.dur), e = k * k * (3 - 2 * k);
+    cam.yaw = D.yaw0 + D.dYaw * Math.min(1, e * 1.6);
+    cam.pitch = D.pitch0 + (D.pitch1 - D.pitch0) * Math.min(1, e * 1.6);
+    cam.dist = cam.distGoal = Math.exp(Math.log(D.d0) + (Math.log(D.d1) - Math.log(D.d0)) * Math.pow(e, 0.8));
+    const fade = document.getElementById('fade');
+    if (fade && k > 0.82 && !D.faded) {
+      D.faded = true;
+      fade.style.background = D.air ? 'rgb(190, 214, 240)' : '#000';
+      fade.classList.add('on');
+    }
+    if (k >= 1) {
+      this.descent = null;
+      this.enterSurface(D.b, D.where, true);
+      if (fade) setTimeout(() => fade.classList.remove('on'), 120);
+    }
   }
 
   exitSurface() {
@@ -337,6 +388,7 @@ class App {
   }
 
   loadPreset(id) {
+    this.descent = null;   // (a descent under way ends with the scene)
     if (this.challenges && !this.challenges.starting && this.challenges.active) this.challenges.stop();   // (another scenario ends a challenge)
     this.impactSped = false;
     this.zones.clear();
@@ -935,6 +987,7 @@ class App {
       if (sp && this.slBody === fb && this.slAng !== undefined) this.cam.yaw += sp.ang - this.slAng;
       this.slBody = fb; this.slAng = sp ? sp.ang : undefined;
     } else this.slBody = null;
+    if (this.descent) this.stepDescent(performance.now());
     this.cam.tick(now, dtReal);
     this.blackHoleDrone();
     this.objectAmbience();

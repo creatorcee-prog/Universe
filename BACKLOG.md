@@ -223,7 +223,8 @@ on the phone.
    resolution buffer, light adding up and disc dust adding optical depth, composited over the scene; it follows
    the collision's tails, which a fixed density field per core could not) 5. Volumetric galaxies: a density field per galaxy core (bulge, disc, spiral arms, dust lanes), marched at
    quarter resolution like the nebula; particle stars on top (the Galaxy Collision scenario).
-6. Seamless descent: (A) an animated descent zooming the globe and crossfading into the surface view;
+6. (Stage A done: main.js startDescent/stepDescent, the camera swings over the landing place and dives in, fading
+   through the entry colour into the surface view) 6. Seamless descent: (A) an animated descent zooming the globe and crossfading into the surface view;
    (B) a quadtree LOD globe from orbit to ground (the largest job; last).
 7. Keep the frame rate: temporal reprojection to recover sharpness at reduced resolution; test on the iPhone
    after every step; regenerate the WebGPU shader translations after any shader edit.
