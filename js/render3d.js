@@ -386,6 +386,16 @@ function lookFor(b) {
   return own(look);
 }
 
+// How long tides would take to stop a body's own spin relative to its orbit (years): t ≈ 6 a⁶ R μ / (m M²) ×
+// 10¹⁰ yr, SI units, rigidity μ = 3×10¹⁰ Pa (Gladman et al. 1996, Icarus 122, 166, from Peale's formula with
+// Q = 100 and an initial spin of a 12-hour day). The tide the partner raises on the body lags behind as it
+// turns; the partner's pull on that tilted bulge brakes the spin until the bulge stays put: one face toward it.
+function lockTime(b, par) {
+  const AU = 1.495978707e11, MSUN = 1.98847e30;
+  const a = Math.hypot(par.x - b.x, par.y - b.y, par.z - b.z) * AU, R = b.r * AU, m = b.m * MSUN, M = par.m * MSUN;
+  return (6 * a ** 6 * R * 3e10) / (m * M * M) * 1e10;
+}
+
 // ---------- tiny matrix helpers (column-major, as WebGL expects) ----------
 
 function perspective(fovy, aspect, near, far) {
@@ -2025,6 +2035,7 @@ export class Renderer3D {
     if (!l || l.kindAt !== b.kind) {
       l = lookFor(b);
       l.kindAt = b.kind;
+      if (b.lockOverride !== undefined) l.locked = b.lockOverride ? 1 : 0;   // (set from the info panel)
       this.looks.set(b, l);
     }
     return l;
@@ -2063,6 +2074,18 @@ export class Renderer3D {
   // 1996, Icarus 122, 166) under 4.5 billion years. That locks nearly every regular moon (Epimetheus in
   // centuries, our Moon in a few million years) and none of the far, irregular ones such as Phoebe (~10¹³ yr).
   // Rechecked every few seconds; moons do not move far enough to change it sooner.
+  // For the info panel: what b would lock to (the body pulling hardest in tidal terms, a star too), how long
+  // its tides would take, and whether it is locked now.
+  lockInfo(world, b) {
+    let par = null, best = Infinity;
+    for (const o of world.bodies) {
+      if (o === b || o.m <= b.m || o.kind === 'nebula' || !o.alive) continue;
+      const k = Math.hypot(o.x - b.x, o.y - b.y, o.z - b.z) / Math.cbrt(o.m);
+      if (k < best) { best = k; par = o; }
+    }
+    return { par, t: par && b.r > 0 ? lockTime(b, par) : Infinity, locked: !!this.tidalParent(world, b) };
+  }
+
   tidalParent(world, b) {
     const l = this.look(b);
     if (l.locked === 0) return null;
@@ -2078,10 +2101,7 @@ export class Renderer3D {
     if (l.locked) return par;
     let locked = null;
     if (par && b.kind === 'rocky' && !isLuminous(par) && par.kind !== 'bh' && par.kind !== 'wd' && par.kind !== 'ns' && b.r > 0) {
-      const AU = 1.495978707e11, MSUN = 1.98847e30;
-      const a = Math.hypot(par.x - b.x, par.y - b.y, par.z - b.z) * AU, R = b.r * AU, m = b.m * MSUN, M = par.m * MSUN;
-      const tLock = (6 * a ** 6 * R * 3e10) / (m * M * M) * 1e10;
-      if (tLock < 4.5e9) locked = par;
+      if (lockTime(b, par) < 4.5e9) locked = par;
     }
     this.lockAt.set(b, { t: now, n: world.bodies.length, par: locked });
     return locked;

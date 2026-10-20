@@ -90,7 +90,9 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 - (Done) Planet Formation glare (user screenshot): impact flashes ride on the body hit (they were pinned where
   the impact happened and left behind along the orbits when sped up), none for bodies falling into a star,
   at most eight at once.
-- TODO (user, added): toggle tidal locking, and explain how it happens; better supernovae; magnetic field views.
+- (Done) Tidal locking: Motion tab shows what a body would lock to, how long its tides would take (Gladman et al.
+  1996), how the braking works, the resonance caveat for oval orbits (Mercury 3:2), and a Lock/Unlock toggle.
+- TODO (user, added): better supernovae; magnetic field views.
 - (Done) The Solar System's Moon rides on Earth (minors.js partner): the pair's centre of mass in IAS15, the
   Moon on a Kepler orbit kicked by the Sun's and planets' tides, 128 kicks an orbit (matches a full N-body run
   to ~0.05° after a year, ~0.6° after five). Its month no longer sets every planet's step: at 100x the Solar

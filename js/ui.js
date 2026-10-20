@@ -200,6 +200,19 @@ export class UI {
       this.refreshInfo(true);
     });
     $('i-stand').addEventListener('click', () => { if (app.state.selected) app.enterSurface(app.state.selected, 'day'); });
+    $('i-lock').addEventListener('click', () => {
+      const b = app.state.selected, r = app.r3d;
+      if (!b || !r) return;
+      const info = r.lockInfo(app.world, b), l = r.look(b);
+      if (info.locked) {
+        // Unlocked: it keeps turning at the rate it had, once per orbit, from now on freely.
+        const par = info.par, d = Math.hypot(par.x - b.x, par.y - b.y, par.z - b.z);
+        l.day = 2 * Math.PI * Math.sqrt(d ** 3 / (G * (par.m + b.m))) * 8766;
+        b.lockOverride = false; l.locked = 0;
+      } else { b.lockOverride = true; l.locked = 1; }
+      r.lockAt && r.lockAt.delete(b);
+      this.refreshInfo(true);
+    });
     $('sv-leave').addEventListener('click', () => app.exitSurface());
     document.querySelectorAll('[data-where]').forEach((btn) => btn.addEventListener('click', () => {
       if (!app.surface) return;
@@ -597,6 +610,19 @@ export class UI {
     }
     const look = app.r3d ? app.r3d.look(b) : null;
     $('i-day').textContent = look && look.day ? formatDuration(Math.abs(look.day) / 8766) + (look.day < 0 ? ' (retrograde)' : '') : '—';
+    // Tidal locking: whether it keeps one face to what it orbits, how long tides would take, and a toggle.
+    const lk = $('i-lock'), ln = $('i-locknote');
+    const li = app.r3d && (b.kind === 'rocky' || b.kind === 'gas') ? app.r3d.lockInfo(app.world, b) : null;
+    lk.hidden = ln.hidden = !(li && li.par);
+    if (li && li.par) {
+      if (li.locked) $('i-day').textContent = 'one orbit (tidally locked)';
+      lk.textContent = li.locked ? `Unlock from ${li.par.name}` : `Lock to ${li.par.name}`;
+      const tt = li.t, yrs = tt < 1 ? 'under a year' : tt < 1e3 ? `${tt.toPrecision(2)} years` : tt < 1e6 ? `${(tt / 1e3).toPrecision(2)} thousand years` : tt < 1e9 ? `${(tt / 1e6).toPrecision(2)} million years` : tt < 1e15 ? `${(tt / 1e9).toPrecision(2)} billion years` : 'far longer than the age of the universe';
+      ln.textContent = `${li.par.name}'s pull raises a tidal bulge on ${b.name}. As ${b.name} turns, the bulge is dragged ahead and pulled back, braking the spin until one face always points at ${li.par.name}. `
+        + `Its tides would lock it in ${yrs}` + (tt < 4.5e9 ? ' (less than the Solar System\'s age, so it would be locked by now).' : '.')
+        + (orbitOf(b, li.par).e > 0.1 ? ` On an orbit this oval it may be caught in a resonance first instead: Mercury (eccentricity 0.21) turns three times every two orbits.` : '')
+        + ' (Gladman et al. 1996, Icarus 122, 166.)';
+    }
 
     const hab = $('i-hab');
     const hv = b.th && b.th.hab && b.kind === 'rocky' ? b.th.hab : null;
