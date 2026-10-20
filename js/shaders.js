@@ -300,7 +300,41 @@ in vec3 vN;
 uniform vec3 uL0, uLc0, uL1, uLc1, uColC;
 uniform float uCloud, uSeed, uPx, uTime, uEcl;
 uniform float uTempC;       // the surface temperature (K), for the cloud tops' (colder) infrared glow
+uniform mat3 uView, uRot;   // (shared with the vertex stage) to turn the view and the light into the body's frame
 out vec4 outColor;
+// Depth in the layer, when the planet is large on screen: a few samples down through it along the view ray
+// (the layer drawn ~40 km thick on an Earth, about three times the real, so it reads from orbit). Coverage
+// from the same cloud field, the thick clouds standing taller; each sample shaded by whether cloud stands
+// between it and the Sun. Gives parallax toward the limb, towers shadowing lower cloud near the terminator,
+// darker gaps. Returns the layer's shading (x) and how much it covers (y). (Used for the light, mostly: the
+// coverage drawn stays the field's own, which is crisper than these coarse samples.)
+vec2 cloudDepth(vec3 P0, vec3 dO, vec3 Lo, float k) {
+  float b = dot(P0, dO);
+  float tOut = max(-2.0 * b, 0.0);                                      // back out through the top
+  float r1 = 1.0 - k, disc = b * b - (dot(P0, P0) - r1 * r1);
+  float tIn = disc > 0.0 ? -b - sqrt(disc) : 1e9;                       // down to the layer's base
+  float tEnd = min(min(tOut, tIn > 0.0 ? tIn : 1e9), 12.0 * k);
+  float T = 1.0, lit = 0.0, dt = tEnd / 3.0;
+  for (int i = 0; i < 3; i++) {
+    vec3 P = P0 + dO * (dt * (float(i) + 0.5));
+    float rP = length(P), h = clamp((rP - r1) / k, 0.0, 1.0);
+    vec3 dS = P / rP;
+    vec2 c = cloudField(dS, uCloud, uSeed, 70.0);   // (the large shapes only: finer cells smear at a slant)
+    float top = 0.3 + 0.7 * c.y;
+    float rho = c.x * smoothstep(top, top - 0.2, h) * smoothstep(0.0, 0.08, h);
+    if (rho <= 0.001) continue;
+    // Toward the Sun: the cloud there stands above this height?
+    float sh = 1.0;
+    if (i == 0 || i == 2) {
+      vec2 cs = cloudField(normalize(P + Lo * k * (1.0 - h) * 1.5), uCloud, uSeed, 60.0);
+      sh = 1.0 - 0.75 * cs.x * smoothstep(h, h + 0.25, 0.3 + 0.7 * cs.y);
+    }
+    float a = 1.0 - exp(-rho * dt / k * 3.5);
+    lit += T * a * sh * (0.8 + 0.4 * h);   // (tops brighter than bases; ~1 on average where unshadowed)
+    T *= 1.0 - a;
+  }
+  return vec2(lit / max(1.0 - T, 1e-3), 1.0 - T);
+}
 void main() {
   vec3 V = normalize(-vViewPos);
   vec3 N = normalize(vN);
@@ -308,6 +342,16 @@ void main() {
   vec2 cf = cloudField(normalize(vObj), uCloud, uSeed, uPx);
   // Seen obliquely, toward the limb, the layer is crossed along a longer path and looks denser.
   float a = 1.0 - pow(1.0 - clamp(cf.x, 0.0, 0.995), 1.0 / max(mu, 0.2));
+  float depthLit = 1.0;
+  float dk = smoothstep(300.0, 500.0, uPx) * (1.0 - uDeck);
+  if (dk > 0.0) {
+    mat3 toObj = transpose(uRot) * transpose(uView);
+    vec2 dl = cloudDepth(normalize(vObj), normalize(toObj * -V), normalize(toObj * uL0), 0.0065);
+    // (coverage stays the crisp field's, a little filled in where the layer is seen deep; the march gives
+    // the light: shadowed flanks and undersides)
+    a = max(a, dl.y * 0.35 * dk);
+    depthLit = mix(1.0, clamp(dl.x, 0.3, 1.15), dk * 0.85);
+  }
   float d0 = dot(N, uL0), d1 = dot(N, uL1);
   // Relief of the cloud tops: thick cloud stands higher. The slope of its height across the screen tilts the
   // normal (as the ground's relief does), so near the terminator storm towers catch the low Sun on one side
@@ -324,7 +368,7 @@ void main() {
   float lit0 = smoothstep(-0.1, 0.12, d0) * (0.3 + 0.7 * max(mix(d0, b0, 0.85), 0.0));
   float lit1 = smoothstep(-0.1, 0.12, d1) * (0.3 + 0.7 * max(d1, 0.0));
   // Thick tops are brighter, thin edges greyer.
-  vec3 col = uColC * (0.72 + 0.32 * cf.y) * (uLc0 * lit0 * (1.0 - uEcl) + uLc1 * lit1 + 0.012);
+  vec3 col = uColC * (0.72 + 0.32 * cf.y) * (uLc0 * lit0 * depthLit * (1.0 - uEcl) + uLc1 * lit1 + 0.012);
   // Lightning: brief blue-white flashes inside thick clouds on the night side.
   if (cf.x > 0.6) {
     float night = 1.0 - smoothstep(-0.1, 0.05, d0);

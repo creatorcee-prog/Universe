@@ -201,7 +201,8 @@ on the phone.
 2. (Done: Settings → Brightness (Enhanced / Realistic: true 1/d² light, the eye adapting partway to the light
    where you look; stars brighter when dark-adapted) and Tone curve (Classic default / AgX to compare)) Realistic and enhanced brightness modes: the surface view's eye adaptation in space, with a toggle like
    Universe Sandbox's Space Goggles; test an AgX curve against the current one side by side before switching.
-3. Depth in orbit clouds: a few ray-march steps through the cloud shell at quarter resolution when a planet
+3. (Done: CLOUD_FS cloudDepth, 3 samples through the layer + 2 toward the Sun when a planet is over ~300 px;
+   it shades flanks and undersides, the crisp field keeps the coverage) Depth in orbit clouds: a few ray-march steps through the cloud shell at quarter resolution when a planet
    fills the screen, reusing the surface-cloud density and lighting.
 4. Sharper planets without running out of memory: higher-resolution maps (artifact files up to 15 MB), 16-bit
    heights and precomputed normal maps; compressed KTX2/Basis (ASTC on iPhone) instead of raw 8K (~180 MB each).
