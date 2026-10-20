@@ -1393,6 +1393,7 @@ uniform float uShadowPass, uShOn;
 uniform vec3 uMicro;                   // airless (1: regolith), share of soil cells holding a stone, small craters (1 where impacts mark the ground)
 uniform sampler2D uGSoil, uGSand, uGRock, uGRegolith, uGGrass;   // photographed ground: colour, height in alpha
 uniform float uGroundOn;
+uniform float uAU;                     // metres per AU (view space is in AU)
 uniform sampler2D uShTex;
 uniform vec3 uShU, uShV, uShL;
 uniform vec2 uShSize;
@@ -1507,19 +1508,48 @@ void main() {
   vec3 rockBase = vec3(0.35, 0.33, 0.3);   // the local rock's colour (set by the ground below), for rocks
   float ssrA = 0.0;                      // reflection pass: how much of the mirrored frame this water pixel shows
   if (water) {
-    // Waves: two scales of drifting noise, slope only (the surface stays flat).
+    // Waves, as slopes on a flat surface: a wind sea of 20 trains from 60 m down to 0.2 m long, their crests
+    // across a wind (directions spread about it, wider for the short ones), each moving at the deep-water
+    // speed sqrt(g λ / 2π) (so long swells outrun short chop), steepness ~0.05 rising toward the short end;
+    // then capillary ripples. A train shorter than a few pixels fades out (no sparkle of aliased waves);
+    // the slope it carried is kept as roughness, which spreads the Sun's glitter into a path (lostVar).
     vec2 q = vPlanar + uLocal;
     float t = uTime;
-    float e1 = 0.0, e2 = 0.0, a = 0.35, lam = 9.0;
-    for (int i = 0; i < 5; i++) {
-      float f = smoothstep(res * 2.0, res * 8.0, lam);
-      vec2 w = q / lam + vec2(t * 0.35, t * 0.21) / sqrt(lam);
-      float n0 = vnoise(vec3(w, float(i) * 2.0));
-      e1 += a * f * (vnoise(vec3(w + vec2(0.05, 0.0), float(i) * 2.0)) - n0) / 0.05;
-      e2 += a * f * (vnoise(vec3(w + vec2(0.0, 0.05), float(i) * 2.0)) - n0) / 0.05;
-      lam *= 0.45; a *= 0.75;
+    // (The sea is flat: a pixel's footprint along the view is exact from its distance and the viewing angle,
+    // and smooth; the derivatives and the per-vertex distance used on land change from one mesh triangle to
+    // the next, and showed the mesh.)
+    res = max(0.002, length(vViewPos) * uAU * uPxAng) / max(abs(dot(V, uUpV)), 0.02);   // (view space is in AU)
+    vec2 slope = vec2(0.0);
+    float lostVar = 0.0, lam = 60.0;
+    for (int i = 0; i < 20; i++) {
+      float hi = hash(vec3(float(i), 7.1, 3.3)), hj = hash(vec3(float(i), 2.9, 8.7));
+      float ang = 0.45 + (hi - 0.5) * (0.9 + 1.6 * float(i) / 19.0);   // the wind toward ~26° north of east
+      vec2 k = vec2(cos(ang), sin(ang)) * (6.2832 / lam);
+      float c = sqrt(9.81 * lam / 6.2832), A = lam * (0.028 + 0.016 * float(i) / 19.0) / 6.2832;
+      // (waves come in groups: each train swells and fades in patches a few wavelengths across, drifting)
+      A *= 0.35 + 1.3 * vnoise(vec3(q / (lam * 5.0) - vec2(cos(ang), sin(ang)) * c * t * 0.5 / (lam * 5.0), float(i) * 3.7));
+      // (crests bent and broken by a warp of the phase, a couple of radians over a few wavelengths)
+      float ph = dot(k, q) - length(k) * c * t + hj * 6.2832 + 2.4 * vnoise(vec3(q / (lam * 2.5), float(i) * 1.9 + 40.0));
+      // (a crest a little sharper than a sine: the gradient of A·(sin + 0.25 sin 2θ))
+      vec2 g = A * k * (cos(ph) + 0.5 * cos(2.0 * ph));
+      float f = smoothstep(res * 3.0, res * 10.0, lam);
+      slope += g * f;
+      lostVar += dot(A * k, A * k) * 0.5 * (1.0 - f);
+      lam *= 0.74;
     }
-    N = normalize(uUpV - (uEastV * e1 + uNorthV * e2) * 0.12);
+    // Capillary ripples (centimetres): fine noise, where resolvable; two lattices turned to different angles
+    // (one square lattice shows as a grid).
+    float fc = smoothstep(res * 3.0, res * 10.0, 0.08);
+    for (int j = 0; j < 2; j++) {
+      float an = j == 0 ? 0.6 : 2.1;
+      mat2 rm = mat2(cos(an), sin(an), -sin(an), cos(an));
+      vec2 wc = rm * q / (j == 0 ? 0.08 : 0.13) + vec2(t * 1.3, t * 0.6);
+      float c0 = vnoise(vec3(wc, 5.0 + float(j)));
+      vec2 gl = vec2(vnoise(vec3(wc + vec2(0.1, 0.0), 5.0 + float(j))) - c0, vnoise(vec3(wc + vec2(0.0, 0.1), 5.0 + float(j))) - c0);
+      slope += (transpose(rm) * gl) * 0.18 * fc;
+    }
+    lostVar += 0.002 * (1.0 - fc);
+    N = normalize(uUpV - uEastV * slope.x - uNorthV * slope.y);
     float frozen = smoothstep(272.0, 262.0, T);
     vec3 R = reflect(-V, N);
     float up = clamp(dot(R, uUpV), 0.0, 1.0);
@@ -1550,9 +1580,12 @@ void main() {
     // Light scattered back up from inside the water: deep blue-green (open ocean reflects ~5-7%).
     vec3 deep = vec3(0.012, 0.05, 0.075) * (sunC * max(dot(uUpV, uL0), 0.0) + uAmb);
     col = mix(deep, sky, fres);
-    // Sun glitter: the sun's reflection broken up by the waves.
+    // Sun glitter: the sun's reflection broken up by the waves; where waves too small to draw remain, their
+    // roughness widens each glint (a Beckmann-like lobe: the exponent ~ 1 / slope variance), into the long
+    // glittering path toward a low Sun.
     vec3 Hh = normalize(uL0 + V);
-    col += sunC * pow(max(dot(N, Hh), 0.0), 600.0) * 6.0 * step(0.0, dot(uUpV, uL0));
+    float gx = 600.0 / (1.0 + lostVar * 600.0);
+    col += sunC * pow(max(dot(N, Hh), 0.0), gx) * 6.0 * (gx / 600.0 * 0.85 + 0.15) * step(0.0, dot(uUpV, uL0));
     if (frozen > 0.0) {
       vec3 iceCol = vec3(0.8, 0.86, 0.92) * (0.85 + 0.15 * vnoise(vec3(q / 7.0, 1.0)));
       vec3 Ni = uUpV;
@@ -2704,16 +2737,16 @@ uniform vec4 uFlash;         // lightning: direction of the bolt's top (world), 
 uniform vec2 uRes;           // target size (px), for the bolt's width
 uniform sampler2D uBodies;   // ... drawn on their own: light (rgb) and where they are solid (a)
 out vec4 outColor;
-// Catmull-Rom bicubic upscaling in 9 bilinear reads (the weights of each pair folded into one offset read).
-vec4 catmullRom(sampler2D t, vec2 uv) {
-  vec2 size = vec2(textureSize(t, 0)), sp = uv * size, tp1 = floor(sp - 0.5) + 0.5, f = sp - tp1;
-  vec2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f)), w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
-  vec2 w2 = f * (0.5 + f * (2.0 - 1.5 * f)), w3 = f * f * (-0.5 + 0.5 * f);
-  vec2 w12 = w1 + w2, t0 = (tp1 - 1.0) / size, t3 = (tp1 + 2.0) / size, t12 = (tp1 + w2 / w12) / size;
-  vec4 r = (texture(t, vec2(t0.x, t0.y)) * w0.x + texture(t, vec2(t12.x, t0.y)) * w12.x + texture(t, vec2(t3.x, t0.y)) * w3.x) * w0.y
-         + (texture(t, vec2(t0.x, t12.y)) * w0.x + texture(t, vec2(t12.x, t12.y)) * w12.x + texture(t, vec2(t3.x, t12.y)) * w3.x) * w12.y
-         + (texture(t, vec2(t0.x, t3.y)) * w0.x + texture(t, vec2(t12.x, t3.y)) * w12.x + texture(t, vec2(t3.x, t3.y)) * w3.x) * w3.y;
-  return clamp(r, 0.0, 64.0);
+// Cubic B-spline filtering in 4 bilinear reads (Sigg & Hadwiger, GPU Gems 2 ch. 20): smoother than
+// Catmull-Rom, which sharpens and so shows the low-resolution buffer's pixels on soft cloud edges.
+vec4 bspline(sampler2D t, vec2 uv) {
+  vec2 size = vec2(textureSize(t, 0)), sp = uv * size - 0.5, f = fract(sp), c = floor(sp);
+  vec2 w0 = (1.0 - f) * (1.0 - f) * (1.0 - f) / 6.0, w1 = (4.0 - 6.0 * f * f + 3.0 * f * f * f) / 6.0;
+  vec2 w3 = f * f * f / 6.0, w2 = 1.0 - w0 - w1 - w3;
+  vec2 s0 = w0 + w1, s1 = w2 + w3;
+  vec2 o0 = (c - 0.5 + w1 / s0) / size, o1 = (c + 1.5 + w3 / s1) / size;
+  return (texture(t, vec2(o0.x, o0.y)) * s0.x + texture(t, vec2(o1.x, o0.y)) * s1.x) * s0.y
+       + (texture(t, vec2(o0.x, o1.y)) * s0.x + texture(t, vec2(o1.x, o1.y)) * s1.x) * s1.y;
 }
 void main() {
   vec4 B = vec4(0.0);
@@ -2798,7 +2831,7 @@ void main() {
     // (Upscaled from a quarter of the resolution with a Catmull-Rom bicubic: smooth, but sharper than a blur.)
     // (Catmull-Rom overshoots near sharp edges: coverage is kept in 0..1, or 1 - a < 0 makes pow() NaN and
     // blacks out the sky around the Sun.)
-    vec4 cl = catmullRom(uClouds, vUV);
+    vec4 cl = bspline(uClouds, vUV);
     cl.a = clamp(cl.a, 0.0, 1.0);
     cl.rgb = min(cl.rgb, vec3(4.0));
     col = col * (1.0 - cl.a) + cl.rgb;
@@ -2854,7 +2887,7 @@ void main() {
   // front of the Sun hides it.
   if (uVeil > 0.5) {
     vec3 Tv = ground ? vec3(0.0) : T;
-    float cloudA = uCloudBuf > 0.5 ? clamp(catmullRom(uClouds, vUV).a, 0.0, 1.0) : 0.0;
+    float cloudA = uCloudBuf > 0.5 ? clamp(bspline(uClouds, vUV).a, 0.0, 1.0) : 0.0;
     float a = clamp(B.a, 0.0, 1.0);
     outColor = vec4(col * a + Tv * (1.0 - cloudA) * B.rgb, a);
     return;

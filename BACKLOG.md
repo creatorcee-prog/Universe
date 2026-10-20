@@ -76,6 +76,10 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
   base (asperitas, WMO 2017) on thick-atmosphere worlds (found per pixel, not marched: smooth) and with
   storms on Earth. Marching: coarse steps through clear air, fine ones in cloud (Nubis), so small clouds
   are sampled densely instead of by luck (they were dots of grain). Multiple-scattering light.
+- (Done) Smoother clouds: read through a cubic B-spline (Catmull-Rom showed the low-resolution buffer's
+  pixels). The sea: a wind sea of 20 directional wave trains (60 m to 0.2 m, deep-water speeds, in groups,
+  crests bent) plus capillary ripples; trains finer than a few pixels fade (no sparkle), their slope kept
+  as roughness that spreads the Sun's glitter into a path; the footprint exact from distance and angle.
 - Next: the jagged edge of hills' shadows (shaded per vertex of the ring mesh); Earth's land up close.
 
 ## New list
