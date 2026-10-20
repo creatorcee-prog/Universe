@@ -69,7 +69,7 @@ function defaultComposition(b) {
 // Give a body its composition and starting thermal state (it starts at equilibrium).
 export function ensureThermal(b, world) {
   if (b.th) return b.th;
-  const c = b.comp || (b.compKey && COMPOSITIONS[b.compKey]) || COMPOSITIONS[b.name] || defaultComposition(b);
+  const c = b.comp || (b.compKey && COMPOSITIONS[b.compKey]) || COMPOSITIONS[b.ident || b.name] || defaultComposition(b);
   const comp = { iron: 0, rock: 0, water: 0, ice: 0, gas: 0, rockAlbedo: 0.15, tint: 0, ...c };
   delete comp.atm;
   delete comp.life;

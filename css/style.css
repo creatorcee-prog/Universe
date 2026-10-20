@@ -683,3 +683,7 @@ input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 
 /* The book keeps its reading look, squared off to match. */
 .book-tabs, .book-tabs button { border-radius: 0; }
 @media (max-width: 759px) { .sheet { bottom: calc(var(--dock-h, 70px) - 20px) !important; border-width: 1px 0 0 !important; } }
+.name-edit { font: inherit; color: var(--ink); background: var(--field); border: 1px solid var(--accent); border-radius: 0; padding: 2px 6px; width: min(100%, 15em); }
+.info-head h2:has(.name-edit)::after { display: none; }
+.icon-btn.rename { width: 32px; height: 34px; }
+.icon-btn.rename svg { width: 16px; height: 16px; }

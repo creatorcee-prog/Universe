@@ -58,7 +58,7 @@ export class Book {
   // What the book holds for a live body, for the info panel's pointer to it: the lede's first sentence and the
   // page titles, in the order renderBody lays them out.
   static preview(b) {
-    const entry = ENTRIES[b.name] || null, type = TYPES[typeKey(b)];
+    const entry = ENTRIES[b.ident || b.name] || null, type = TYPES[typeKey(b)];
     const text = entry ? entry.summary : type.text;
     const first = (text.match(/^.*?[.!?](?=\s|$)/) || [text])[0];
     const pages = ['Overview'];
@@ -135,7 +135,7 @@ export class Book {
   renderBody(b) {
     this.body = b;
     this.ref = null;
-    const entry = ENTRIES[b.name] || null;
+    const entry = ENTRIES[b.ident || b.name] || null;
     const tk = typeKey(b);
     const type = TYPES[tk];
     const pages = [];
@@ -309,7 +309,7 @@ export class Book {
     if (kids.length) rows.push(['Orbited by', kids.length <= 4 ? kids.map((c) => c.name).join(', ') : `${kids.length} bodies`]);
     if (b.th && b.kind === 'rocky') lede += ' Its temperature, ice and oceans come from its distance to its star, its composition and atmosphere, and the heat left by impacts.';
     if (b.heat > 0.05) rows.push(['Impact heating', `${Math.round(b.heat * 100)}% (cooling)`]);
-    const entry = ENTRIES[b.name];
+    const entry = ENTRIES[b.ident || b.name];
     if (entry && b.m0 && Math.abs(b.m / b.m0 - 1) > 0.01) lede += ` Its mass is now ${(b.m / b.m0).toPrecision(3)}× what it started with.`;
     rows.push(['Simulation time', 'T + ' + formatDuration(w.t)]);
     // Habitability checklist.

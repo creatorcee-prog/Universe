@@ -569,7 +569,7 @@ export function typeKey(b) {
   switch (b.kind) {
     case 'rocky':
       if (b.comet && me < 1e-4) return 'comet';
-      if (b.name.startsWith('Planetesimal')) return 'planetesimal';
+      if ((b.ident || b.name).startsWith('Planetesimal')) return 'planetesimal';
       if (me < 1e-4) return 'asteroid';
       if (me < 0.03) return 'moonsize';
       if (me < 0.3) return 'smallrocky';

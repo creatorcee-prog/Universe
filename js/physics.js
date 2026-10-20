@@ -131,7 +131,8 @@ export class World {
   }
 
   findByName(name) {
-    return this.bodies.find((b) => b.name === name) || null;
+    // (by its shown name, or by the name it was created with if it has been renamed)
+    return this.bodies.find((b) => b.name === name) || this.bodies.find((b) => b.ident === name) || null;
   }
 
   // Follow a merged body to whatever absorbed it.

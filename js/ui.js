@@ -162,6 +162,34 @@ export class UI {
     $('scrim').addEventListener('click', () => this.closeSheets());
     $('i-close').addEventListener('click', (e) => { e.stopPropagation(); app.select(null); });
     document.querySelector('.info-head').addEventListener('click', () => $('info').classList.toggle('collapsed'));
+    // Rename: the shown name changes; the name it was made with stays as its identity (b.ident), so a renamed
+    // Earth keeps its map, its book pages and its real data.
+    $('i-rename').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const b = this.app.state.selected, h = $('i-name');
+      if (!b || h.querySelector('input')) return;
+      const inp = document.createElement('input');
+      inp.id = 'i-name-edit'; inp.className = 'name-edit'; inp.value = b.name; inp.maxLength = 40; inp.setAttribute('aria-label', 'New name');
+      h.replaceChildren(inp); inp.focus(); inp.select();
+      let done = false;
+      const finish = (keep) => {
+        if (done) return; done = true;
+        const v = inp.value.replace(/\s+/g, ' ').trim();
+        if (keep && v && v !== b.name) {
+          const old = b.name;
+          if (!b.ident) b.ident = old;
+          b.name = v;
+          this.app.audio.ui('setting');
+          this.toast(b.ident !== v ? `Renamed ${old} to ${v}` : `${v} has its own name back`);
+          if (b.ident === v) delete b.ident;
+        }
+        h.textContent = b.name;
+        this.refreshInfo(true);
+      };
+      inp.addEventListener('click', (ev) => ev.stopPropagation());
+      inp.addEventListener('keydown', (ev) => { ev.stopPropagation(); if (ev.key === 'Enter') finish(true); else if (ev.key === 'Escape') finish(false); });
+      inp.addEventListener('blur', () => finish(true));
+    });
     $('i-follow').addEventListener('click', () => {
       const b = app.state.selected;
       if (!b) return;
@@ -615,7 +643,7 @@ export class UI {
     if (!force && now - this.infoT < 250) return;
     this.infoT = now;
     const app = this.app, w = app.world;
-    $('i-name').textContent = b.name;
+    if (!$('i-name').querySelector('input')) $('i-name').textContent = b.name;
     if (this.moreFor !== b) {
       // Point to the book's pages for this object: its first line, then a chip per page.
       this.moreFor = b;

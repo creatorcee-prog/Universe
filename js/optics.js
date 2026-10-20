@@ -123,7 +123,7 @@ const GIANTS = {
 export function giantOptics(b) {
   if (b.kind !== 'gas') return null;
   const AU_M = 1.495978707e11, MSUN = 1.98847e30, ME = 3.003e-6;
-  const name = b.name.replace(/ \d+$/, '');
+  const name = (b.ident || b.name).replace(/ \d+$/, '');
   const p = GIANTS[name] || (b.m / ME < 50 ? { ...GIANTS.Neptune, T: Math.max(60, (b.th && b.th.Ts) || 72) } : { ...GIANTS.Jupiter, T: Math.max(100, (b.th && b.th.Ts) || 165) });
   const R = b.r * AU_M, g = (6.674e-11 * b.m * MSUN) / (R * R), T = p.T, mu = 2.3;
   const H = (8.314 * T) / ((mu / 1000) * g);

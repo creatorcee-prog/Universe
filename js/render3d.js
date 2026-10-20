@@ -59,7 +59,7 @@ function loadImage(file, ext = 'jpg') {
 const GROUND_MATS = ['soil', 'sand', 'rock', 'regolith', 'grass'];
 const GROUND_UNITS = [1, 2, 4, 6, 9];
 function photoMap(b) {
-  const p = PHOTO.find(([re, , , kind]) => re.test(b.name) && b.kind === kind);
+  const p = PHOTO.find(([re, , , kind]) => re.test((b.ident || b.name)) && b.kind === kind);
   if (!p) return null;
   const img = loadImage(p[1], p[4]);
   return img ? { mode: p[2], img, W: img.width, H: img.height, ver: 1, file: p[1] } : null;
@@ -96,7 +96,7 @@ function hiMap(sm, shownPx, px = shownPx, gl = null) {
 const DONORS = { cratered: ['moon', 'callisto', 'ganymede'], icy: ['europa', 'ganymede', 'charon', 'pluto'], dusty: ['mars'], volcanic: ['io'], small: ['phobos', 'deimos'], giant: ['jupiter', 'saturn'] };
 const donorMean = new Map(); // image -> mean luminance
 function donorFor(b, l) {
-  if (LOOKS[b.name] || PHOTO.some(([re]) => re.test(b.name)) || /^(Earth|Moon)( \d+)?$/.test(b.name)) return null;
+  if (LOOKS[(b.ident || b.name)] || PHOTO.some(([re]) => re.test((b.ident || b.name))) || /^(Earth|Moon)( \d+)?$/.test((b.ident || b.name))) return null;
   let type;
   if (l.kind === 1) type = 'giant';
   else if (l.kind !== 0) return null;
@@ -190,15 +190,15 @@ function shapeMap(file) {
 }
 function shapeFor(b) {
   if (b.kind !== 'rocky') return null;
-  const own = SHAPES[b.name.replace(/ \d+$/, '')];
+  const own = SHAPES[(b.ident || b.name).replace(/ \d+$/, '')];
   if (own) return { file: own, rot: IDENT3 };
   const rkm = b.r * 1.495978707e8;
-  if (b.round || rkm > 400 || /^(Earth|Moon|Mars|Venus|Mercury)( \d+)?$/.test(b.name)) return null;
-  const small = b.comet || b.m / EARTH_MASS < 1e-4 || b.name.startsWith('Planetesimal');
+  if (b.round || rkm > 400 || /^(Earth|Moon|Mars|Venus|Mercury)( \d+)?$/.test((b.ident || b.name))) return null;
+  const small = b.comet || b.m / EARTH_MASS < 1e-4 || (b.ident || b.name).startsWith('Planetesimal');
   if (!small) return null;
   const r = seeded(b.id * 3 + 1), r2 = seeded(b.id * 5 + 2), r3 = seeded(b.id * 11 + 7);
   // (Planetesimals, the building blocks of planets, now and then take Arrokoth's two-lobed shape.)
-  const pool = b.name.startsWith('Planetesimal') && r > 0.75 ? ['arrokoth'] : ASTEROID_SHAPES;
+  const pool = (b.ident || b.name).startsWith('Planetesimal') && r > 0.75 ? ['arrokoth'] : ASTEROID_SHAPES;
   const file = b.comet ? '67p' : rkm > 200 ? 'vesta' : pool[Math.floor(r * pool.length) % pool.length];
   const a = r2 * Math.PI * 2, t = (r3 - 0.5) * Math.PI, cA = Math.cos(a), sA = Math.sin(a), cT = Math.cos(t), sT = Math.sin(t);
   // Ry(a) * Rx(t), column-major
@@ -373,7 +373,7 @@ function seeded(id) {
 
 // Appearance for any body: a named look, or one derived from its kind, mass and colour.
 function lookFor(b) {
-  const named = LOOKS[b.name];
+  const named = LOOKS[(b.ident || b.name)];
   const r = seeded(b.id);
   const base = b.color ? b.color.map((v) => v / 255) : [0.6, 0.6, 0.6];
   const band = b.band ? b.band.map((v) => v / 255) : base.map((v) => v * 0.75);
@@ -392,7 +392,7 @@ function lookFor(b) {
   const look = { kind: 0, colA: base, colB: base.map((v) => v * 0.7), colC: [0.96, 0.97, 1], tilt: r * 30, day: 8 + r * 40 };
   // (Moons big enough to have pulled themselves round, like Mimas, are cratered spheres, not lumpy rocks.)
   if (b.round && me < 1e-4) Object.assign(look, { craters: 1, colB: base.map((v) => v * 0.78) });
-  else if (b.comet || me < 1e-4 || b.name.startsWith('Planetesimal')) Object.assign(look, { lumpy: b.comet ? 0.45 : 0.3, craters: 0.8, colA: base.map((v) => v * 0.8), day: 6 + r * 20 });
+  else if (b.comet || me < 1e-4 || (b.ident || b.name).startsWith('Planetesimal')) Object.assign(look, { lumpy: b.comet ? 0.45 : 0.3, craters: 0.8, colA: base.map((v) => v * 0.8), day: 6 + r * 20 });
   else if (me < 0.05) look.craters = 1;
   else if (b.atmo) Object.assign(look, { ocean: 0.55 + r * 0.2, cloud: 0.5, atmo: b.atmo.map((v) => v / 255), atmoK: 0.8, colA: [0.45, 0.38, 0.28], colB: [0.6, 0.52, 0.4] });
   else if (me > 0.3) Object.assign(look, { ocean: r > 0.5 ? r * 0.6 : 0, craters: 0.25, atmoK: 0.3, atmo: [0.7, 0.75, 0.85] });
@@ -1603,7 +1603,7 @@ export class Renderer3D {
   // the air's density: thinner air is moved faster by the same heating (~1/sqrt of the density), and a thick
   // deck on a slow-turning world super-rotates as Venus's does.
   windOf(b, optics) {
-    const name = b.name.replace(/ \d+$/, '');
+    const name = (b.ident || b.name).replace(/ \d+$/, '');
     const KNOWN = { Earth: [5, 10], Venus: [0.7, 60], Mars: [5, 15], Titan: [0.6, 2.5] };
     if (KNOWN[name]) return { ground: KNOWN[name][0], cloud: KNOWN[name][1] };
     if (!optics) return { ground: 0, cloud: 0 };
@@ -1627,7 +1627,7 @@ export class Renderer3D {
   aridity(b, sv, optics) {
     if (!optics || optics.P > 10) return 0;
     const th = b.th, latA = Math.abs(sv.lat);
-    if (/^Earth( \d+)?$/.test(b.name)) {
+    if (/^Earth( \d+)?$/.test((b.ident || b.name))) {
       const img = loadImage('earth-day');
       if (!img) return 0;
       if (!this.earthDayPx) {
@@ -2002,7 +2002,7 @@ export class Renderer3D {
   bindEarthDay(u, b, th, px = 0) {
     const gl = this.gl;
     let k = 0;
-    if (/^Earth( \d+)?$/.test(b.name) && b.kind === 'rocky' && b.life && (b.lifeAge || 0) > 1e9 && th) {
+    if (/^Earth( \d+)?$/.test((b.ident || b.name)) && b.kind === 'rocky' && b.life && (b.lifeAge || 0) > 1e9 && th) {
       const img = loadImage('earth-day');
       if (img) {
         k = Math.max(0, Math.min(1, 1 - Math.abs(th.Ts - 288) / 18)) * Math.min(1, th.ocean * 2.5 || 0);
@@ -2019,7 +2019,7 @@ export class Renderer3D {
   // 2 = a planet-wide deck's own map (Venus), turning with the super-rotation. 0 = none.
   bindCloudTex(u, b, deck) {
     const gl = this.gl;
-    const file = deck ? (/^Venus( \d+)?$/.test(b.name) ? 'venus-clouds' : null) : 'earth-clouds';
+    const file = deck ? (/^Venus( \d+)?$/.test((b.ident || b.name)) ? 'venus-clouds' : null) : 'earth-clouds';
     const img = file && loadImage(file);
     gl.uniform1f(u.uCloudTexMode, img ? (deck ? 2 : 1) : 0);
     if (!img) return;
@@ -2157,7 +2157,7 @@ export class Renderer3D {
   bindHeight(u, b, globe) {
     const gl = this.gl;
     let file = null, k = 1, rot = IDENT3;
-    const name = b.name.replace(/ \d+$/, '');
+    const name = (b.ident || b.name).replace(/ \d+$/, '');
     if (b.kind === 'rocky' && HEIGHTS[name]) file = HEIGHTS[name];
     else if (b.donor && DONOR_HEIGHT[b.donor.file]) { [file, k] = DONOR_HEIGHT[b.donor.file]; rot = b.donor.rot; }
     const hm = file && heightMap(file);
@@ -2637,12 +2637,12 @@ export class Renderer3D {
   // made-up world borrows, with that borrowing's turn) and its real elevation, when it has them.
   surfaceInfo(b) {
     let img = null, rot = null, borrowed = false;
-    if (/^Earth( \d+)?$/.test(b.name) && b.kind === 'rocky') img = loadImage('earth-day');
+    if (/^Earth( \d+)?$/.test((b.ident || b.name)) && b.kind === 'rocky') img = loadImage('earth-day');
     else if (b.surfaceMap && b.surfaceMap.img) img = (b.surfaceMap.lo || b.surfaceMap).img;
     else if (b.donor && b.donor.file) { img = loadImage(b.donor.file); rot = b.donor.rot; borrowed = true; }
     else { const pm = photoMap(b); if (pm) img = pm.img; }
     let file = null;
-    const name = b.name.replace(/ \d+$/, '');
+    const name = (b.ident || b.name).replace(/ \d+$/, '');
     if (b.kind === 'rocky' && HEIGHTS[name]) file = HEIGHTS[name];
     else if (b.donor && DONOR_HEIGHT[b.donor.file]) { file = DONOR_HEIGHT[b.donor.file][0]; rot = rot || b.donor.rot; }
     const hm = file ? heightMap(file) : null;
@@ -2834,13 +2834,13 @@ export class Renderer3D {
     // Convection cells: ~40 across the Sun's disc (shown as fine texture), a handful on supergiants.
     gl.uniform1f(u.uGran, Math.max(3.5, Math.min(40, 40 / Math.sqrt(Math.max(1, b.r / 0.00465)))));
     // Surface maps: Earth's geography and the Moon's maria are built in; painting adds one to any world.
-    if (/^Earth( \d+)?$/.test(b.name) && b.kind === 'rocky') {
+    if (/^Earth( \d+)?$/.test((b.ident || b.name)) && b.kind === 'rocky') {
       const er = earthReal();
       // The real map replaces the stand-in as soon as it is ready, unless the stand-in was painted.
       if (er && er.W && (!b.surfaceMap || (b.surfaceMap.standIn && b.surfaceMap.ver === 1))) b.surfaceMap = { mode: 1, W: er.W, H: er.H, data: er.data.slice(), ver: 2 };
       else if (!b.surfaceMap) b.surfaceMap = { mode: 1, W: 512, H: 256, data: (EARTH_MAP ||= earthMap()).slice(), ver: 1, standIn: true };
     }
-    if (/^Moon( \d+)?$/.test(b.name) && b.kind === 'rocky') {
+    if (/^Moon( \d+)?$/.test((b.ident || b.name)) && b.kind === 'rocky') {
       // The LRO global map; the hand-placed maria stand in until it loads.
       const pm = photoMap(b);
       if (pm && (!b.surfaceMap || b.surfaceMap.standIn)) b.surfaceMap = pm;
@@ -2863,7 +2863,7 @@ export class Renderer3D {
     this.bindGen(u, b, shownPx);
     // A donor already brings real craters; keep only a trace of the generated ring-shaped ones.
     if (b.donor && !imgMap) gl.uniform1f(u.uCraters, (l.craters || 0) * 0.3);
-    const city = /^Earth( \d+)?$/.test(b.name) && b.life && (b.lifeAge || 0) > 3.7e9;
+    const city = /^Earth( \d+)?$/.test((b.ident || b.name)) && b.life && (b.lifeAge || 0) > 3.7e9;
     gl.uniform1f(u.uCity, city ? 1 : 0);
     // Where the lights are: NASA Black Marble (city lights only, the moonlit ground and snow removed).
     const night = city ? loadImage('earth-night') : null;
@@ -3109,7 +3109,7 @@ export class Renderer3D {
         gl.uniform1f(ru.uRin, ring.rin / ro);
         gl.uniform1fv(ru.uProf, ring.prof);
         gl.uniform3fv(ru.uTint, ring.ice ? [0.84, 0.79, 0.7] : [0.5, 0.46, 0.42]);
-        gl.uniform1f(ru.uSaturn, /^Saturn( \d+)?$/.test(b.name) ? 1 : 0);
+        gl.uniform1f(ru.uSaturn, /^Saturn( \d+)?$/.test((b.ident || b.name)) ? 1 : 0);
         // The four biggest moons within reach of the rings, for their shadows on them.
         const moons = [];
         for (const m of this.world.bodies) {

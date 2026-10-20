@@ -52,7 +52,7 @@ const KNOWN = {
 
 export function interiorOf(b) {
   if (!b || !(b.r > 0) || b.kind === 'nebula' || b.kind === 'bh') return null;
-  const name = b.name.replace(/ \d+$/, '');
+  const name = (b.ident || b.name).replace(/ \d+$/, '');
   const mE = b.m / ME, rE = b.r / RE;
   const Pc = 364 * (mE * mE) / Math.pow(rE, 4);
   if (b.kind === 'star' && b.bhStar) {

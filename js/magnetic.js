@@ -22,7 +22,7 @@ const KNOWN = {
 
 export function fieldOf(b) {
   if (!b || !b.alive || !(b.r > 0)) return null;
-  const name = b.name.replace(/ \d+$/, '');
+  const name = (b.ident || b.name).replace(/ \d+$/, '');
   if (KNOWN[name]) return KNOWN[name];
   if (b.kind === 'star') return { B0: 1e-4, tilt: 8, off: [0, 0] };
   if (b.kind === 'gas') return { B0: b.m / ME > 50 ? 2e-4 : 2e-5, tilt: 10, off: [0, 0] };

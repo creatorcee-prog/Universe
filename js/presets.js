@@ -193,7 +193,7 @@ function moonState(host, row, mu) {
   const [, , akm, e, i, node, w, M, f, lap] = row;
   const o = kepler(mu, km(akm), e, i, node, w, M);
   if (f === 'E') return o;
-  const T = host.tiltDeg !== undefined ? host.tiltDeg : AXIS[host.name] || 0;
+  const T = host.tiltDeg !== undefined ? host.tiltDeg : AXIS[host.ident || host.name] || 0;
   const L = f === 'L' ? (lap > 90 ? 180 - lap : lap) : 0;
   const th = (T - L) * D2R, c = Math.cos(th), sn = Math.sin(th);
   // Orbit-plane coordinates (x, y, z = pole) from kepler's world mapping [X, Z, −Y], then onto the basis
