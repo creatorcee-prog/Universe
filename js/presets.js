@@ -438,6 +438,27 @@ function galaxy(world, name, cx, cy, cz, vx, vy, vz, tiltX, tiltZ, n, spin, pale
   return core;
 }
 
+// A galaxy with a dark-matter halo (Plummer sphere of mass m, scale a: the halo's pull sets the disk's rotation and
+// the galaxies' orbit; physics.js dynamicalFriction slows galaxies passing through each other's halos), and a disk of
+// n stars out to rmax, exponential with scale rd, in the plane turned by tiltX then tiltZ; spin ±1.
+function haloGalaxy(world, name, pos, vel, m, a, rd, rmax, n, tiltX, tiltZ, spin, palette) {
+  const core = world.addBody(makeBody({ kind: 'core', name, m, r: 2e5, soft: a, color: palette }));
+  [core.x, core.y, core.z] = pos; [core.vx, core.vy, core.vz] = vel; core.halo = true;
+  const ctx = Math.cos(tiltX), stx = Math.sin(tiltX), ctz = Math.cos(tiltZ), stz = Math.sin(tiltZ);
+  const rot = (x, y, z) => { const y1 = y * ctx - z * stx, z1 = y * stx + z * ctx; return [x * ctz - y1 * stz, x * stz + y1 * ctz, z1]; };
+  for (let k = 0; k < n; k++) {
+    const R = Math.min(rmax, 0.05 * rmax - Math.log(rand() || 1e-6) * rd);
+    const arm = rand() < 0.5 ? 0 : Math.PI, th = arm + Math.log(R / rd + 0.3) * 2.6 + gauss() * 0.4;
+    const vc = circularSpeed(core, R) * (1 + gauss() * 0.04), cs = Math.cos(th), sn = Math.sin(th);
+    const p = rot(R * cs, gauss() * 0.04 * rd, -R * sn), v = rot(-vc * sn * spin, 0, -vc * cs * spin);
+    world.addParticle(pos[0] + p[0], pos[1] + p[1], pos[2] + p[2], vel[0] + v[0], vel[1] + v[1], vel[2] + v[2], 0, R < 1.2 * rd || rand() < 0.15 ? PK.STAR_GOLD : PK.STAR_BLUE);
+  }
+  return core;
+}
+// Galactocentric kpc and km/s (x toward the Galactic centre from the Sun, z to the north Galactic pole) into the
+// app's frame (y up = Galactic north).
+const gc = ([x, y, z], k) => [x * k, z * k, -y * k];
+
 export const PRESETS = [
   {
     id: 'solar', name: 'Solar System',
@@ -756,6 +777,39 @@ export const PRESETS = [
       const vr = Math.sqrt(Math.max(0, vtot * vtot - vt * vt));
       galaxy(w, 'Galaxy A', -r0 / 2, 0, 0, vr / 2, 0, -vt / 2, 0.15, 0, 4200, 1, [255, 226, 180]);
       galaxy(w, 'Galaxy B', r0 / 2, 0, 0, -vr / 2, 0, vt / 2, 1.0, 0.5, 4200, 1, [200, 220, 255]);
+    },
+  },
+  {
+    id: 'andromeda', name: 'Milky Way vs Andromeda',
+    blurb: 'Today: Andromeda 2.5 million light-years away, closing at 110 km/s. Their dark-matter halos meet first; the first pass comes in ~4-5 billion years, and with the Triangulum Galaxy and the Large Magellanic Cloud pulling too, it is about even odds that they merge within 10 billion years (Sawala et al. 2025). The Sun is marked.',
+    speed: 1.2e8,
+    camera: { follow: 'Milky Way', dist: 1100 * KPC_AU, pitch: 0.5, yaw: 2.2 },
+    build(w) {
+      // Masses (halo, Msun) and positions/velocities: van der Marel et al. 2012, 2019 (HST and Gaia: M31 at 770 kpc,
+      // radial -109 km/s, tangential ~57 km/s; M33 ~200 kpc beyond it); the LMC from Kallivayalil et al. 2013 and
+      // Erkal et al. 2019 (1.4e11). Halo scales set the disks' rotation (~220-250 km/s at 10-15 kpc).
+      const K = KPC_AU, V = kms(1);
+      const m31p = [-378.9, 612.7, -283.1], r = Math.hypot(...m31p), u = m31p.map((c) => c / r);
+      // (the tangential 57 km/s taken across the line of sight, in the plane holding it and the Galactic pole)
+      let t = [-u[0] * u[2], -u[1] * u[2], 1 - u[2] * u[2]]; const tl = Math.hypot(...t); t = t.map((c) => c / tl);
+      const m31v = u.map((c, i) => -109.3 * c + 57 * t[i]);
+      const mw = haloGalaxy(w, 'Milky Way', [0, 0, 0], [0, 0, 0], 1.0e12, 20 * K, 3 * K, 16 * K, 4600, 0, 0, -1, [255, 226, 180]);
+      haloGalaxy(w, 'Andromeda (M31)', gc(m31p, K), gc(m31v, V), 1.5e12, 24 * K, 5 * K, 22 * K, 5600, 1.35, 0.65, 1, [200, 214, 255]);
+      haloGalaxy(w, 'Triangulum (M33)', gc([-476.1, 491.1, -412.9], K), gc([43.1, 101.3, 138.8], V), 1.6e11, 9 * K, 1.6 * K, 8 * K, 900, 0.9, 1.9, 1, [190, 214, 255]);
+      haloGalaxy(w, 'Large Magellanic Cloud', gc([-1, -41, -28], K), gc([-57, -226, 221], V), 1.4e11, 8 * K, 1.4 * K, 5 * K, 700, 0.6, 2.4, 1, [214, 220, 255]);
+      // The Sun, 8.2 kpc from the centre, circling at ~230 km/s (a marker: it pulls on nothing that matters).
+      const sunM = makeBody({ name: 'Sun', kind: 'rocky', m: 1, r: km(696000), color: [255, 236, 200] });
+      Object.assign(sunM, { craft: 'Our Sun (marker)', round: true });
+      sunM.x = -8.2 * K; sunM.y = 0.02 * K; sunM.z = 0;
+      const vs = circularSpeed(mw, 8.2 * K);
+      sunM.vx = 0; sunM.vy = 0; sunM.vz = vs;
+      w.addBody(sunM);
+      // Momentum and centre of mass at the origin (the Local Group's barycentre): bodies and their stars together.
+      let M = 0; const c = [0, 0, 0, 0, 0, 0];
+      for (const b of w.bodies) { M += b.m; [b.x, b.y, b.z, b.vx, b.vy, b.vz].forEach((v, i) => { c[i] += v * b.m; }); }
+      for (let i = 0; i < 6; i++) c[i] /= M;
+      for (const b of w.bodies) { b.x -= c[0]; b.y -= c[1]; b.z -= c[2]; b.vx -= c[3]; b.vy -= c[4]; b.vz -= c[5]; }
+      for (let i = 0; i < w.np; i++) { w.px[i] -= c[0]; w.py[i] -= c[1]; w.pz[i] -= c[2]; w.pvx[i] -= c[3]; w.pvy[i] -= c[4]; w.pvz[i] -= c[5]; }
     },
   },
   {

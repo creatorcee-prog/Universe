@@ -7,13 +7,14 @@ Done items move to the README. (October 2026: the user cleared everything else; 
 - [x] Sharper planet maps without running out of memory: 8192 x 4096 Moon, Mars, Mercury and Earth as KTX2/Basis ETC1S (4 x 2 tiles, the wasm encoder's 12.6 Mpix cap), transcoded in a worker to ETC2/BC7/ASTC/BC1, swapped in above ~700 device px of radius and on the ground (js/ktx.js). Jupiter and Saturn sources are only 4k, so not done.
 - [x] Seamless descent, stage B: a globe whose detail sharpens continuously from orbit to the ground. Done as a view-focused mesh instead of a quadtree (BODY_VS uFocus: rings at a·sinh(k·i) round the point under the eye, placed on the GPU; same goal with no cracks or patch updates), raised by the real elevation so relief stands on the limb; also the cloud deck and the air's shell.
 - [x] UI restyle from the user's Universe Sandbox screenshots (css/style.css "Black console" layer: Barlow, square cells, violet hairlines, full-width bar, docked object panel with boxed values and icon tabs, panels on the left on wide screens, notices at the lower right): black, rectangular, futuristic, professional. Bottom bar (play/pause, time, rate, rewind/forward, add, Sim / View / Tools tabs with icons), flat near-black panels with square corners and thin dividers, right-hand property panel (label left, boxed value + unit right, sliders, toggles), tab strip with icons (Overview, Motion, Surface, Composition, Visuals), top toolbar of square icon buttons, toast bar ("Low Memory Detected  LEARN MORE  ×").
-- [ ] Galaxy collision preset matching what Milky Way vs Andromeda will be like (first pass ~4-5 Gyr, merger to an elliptical "Milkdromeda" ~10 Gyr: van der Marel et al. 2012, 2019; Sawala et al. 2025 put the merger chance near 50%).
+- [x] Galaxy collision preset matching what Milky Way vs Andromeda will be like (first pass ~4-5 Gyr, merger to an elliptical "Milkdromeda" ~10 Gyr: van der Marel et al. 2012, 2019; Sawala et al. 2025 put the merger chance near 50%).
 - [ ] Solar System starts where the real one is now (today's date: planet positions from JPL ephemerides / Standish elements).
 - [ ] Show the map in the Surface tab.
 - [ ] Realistic comet tails (dust tail curved along the orbit, straight blue ion tail pointing away from the Sun, growing inside ~3 AU).
 - [ ] Rename objects.
 - [x] Artificial satellites in their proper places, with NASA models, plus Voyager 1/2, New Horizons, Pioneers, Parker, LRO, MRO, Vanguard 1, and a ride-along view from the ISS.
 - [x] Real-time events: e.g. tonight's meteor shower (annual showers by date, radiant, ZHR; maybe eclipses).
+- [ ] Live feeds (GitHub Pages copy; the artifact's CSP blocks other hosts): CelesTrak elements + SGP4 for real satellite positions, NOAA SWPC Kp for aurora alerts and strength, JPL Horizons for probe positions if it allows browser requests; cached offline by the service worker, falling back to the built-in tables.
 
 ## Done (history)
 

@@ -134,6 +134,36 @@ export class World {
   // barycentre, which the moons orbit, is 4,700 km off it: low orbits need the planet itself), turned by the
   // secular nodal drift of the planet's flattening, dΩ/dt = -1.5 n J2 (R/a)² cos i / (1 - e²)² (the ISS's orbit
   // swings ~5° a day westward; sun-synchronous orbits at 98° swing ~1° a day east, keeping pace with the Sun).
+  // Dynamical friction between galaxies with dark-matter halos (b.halo; presets.js andromeda): a galaxy moving
+  // through another's halo pulls a wake of its dark matter behind it and is slowed by it (Chandrasekhar 1943):
+  //   a = -4π G² M ρ lnΛ [erf(X) - 2X/√π e^(-X²)] v / v³,  X = v / (√2 σ),
+  // with ρ the other halo's Plummer density where the galaxy is, σ its velocity dispersion (σ² = GM/6a at the
+  // centre), lnΛ = 3. The momentum it loses goes to the other galaxy. This is what makes galaxies merge: two point
+  // masses would swing past each other for ever. (Bodies only; the stars themselves just orbit.)
+  dynamicalFriction(span) {
+    if (!(span > 0)) return;
+    const hs = this.bodies.filter((b) => b.halo && b.alive && b.kind === 'core');
+    if (hs.length < 2) return;
+    const erf = (x) => { const t = 1 / (1 + 0.3275911 * x); return 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x); };
+    let kicked = false;
+    for (const a of hs) for (const h of hs) {
+      if (a === h || a.m > 3 * h.m) continue;   // (a much heavier galaxy feels little from a small one's halo)
+      const dx = a.x - h.x, dy = a.y - h.y, dz = a.z - h.z, r2 = dx * dx + dy * dy + dz * dz;
+      const s = h.soft, rho = (3 * h.m) / (4 * Math.PI * s * s * s) * Math.pow(1 + r2 / (s * s), -2.5);
+      const vx = a.vx - h.vx, vy = a.vy - h.vy, vz = a.vz - h.vz, v = Math.hypot(vx, vy, vz);
+      if (!(v > 0) || rho * s * s * s < 1e-6 * h.m) continue;
+      const sig = Math.sqrt((G * h.m) / (6 * s)), X = v / (Math.SQRT2 * sig);
+      const F = erf(X) - (2 * X / Math.sqrt(Math.PI)) * Math.exp(-X * X);
+      let dv = 4 * Math.PI * G * G * a.m * rho * 3 * F / (v * v) * span;
+      dv = Math.min(dv, 0.3 * v);   // (never more than a third of the relative speed in one step)
+      const ux = vx / v, uy = vy / v, uz = vz / v, k = a.m / (a.m + h.m);
+      a.vx -= ux * dv * (1 - k); a.vy -= uy * dv * (1 - k); a.vz -= uz * dv * (1 - k);
+      h.vx += ux * dv * k; h.vy += uy * dv * k; h.vz += uz * dv * k;
+      kicked = true;
+    }
+    if (kicked) this.dirty = true;
+  }
+
   // (Each step starts from where the craft are relative to their planet before the planet moves.)
   prepCraft() {
     for (const b of this.bodies) {
@@ -1002,6 +1032,7 @@ export class World {
     stepMinors(this, minorGroups, att, cp, cpT, steps, t0, done);
     this.stepCraft(done);
     this.stationKeep();
+    this.dynamicalFriction(done);
     const t2 = performance.now();
     this.stepParticles(att, steps, t0, done);
     const t3 = performance.now();
