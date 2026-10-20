@@ -8,6 +8,7 @@ import { lifetime } from './stellar.js';
 import { atmosphereOptics } from './optics.js';
 import { interiorOf, formatPressure } from './interior.js';
 import { renderThumb, category } from './thumbs.js';
+import { STAR_TYPES, starFromType } from './stellar.js';
 import { CHALLENGES } from './challenges.js';
 
 // Time-speed slider spans 1 second per second to 300 million years per second (log scale).
@@ -285,9 +286,65 @@ export class UI {
       grid.appendChild(b);
     }
     this.setAddItem(this.app.state.addItem, false);
+    this.buildStarBuilder();
+  }
+
+  // The star builder: type first, then size; colour, temperature and the rest follow (stellar.js).
+  buildStarBuilder() {
+    const types = $('sb-types'), size = $('sb-size');
+    this.sbType = 'G';
+    for (const t of STAR_TYPES) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.dataset.sbt = t.id; b.setAttribute('role', 'radio');
+      const c = starFromType(t.id, 0.5).color;
+      b.innerHTML = `<i style="background:rgb(${c.join(',')});${t.id === 'BHS' ? 'box-shadow:inset 0 0 0 3px #000' : ''}"></i>${t.label}`;
+      b.addEventListener('click', () => { this.sbType = t.id; this.app.audio.ui('click'); this.refreshStarBuilder(); });
+      types.appendChild(b);
+    }
+    size.addEventListener('input', () => this.refreshStarBuilder());
+    $('sb-use').addEventListener('click', () => {
+      const it = this.sbItem;
+      let ci = CATALOG.find((c) => c.id === 'custom-star');
+      if (!ci) { ci = {}; CATALOG.push(ci); }
+      for (const k of Object.keys(ci)) delete ci[k];
+      Object.assign(ci, it, { thumb: $('sb-thumb').toDataURL() });
+      this.setAddItem('custom-star');
+      this.closeSheets();
+    });
+    this.refreshStarBuilder();
+  }
+
+  refreshStarBuilder() {
+    const s = $('sb-size').value / 1000, it = starFromType(this.sbType, s);
+    this.sbItem = it;
+    document.querySelectorAll('[data-sbt]').forEach((b) => { const on = b.dataset.sbt === this.sbType; b.classList.toggle('on', on); b.setAttribute('aria-checked', on); });
+    const cv = $('sb-thumb'), ctx = cv.getContext('2d');
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    try {
+      ctx.drawImage(renderThumb({ id: 'sb-' + it.type, kind: it.kind === 'star' ? 'star' : it.kind, m: it.kind === 'star' ? 1 : it.m, r: it.r, previewTemp: it.temp }, 128), 0, 0);
+      if (it.type === 'NS' || it.type === 'WD') { /* (tiny in reality: drawn as a ball for the thumbnail) */ }
+    } catch (e) { /* (thumbnails are decoration) */ }
+    const RS = 0.00465047, sup = (n) => String(n).replace(/./g, (c) => '⁰¹²³⁴⁵⁶⁷⁸⁹'[c]);
+    const f = (x) => { if (x >= 1e5) { const [mm, e] = x.toExponential(1).split('e+'); return `${mm}×10${sup(e)}`; } return x >= 100 ? Math.round(x).toLocaleString('en-US') : x.toPrecision(2); };
+    const rTxt = it.R / RS >= 0.01 ? `${f(it.R / RS)} R☉` + (it.R > 1 ? ` (${f(it.R)} AU)` : '') : `${Math.round(it.R * 1.495978707e8)} km`;
+    const NOTES = {
+      M: 'The most common stars: three in four. Faint, cool and red; they live for trillions of years.',
+      K: 'Orange and long-lived (15 to 70 billion years): good hosts for life.',
+      G: 'Sun-like: yellow-white, about 10 billion years on hydrogen.',
+      FA: 'Hotter and whiter than the Sun (Sirius A, Vega), burning out in a billion years or two.',
+      OB: 'Blue-white and furiously bright: they live a few million years and end as supernovae.',
+      RG: 'A Sun-like star near the end, swollen as it burns helium-rich layers: the bigger, the cooler and redder.',
+      RSG: 'A massive star in its last stage (Betelgeuse, Antares): it ends in a core-collapse supernova.',
+      BSG: 'A massive star crossing to the red stage, hot and blue though swollen (Rigel, Deneb).',
+      WD: 'A dead star\'s core, Earth-sized: the heavier, the smaller (Chandrasekhar), until 1.44 M☉.',
+      NS: 'The collapsed core of a supernova: a city-sized ball of neutrons, about 12 km whatever its mass.',
+      BHS: 'New in 2025: a black hole buried in a cocoon of dense gas that glows like a vast, cool star. Proposed for JWST\'s "little red dots" in the young universe (Naidu et al. 2025, de Graaff et al. 2025).',
+    };
+    $('sb-info').innerHTML = `<b>${it.label}</b> · ${f(it.mNow || it.m)} M☉ · ${rTxt} · <b>${Math.round(it.temp).toLocaleString('en-US')} K</b> · ${f(it.L)} L☉<br>${NOTES[it.type]}`;
   }
 
   filterCreate(cat) {
+    $('star-builder').hidden = cat !== 'star';
     document.querySelectorAll('[data-cat]').forEach((b) => { if (b.tagName === 'BUTTON' && !b.classList.contains('card')) b.classList.toggle('on', b.dataset.cat === cat); });
     document.querySelectorAll('.card').forEach((c) => { c.hidden = cat !== 'all' && c.dataset.cat !== cat; });
   }

@@ -55,6 +55,18 @@ export function interiorOf(b) {
   const name = b.name.replace(/ \d+$/, '');
   const mE = b.m / ME, rE = b.r / RE;
   const Pc = 364 * (mE * mE) / Math.pow(rE, 4);
+  if (b.kind === 'star' && b.bhStar) {
+    // A black hole star: the hole and its disk at the centre (a millionth of the radius), wrapped in gas so
+    // thick it hides them, glowing at its surface like a cool giant star.
+    return {
+      layers: [
+        { key: 'hole', name: 'Black hole', col: [20, 16, 14], what: 'the engine: a black hole of most of the mass, feeding on the gas around it', r: 0.004 },
+        { key: 'bdisk', name: 'Accretion disk', col: [255, 240, 210], what: 'gas swirling in at a good fraction of light speed, heated to millions of kelvin', r: 0.03 },
+        { key: 'cocoon', name: 'Dense gas cocoon', col: [255, 140, 70], what: 'hydrogen thick enough to swallow the disk\'s light and glow at ~5,000 K, like a giant star\'s surface', r: 1 },
+      ],
+      T: 1e7, P: 1e-4,
+    };
+  }
   if (b.kind === 'star') {
     // Stars: the core where hydrogen fuses (~a quarter of the radius), then energy carried out by radiation,
     // then convection (in the Sun's outer 30%; a red giant is convective almost throughout).

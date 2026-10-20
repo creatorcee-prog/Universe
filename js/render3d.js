@@ -2952,6 +2952,24 @@ export class Renderer3D {
       const feed = Math.min(1, Math.log10(1 + edd * 3) / 2);
       const heat = Math.min(1, Math.max(feed, 0.6 * b.heat));
       const rc = 2 * 0.00465 * Math.cbrt(b.m), outer = Math.max(R * 3.4, R * 3.4 + (rc - R * 3.4) * Math.sqrt(feed));
+      // Jets (physics.js maybeJet), while it feeds near its limit. Seen side-on both show; toward one end, the
+      // jet coming at us is beamed brighter, D³ with Doppler factor D = 1/γ(1 − β cos θ), and the receding
+      // one dims (β ≈ 0.9 here: the real jets are faster, which would hide the counter-jet altogether).
+      if (b.jet && edd > 0.1) {
+        const L = b.diskL, ln = L ? Math.hypot(L[0], L[1], L[2]) : 0;
+        const ax = ln > 0 ? [L[0] / ln, L[1] / ln, L[2] / ln] : [0, 1, 0];
+        const ex = this.ex - b.x, ey = this.ey - b.y, ez = this.ez - b.z, el = Math.hypot(ex, ey, ez) || 1;
+        const nv = this.viewOf(ax[0], ax[1], ax[2]), nl = Math.hypot(nv[0], nv[1], nv[2]) || 1;
+        const Lj = outer * 6 + R * 30, on = Math.min(1, edd / 0.5);
+        for (const sg of [1, -1]) {
+          const ct = (sg * (ax[0] * ex + ax[1] * ey + ax[2] * ez)) / el;
+          const beam = Math.min(4, Math.pow(1 / (1 - 0.9 * ct), 3)) * 1.4;   // (1.4 side-on)
+          const px = (sg * nv[0]) / nl, py = (sg * nv[1]) / nl, proj = Math.max(0.15, Math.hypot(px, py));
+          const c = [vp[0] + px * Lj * 0.5, vp[1] + py * Lj * 0.5, vp[2] + (sg * nv[2] / nl) * Lj * 0.5];
+          const k = beam * on;
+          glows.push(() => this.sprite(c, Lj * 0.5 * proj, [0.7 * k, 0.82 * k, 1.0 * k], 6, Math.atan2(py, px), 0));
+        }
+      }
       glows.push(() => {
         this.disk(vp, R, heat, now, outer, b.diskL);
         this.sprite(vp, R * 1.9, [1, 0.75, 0.45].map((v) => v * (0.7 + 0.4 * heat)), 2, 0, 1 / 1.9);
@@ -3073,7 +3091,7 @@ export class Renderer3D {
         glow.col[ng * 3] = c[0] * a * v; glow.col[ng * 3 + 1] = c[1] * a * v; glow.col[ng * 3 + 2] = c[2] * a * v;
         // (a stream of gas: soft points, so it reads as a band; the wind blown off a feeding black hole: a faint
         // haze of wide ones)
-        glow.size[ng] = kind === PK.WIND ? -11 * this.dpr : col ? -5.5 * this.dpr : kind === PK.HOT ? size : 0;
+        glow.size[ng] = kind === PK.WIND ? -11 * dpk : col ? -6 * dpk : kind === PK.HOT ? size : 0;
         glow.shade[ng] = 1;
         ng++;
       } else {
@@ -3093,7 +3111,9 @@ export class Renderer3D {
     // expands). Distances in units of the tidal radius of a Sun-like star, R☉ (M/M☉)^⅓.
     const holes = [];
     if (!(world.remnants && world.remnants.length)) for (const b of world.bodies) if (b.kind === 'bh' && b.alive) holes.push([b.x, b.y, b.z, 1 / (0.00465 * Math.cbrt(b.m))]);
-    const sc = [0, 0, 0], LQ = 1 / Math.log(40);
+    const sc = [0, 0, 0], LQ = 0.5 / Math.log(40), L15 = Math.log(2.25);
+    // (point sizes in CSS pixels, only partly scaled up on dense screens: a 3× phone would fill 9× the pixels)
+    const dpk = Math.min(this.dpr, 1.6);
     for (let i = 0; i < world.np; i++) {
       if (sb && (px[i] - sb.x) ** 2 + (py[i] - sb.y) ** 2 + (pz[i] - sb.z) ** 2 > reach2) continue;
       const m = pm[i];
@@ -3105,9 +3125,9 @@ export class Renderer3D {
         sc[0] = 0.07; sc[1] = 0.024; sc[2] = 0.016;
         col = sc;
       } else if (holes.length && pk[i] === PK.SN_H) {
-        let q = Infinity;
-        for (const H of holes) q = Math.min(q, Math.hypot(px[i] - H[0], py[i] - H[1], pz[i] - H[2]) * H[3]);
-        const t = Math.min(1, Math.max(0, Math.log(Math.max(q, 1e-9) / 1.5) * LQ)), b = 0.42 - 0.36 * t;
+        let q2 = Infinity;
+        for (const H of holes) { const dx = px[i] - H[0], dy = py[i] - H[1], dz = pz[i] - H[2]; q2 = Math.min(q2, (dx * dx + dy * dy + dz * dz) * H[3] * H[3]); }
+        const t = Math.min(1, Math.max(0, (Math.log(Math.max(q2, 1e-18)) - L15) * LQ)), b = 0.5 - 0.42 * t;
         sc[0] = b; sc[1] = b * (0.95 - 0.72 * t); sc[2] = b * (0.62 - 0.5 * Math.sqrt(t));
         col = sc;
       }

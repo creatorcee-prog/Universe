@@ -18,6 +18,9 @@ const COMPACT = new Set(['bh', 'ns', 'wd']);
 // β = r_t / r_p ≈ 0.6 and is total near 0.9; here total is the Roche distance (β ≈ 0.8), so stripping starts
 // at 0.8 / 0.6 ≈ 1.33 times it.
 const STRIP_K = 1.33;
+// Particles a whole star becomes when a black hole (or neutron star, white dwarf) tears it apart: enough for a
+// continuous stream drawn with soft points, few enough to stay smooth on a phone.
+const TDE_N = 2800;
 const MAX_STEPS = 3000; // body substeps per frame
 const MAX_ATTRACTORS = 24; // bodies that pull on particles
 const PRIORITY = { rocky: 0, gas: 1, star: 2, wd: 3, ns: 4, bh: 5, core: 6 };
@@ -608,7 +611,7 @@ export class World {
   disrupt(small, big) {
     const free = PCAP - this.np - this.pending.length;
     // Rubble moonlets break back into a few clumps; planets and stars into a fine spray.
-    const count = Math.min(free, small.formed ? Math.max(6, Math.min(40, Math.round(small.m / 2.5e-10))) : small.kind === 'star' ? (COMPACT.has(big.kind) ? Math.max(600, Math.round(6000 * (small._strip ? small.m / small._strip.m0 : 1))) : 1400) : small.m > 1e-7 ? 900 : 300);
+    const count = Math.min(free, small.formed ? Math.max(6, Math.min(40, Math.round(small.m / 2.5e-10))) : small.kind === 'star' ? (COMPACT.has(big.kind) ? Math.max(300, Math.round(TDE_N * (small._strip ? small.m / small._strip.m0 : 1))) : 1400) : small.m > 1e-7 ? 900 : 300);
     // A shredded star is hydrogen plasma (glows, never clumps); planets break into gas or rock.
     const kind = small.kind === 'star' ? PK.SN_H : small.kind === 'gas' ? PK.GAS : PK.ROCK;
     const vesc = Math.sqrt((2 * G * small.m) / small.r);
@@ -632,8 +635,24 @@ export class World {
     }
     small.alive = false;
     small.mergedInto = null;
+    if (big.kind === 'bh') this.maybeJet(big, small);
     this.flashes.push({ x: small.x, y: small.y, z: small.z, r: small.r * 6, born: performance.now(), life: 1500, color: [255, 210, 160] });
     this.events.push({ text: `${small.name} crossed ${big.name}'s Roche limit and was torn apart by tides`, torn: small.name, body: big, big: true, snd: 'tidal', power: small.kind === 'star' ? 1 : 0.6, at: [small.x, small.y, small.z] });
+  }
+
+  // Relativistic jets. Only about 1% of tidal disruptions launch one (Swift J1644+57 in 2011, Sw J2058, Sw J1112,
+  // AT2022cmc: De Colle & Lu 2020, NewAR 89): a jet needs a fast-spinning hole and a strong magnetic field
+  // threading it (the Blandford-Znajek process, 1977). Each hole has a spin a = Jc/GM² (random, unless set);
+  // a hole spinning faster than a = 0.5 that starts feeding on a star launches jets with a 1-in-50 chance
+  // (so about 1% overall). They point along the disk's axis and last while the hole feeds near its limit.
+  maybeJet(h, food) {
+    if (h.jet) return;
+    if (h.spinA === undefined) h.spinA = rand() * 0.998;
+    if (h._jetRoll && this.t - h._jetRoll < 0.5) return;   // (one roll per meal)
+    h._jetRoll = this.t;
+    if (!(h.jetAlways || (h.spinA > 0.5 && rand() < 0.02))) return;
+    h.jet = { t0: this.t };
+    this.events.push({ text: `${h.name} launched a pair of relativistic jets while eating ${food.name}: twisted magnetic fields, wound up by the hole's spin (a = ${h.spinA.toFixed(2)}), fling gas out along its axis at over 99% of light speed. Only about 1 in 100 tidal disruptions does this.`, body: h, big: true, snd: 'transform', power: 1, at: [h.x, h.y, h.z] });
   }
 
   // The velocity to give debris shed by small near big: its own, except near a black hole or neutron star (below).
@@ -682,7 +701,7 @@ export class World {
     ps.f = f;
     if (small.m - dm < 0.04 * ps.m0) { this.disrupt(small, big); return true; }
     const free = PCAP - this.np - this.pending.length;
-    const count = Math.min(free, Math.max(2, Math.round((dm / ps.m0) * 6000)));
+    const count = Math.min(free, Math.max(2, Math.round((dm / ps.m0) * TDE_N)));
     const kind = small.kind === 'star' ? PK.SN_H : small.kind === 'gas' ? PK.GAS : PK.ROCK;
     const [bvx, bvy, bvz] = this.handover(small, big);
     const ux = (big.x - small.x) / d, uy = (big.y - small.y) / d, uz = (big.z - small.z) / d;
@@ -703,6 +722,7 @@ export class World {
     small.r = rNew;
     small.m = m1;
     big.heat = Math.min(1.5, (big.heat || 0) + 0.2);
+    if (big.kind === 'bh') this.maybeJet(big, small);
     if (!ps.told) {
       ps.told = true;
       this.events.push({ text: `${small.name} is being torn apart piece by piece: passing close to ${big.name}, its tides pull gas off both sides of it in a stream`, torn: small.name, body: big, big: true, snd: 'tidal', power: 0.5, at: [small.x, small.y, small.z] });

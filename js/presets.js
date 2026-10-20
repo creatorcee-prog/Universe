@@ -562,6 +562,24 @@ export const PRESETS = [
     },
   },
   {
+    id: 'jtde', name: 'Jetted Tidal Disruption',
+    blurb: 'The rare kind: a fast-spinning black hole shreds a star and launches a pair of jets at nearly light speed, as Swift J1644+57 did in 2011 (only about 1 in 100 tidal disruptions does this). The jets switch on when the debris falls back, about 40 days after the star is torn apart.',
+    speed: 2 / 365.25,
+    camera: { follow: 'Black hole', dist: 40, pitch: 0.3, yaw: 1.75 },
+    build(w) {
+      const bh = w.addBody(makeBody({ kind: 'bh', m: 1e6, name: 'Black hole' }));
+      bh.spinA = 0.9; bh.jetAlways = true;
+      // The same plunge as Tidal Disruption: parabolic, periapsis 0.4 AU.
+      const q = 0.4, r0 = 7, mu = G * bh.m;
+      const nu = -Math.acos((2 * q) / r0 - 1);
+      const vp = Math.sqrt(mu / (2 * q));
+      const st = makeBody({ kind: 'star', m: 1, name: 'S-star' });
+      st.x = r0 * Math.cos(nu); st.y = 0; st.z = -r0 * Math.sin(nu);
+      st.vx = -vp * Math.sin(nu); st.vy = 0; st.vz = -vp * (1 + Math.cos(nu));
+      w.addBody(st);
+    },
+  },
+  {
     id: 'ptde', name: 'Repeating Tidal Disruption',
     blurb: 'A Sun-like star on a tight 20-day orbit grazes a million-solar-mass black hole. Each pass tears off part of it in a stream that wraps around the hole and lights its disk, piece by piece, as for the star in ASASSN-14ko, which flares every 114 days.',
     speed: 2 / 365.25,

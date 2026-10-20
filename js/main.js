@@ -690,7 +690,7 @@ class App {
       name = item.label;
       for (let k = 2; this.world.findByName(name); k++) name = `${item.label} ${k}`;
     }
-    const b = makeBody({ kind: item.kind, m: item.m, r: item.r, color: item.color, band: item.band, atmo: item.atmo, comet: item.comet, compKey: item.compKey, name });
+    const b = makeBody({ kind: item.kind, m: item.m, r: item.r, color: item.color, band: item.band, atmo: item.atmo, comet: item.comet, compKey: item.compKey, name, bhStar: item.bhStar, wdAge: item.wdAge });
     if (item.ageFrac) b.age = lifetime(item.m) * item.ageFrac;
     b.x = x; b.y = y; b.z = z; b.vx = vx; b.vy = vy; b.vz = vz;
     // A nebula is placed at rest beside whatever it was dropped near, not put in orbit like a planet.
@@ -702,7 +702,7 @@ class App {
     if (this.state.addMethod === 'binary' && b.kind !== 'nebula') {
       // A twin on a mutual circular orbit: separation ~20 radii for planets, ~0.1 AU·√M for stars,
       // kept inside a third of the pair's Hill sphere around whatever they orbit.
-      const b2 = makeBody({ kind: item.kind, m: item.m, r: item.r, color: item.color, band: item.band, atmo: item.atmo, comet: item.comet, compKey: item.compKey, name: name ? `${name} B` : undefined });
+      const b2 = makeBody({ kind: item.kind, m: item.m, r: item.r, color: item.color, band: item.band, atmo: item.atmo, comet: item.comet, compKey: item.compKey, name: name ? `${name} B` : undefined, bhStar: item.bhStar, wdAge: item.wdAge });
       if (item.ageFrac) b2.age = b.age;
       let sep = item.kind === 'star' ? 0.1 * Math.sqrt(item.m) : item.kind === 'bh' ? 0.005 : 20 * (b.r || 1e-5);
       if (a.parent) {

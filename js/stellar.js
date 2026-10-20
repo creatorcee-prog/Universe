@@ -20,6 +20,59 @@ export function lifetime(m) {
   return 1e10 * Math.pow(m, -2.5);
 }
 
+// The star builder (Create → Stars): first the type, then the size; the colour follows. On the main sequence
+// size is set by mass and mass sets the temperature (bodies.js starRadius, starTemp). Giants are sized by how
+// far up the giant branch they are: the bigger, the cooler and redder (Hayashi; as evolveStar below). White
+// dwarfs and neutron stars shrink as they get heavier (Chandrasekhar), so their size runs the other way.
+export const STAR_TYPES = [
+  { id: 'M', label: 'Red dwarf', m: [0.08, 0.5] },
+  { id: 'K', label: 'Orange dwarf', m: [0.5, 0.82] },
+  { id: 'G', label: 'Yellow dwarf', m: [0.82, 1.08] },
+  { id: 'FA', label: 'White star', m: [1.08, 2.9] },
+  { id: 'OB', label: 'Blue star', m: [3, 60] },
+  { id: 'RG', label: 'Red giant', m0: 1.3, g: [0.35, 0.97] },
+  { id: 'RSG', label: 'Red supergiant', m0: 18, g: [0.64, 0.97] },
+  { id: 'BSG', label: 'Blue supergiant', m0: 25, g: [0.15, 0.45] },
+  { id: 'WD', label: 'White dwarf', m: [1.3, 0.2] },
+  { id: 'NS', label: 'Neutron star', m: [2.1, 1.1] },
+  { id: 'BHS', label: 'Black hole star', m: [1e4, 1e8] },
+];
+
+// A catalogue item for type id at size s (0 smallest .. 1 biggest), with what it will look like.
+export function starFromType(id, s) {
+  const t = STAR_TYPES.find((x) => x.id === id) || STAR_TYPES[2];
+  const lerpLog = ([a, b]) => Math.exp(Math.log(a) + (Math.log(b) - Math.log(a)) * s);
+  const item = { id: 'custom-star', type: t.id, label: t.label, kind: 'star', real: false };
+  if (t.g) {
+    const g = t.g[0] + (t.g[1] - t.g[0]) * s;
+    item.m = t.m0;
+    item.ageFrac = GIANT_START + (1 - GIANT_START) * g;
+    const b = { kind: 'star', m: t.m0, m0: t.m0, age: lifetime(t.m0) * item.ageFrac };
+    evolveStar(b, 0);
+    Object.assign(item, { temp: b.temp, R: b.r, L: b.lum, mNow: b.m });
+  } else if (t.id === 'WD') {
+    // Nauenberg (1972): R = 0.0112 R☉ √((M/M_Ch)^-⅔ − (M/M_Ch)^⅔). Born hot; shown ~16,000 K, a few million years old.
+    const m = lerpLog(t.m), x = m / 1.44;
+    Object.assign(item, { kind: 'wd', m, r: 0.0112 * SUN_RADIUS * Math.sqrt(Math.pow(x, -2 / 3) - Math.pow(x, 2 / 3)), wdAge: 5.6e6, temp: 16000 });
+    item.R = item.r; item.L = 100 * Math.pow(1 + item.wdAge / 3e4, -1.3);
+  } else if (t.id === 'NS') {
+    // ~11-13 km whatever the mass (Riley et al. 2019, NICER), a little smaller when heavier.
+    const m = lerpLog(t.m);
+    Object.assign(item, { kind: 'ns', m, r: km(12 * Math.pow(1.4 / m, 0.15)), temp: 600000, L: 0.05 });
+    item.R = item.r;
+  } else if (t.id === 'BHS') {
+    const m = lerpLog(t.m), T = 4500;
+    Object.assign(item, { m, bhStar: { T }, temp: T, L: 3.2e4 * m });
+    item.R = Math.sqrt(item.L) * (5772 / T) ** 2 * SUN_RADIUS;
+  } else {
+    const m = lerpLog(t.m);
+    // (placed newborn, on the zero-age main sequence: as evolveStar at age 0)
+    Object.assign(item, { m, temp: starTemp(m), R: starRadius(m) * (1 - 0.2 * 0.46), L: starLuminosity(m) * (1 - 0.65 * 0.46) });
+  }
+  item.color = tempToRGB(Math.min(item.temp, 40000));
+  return item;
+}
+
 // Final white-dwarf mass for a low-mass star (initial-final mass relation, roughly).
 function wdMass(m0) {
   return Math.min(1.35, 0.5 + 0.09 * m0);
@@ -35,7 +88,7 @@ export function evolveStar(b, dtYears) {
     b.color = tempToRGB(Math.min(b.temp, 30000));
     return null;
   }
-  if (b.kind !== 'star') return null;
+  if (b.kind !== 'star' || b.bhStar) return null;   // (a black hole star shines by what it feeds on, not fusion)
   if (b.age === undefined) b.age = 0;
   if (b.m0 === undefined) b.m0 = b.m;
   if (b.m > b.m0 * 1.001) {

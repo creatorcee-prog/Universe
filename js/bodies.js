@@ -189,7 +189,9 @@ export function makeBody(opts) {
     trail: null,
     trailStart: 0,
     spin: Math.random() * Math.PI * 2,
+    bhStar: opts.bhStar ? { ...opts.bhStar } : null,
   };
+  if (opts.wdAge !== undefined) b.wdAge = opts.wdAge;
   if (!b.color && (b.kind === 'rocky')) b.color = ROCKY_COLORS[Math.floor(Math.random() * ROCKY_COLORS.length)].slice();
   if (!b.color && b.kind === 'gas') {
     const p = GAS_COLORS[Math.floor(Math.random() * GAS_COLORS.length)];
@@ -211,7 +213,17 @@ function gasRadius(m) {
 
 // Recompute derived quantities (temperature, luminosity, colour) after mass changes.
 export function refresh(b) {
-  if (b.kind === 'star') {
+  if (b.kind === 'star' && b.bhStar) {
+    // A "black hole star" (Naidu et al. 2025, the "Cliff"; de Graaff et al. 2025): a black hole buried in a
+    // cocoon of dense gas that it lights from inside, near its Eddington limit (3.2e4 L☉ per M☉). The
+    // cocoon's photosphere is cool, ~4,500 K (the Balmer break and red colour of JWST's "little red dots"),
+    // so for that much light it is enormous: R = √L (5,772 K / T)² R☉, hundreds to thousands of AU.
+    const T = b.bhStar.T || 4500;
+    b.temp = T;
+    b.lum = 3.2e4 * b.m;
+    b.r = Math.sqrt(b.lum) * (5772 / T) ** 2 * SUN_RADIUS;
+    b.color = tempToRGB(T);
+  } else if (b.kind === 'star') {
     b.temp = starTemp(b.m);
     b.lum = starLuminosity(b.m);
     b.color = tempToRGB(b.temp);
@@ -240,13 +252,13 @@ export function reclassify(b) {
   const before = b.kind;
   if (b.kind === 'wd' && b.m > 1.44) { b.pendingDeath = 'Passed the Chandrasekhar limit of 1.44 M☉'; }
   if (b.kind === 'ns' && b.m > 2.3) { b.kind = 'bh'; event = 'Neutron star collapsed into a black hole'; }
-  if (b.kind === 'star' && b.m > 150) { b.kind = 'bh'; event = 'Star too massive: collapsed into a black hole'; }
+  if (b.kind === 'star' && b.m > 150 && !b.bhStar) { b.kind = 'bh'; event = 'Star too massive: collapsed into a black hole'; }
   if (b.kind === 'rocky' && b.m > 10 * EARTH_MASS) { b.kind = 'gas'; b.r = Math.max(b.r, gasRadius(b.m)); if (!b.band) { b.color = [200, 170, 130]; b.band = [160, 110, 80]; } }
   if ((b.kind === 'gas' || b.kind === 'rocky') && b.m >= 0.08) { b.kind = 'star'; b.r = starRadius(b.m); event = 'Mass passed 0.08 M☉: hydrogen fusion ignited, a new star is born'; }
   if (b.kind !== before) {
     b.density = volumeDensity(b.m, Math.max(b.r, 1e-12));
   }
-  if (b.kind === 'star') b.r = starRadius(b.m);
+  if (b.kind === 'star' && !b.bhStar) b.r = starRadius(b.m);
   refresh(b);
   return event;
 }
@@ -268,7 +280,13 @@ export function typeName(b) {
       if (me < 50) return 'Ice giant';
       return 'Gas giant';
     case 'star': {
+      if (b.bhStar) return 'Black hole star';
       const t = b.temp;
+      // Swollen stars, past the main sequence (stellar.js evolveStar: b.giant from 0 to 1).
+      if (b.giant > 0.05) {
+        if ((b.m0 || b.m) >= 8) return t > 9000 ? 'Blue supergiant' : t > 5200 ? 'Yellow supergiant' : 'Red supergiant';
+        return t > 5200 ? 'Subgiant' : 'Red giant';
+      }
       if (t < 3700) return 'Red dwarf · M-type';
       if (t < 5200) return 'Orange star · K-type';
       if (t < 6000) return 'Yellow star · G-type';

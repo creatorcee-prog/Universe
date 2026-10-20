@@ -325,6 +325,19 @@
       <button type="button" data-cat="exotic">Exotic</button>
       <button type="button" data-cat="real">Real objects</button>
     </div>
+    <div id="star-builder" class="star-builder" hidden>
+      <h3 class="sheet-sub">Build a star</h3>
+      <div id="sb-types" class="sb-types" role="radiogroup" aria-label="Star type"></div>
+      <div class="sb-row">
+        <canvas id="sb-thumb" width="128" height="128" aria-hidden="true"></canvas>
+        <div class="sb-ctl">
+          <label class="sb-size">Size <input id="sb-size" type="range" min="0" max="1000" value="500" aria-label="Size"></label>
+          <div id="sb-info" class="sb-info"></div>
+        </div>
+      </div>
+      <button id="sb-use" class="sb-use" type="button">Place this star</button>
+      <h3 class="sheet-sub">Ready-made</h3>
+    </div>
     <div id="create-grid" class="create-grid"></div>
     <p class="about">Pick an object, then tap the view. <b>Orbit</b> drops it into a circular orbit around whatever pulls hardest there; <b>Place</b> drops it at rest relative to that body. Drag instead of tapping to fling it.</p>
   </section>

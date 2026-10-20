@@ -415,6 +415,19 @@ input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border-radius: 
 .cat-tabs::-webkit-scrollbar { display: none; }
 .cat-tabs button { flex: none; height: 32px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255,255,255,.03); font-size: 13px; font-weight: 600; color: var(--muted); cursor: pointer; }
 .cat-tabs button.on { border-color: var(--accent); color: var(--accent); background: rgba(255,184,92,.1); }
+.star-builder { margin-bottom: 4px; }
+.sb-types { display: flex; flex-wrap: wrap; gap: 6px; }
+.sb-types button { height: 30px; padding: 0 11px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255,255,255,.03); font-size: 12.5px; font-weight: 600; color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.sb-types button i { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.sb-types button.on { border-color: var(--accent); color: var(--text, #fff); background: rgba(255,184,92,.1); }
+.sb-row { display: flex; gap: 12px; align-items: center; margin: 12px 0 10px; }
+.sb-row canvas { width: 84px; height: 84px; flex: none; }
+.sb-ctl { flex: 1; min-width: 0; }
+.sb-size { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.sb-size input { flex: 1; min-width: 0; accent-color: var(--accent); }
+.sb-info { font-size: 12.5px; line-height: 1.45; color: var(--muted); margin-top: 6px; }
+.sb-info b { color: var(--text, #fff); font-weight: 600; }
+.sb-use { width: 100%; height: 40px; border-radius: 12px; border: 1px solid var(--accent); background: rgba(255,184,92,.12); color: var(--accent); font-weight: 700; font-size: 14px; cursor: pointer; }
 .create-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
 .card { display: grid; justify-items: center; gap: 6px; padding: 10px 4px 9px; border-radius: 12px; border: 1px solid var(--line); background: rgba(255,255,255,.025); cursor: pointer; }
 .card img, .card canvas { width: 64px; height: 64px; }

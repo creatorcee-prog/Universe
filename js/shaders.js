@@ -2359,7 +2359,7 @@ export const SPRITE_FS = HEAD + `
 in vec2 vC;
 ` + LOGDEPTH_F + `
 uniform vec3 uColor;
-uniform int uType;      // 0 star glow, 1 soft bulge, 2 photon ring, 3 pulsar beam, 4 lensed disk, 5 dot
+uniform int uType;      // 0 star glow, 1 soft bulge, 2 photon ring, 3 pulsar beam, 4 lensed disk, 5 dot, 6 jet
 uniform float uInner;
 out vec4 outColor;
 void main() {
@@ -2381,6 +2381,12 @@ void main() {
     float arc = exp(-pow((r - 0.36) / (0.05 + 0.05 * cphi), 2.0)) * (0.35 + 0.9 * pow(cphi, 1.2) * uInner + 0.5 * (1.0 - uInner));
     float photon = exp(-pow((r - 0.265) / 0.012, 2.0)) * 0.9;
     a = arc * 0.85 + photon;
+  } else if (uType == 6) {
+    // A relativistic jet, from its base at the hole (x = -1) to its tip (x = 1): a narrow cone (a few
+    // degrees across) that widens and fades outward, with bright knots where shocks run along it.
+    float u = 0.5 * (vC.x + 1.0), w = 0.025 + 0.09 * u;
+    float knots = 0.7 + 0.3 * sin(u * 46.0) * sin(u * 17.0 + 1.3);
+    a = exp(-pow(vC.y / w, 2.0)) * pow(1.0 - u, 1.3) * knots * smoothstep(0.0, 0.03, u) + exp(-pow(vC.y / (w * 0.35), 2.0)) * pow(1.0 - u, 4.0) * 0.6;
   } else if (uType == 5) {
     a = 1.0 - smoothstep(0.55, 1.0, r);   // a world too small to show its disc: a plain lit dot
   } else {

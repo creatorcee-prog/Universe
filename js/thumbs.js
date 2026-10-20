@@ -1,7 +1,7 @@
 // Thumbnails for the Create panel: small lit spheres drawn per pixel on a 2D canvas, with surface
 // detail by kind (continents, craters, gas bands, ice, star granulation, black-hole disks).
 
-import { makeBody, reclassify, isLuminous } from './bodies.js';
+import { makeBody, reclassify, isLuminous, tempToRGB } from './bodies.js';
 
 function hash(x, y, z) {
   const s = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453;
@@ -123,6 +123,7 @@ export function renderThumb(item, size = 128) {
   }
   const b = makeBody({ kind: item.kind, m: item.m, r: item.r, color: item.color, band: item.band });
   reclassify(b);
+  if (item.previewTemp) b.color = tempToRGB(Math.min(item.previewTemp, 40000));   // (the star builder)
   const col = b.color || [180, 180, 180];
   const lum = isLuminous(b);
   const img = ctx.createImageData(size, size);
