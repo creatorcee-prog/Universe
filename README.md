@@ -155,6 +155,13 @@ Switch in the **View** panel.
   model, so the weather changes as the planet warms, cools or loses its oceans.
 - **Close-up maps** (assets/maps/moon-4k.jpg, mars-4k.jpg, mercury-4k.jpg, built by `tools/make_maps_4k.py`
   from the Solar System Scope 8k maps, CC BY 4.0): loaded only while one of these worlds is large on screen.
+  Closer still (and on the ground), 8192×4096 maps of the Moon, Mars, Mercury and Earth (assets/maps/*-8k.bin,
+  `tools/make_maps_8k.py`, same sources; Earth colour-matched to the Blue Marble map) as compressed GPU textures:
+  Basis Universal ETC1S in KTX2 (encoded with the wasm encoder of ktx2-encoder, MIT, tools/vendor/basisu),
+  4×2 tiles of 2048², transcoded in a worker (js/ktx.js, js/vendor/basis_transcoder.*, from three.js; Basis
+  Universal by Binomial, Apache 2.0) to ETC2, BC7, ASTC or BC1 and fitted into one texture: ~22–45 MB on the
+  GPU instead of ~170 MB as RGBA. On one test patch of the Moon, 29.7 dB PSNR against the 8k source, vs 25.1 dB
+  for the 4k JPEG. GPUs with none of those formats keep the 4k maps.
 - **Stars** (assets/maps/stars.png, built by `tools/make_stars.py`): the Yale Bright Star Catalogue, 5th
   revised edition (Hoffleit & Warren 1991; CDS catalogue V/50, public domain), the 9,096 stars to about
   magnitude 6.5, placed in the app's ecliptic J2000 frame; brightness from V magnitude, colour from B-V

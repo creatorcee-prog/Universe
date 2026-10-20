@@ -8,6 +8,7 @@ import { atmosphereOptics, giantOptics, setOpticsUniforms, stretchOptics, atmosp
 import { heatOutput } from './thermal.js';
 import { interiorOf } from './interior.js';
 import { earthMap, moonMap } from './geography.js';
+import { ktxMap, uploadKtx } from './ktx.js';
 
 let EARTH_MAP = null, MOON_MAP = null; // built once, on first use
 
@@ -63,19 +64,30 @@ function photoMap(b) {
   const img = loadImage(p[1], p[4]);
   return img ? { mode: p[2], img, W: img.width, H: img.height, ver: 1, file: p[1] } : null;
 }
-// Close-up maps (tools/make_maps_4k.py), 4096 x 2048: swapped in while the world is large on screen and
-// released when it is not, so at most one or two (~45 MB each on the GPU with mipmaps) are ever held.
+// Close-up maps, swapped in while the world is large on screen and released when it is not, so at most one or
+// two are ever held: 4096 x 2048 JPEGs (tools/make_maps_4k.py, ~45 MB each on the GPU with mipmaps), then,
+// once a texel of those would cover more than a screen pixel and the GPU takes a compressed format,
+// 8192 x 4096 compressed maps (tools/make_maps_8k.py, js/ktx.js; ~22-45 MB). shownPx: the radius on screen
+// in CSS pixels; px the same in device pixels; gl to transcode for.
 const HI_MAPS = new Set(['moon', 'mars', 'mercury']);
-function hiMap(sm, shownPx) {
+function hiMap(sm, shownPx, px = shownPx, gl = null) {
   if (!sm || !sm.img) return sm;
-  if (sm.hi) {
-    if (shownPx >= 150) return sm;
-    delete photoImg[sm.lo.file + '-4k'];   // (let the large image go; the browser keeps the file cached)
-    return sm.lo;
+  const base = sm.lo || sm, now = sm.hi || 0;
+  if (!HI_MAPS.has(base.file)) return sm;
+  let want = now;
+  if (want === 2 && px < 450) want = 1;
+  if (want >= 1 && shownPx < 150) want = 0;
+  if (want === 0 && shownPx >= 300) want = 1;
+  if (want === 1 && px >= 700 && gl) want = 2;
+  if (want === now) return sm;
+  if (want === 0) { delete photoImg[base.file + '-4k']; return base; }   // (the browser keeps the files cached)
+  if (want === 2) {
+    const k = ktxMap(base.file + '-8k', gl);
+    if (k) return { ...base, ktx: k, W: k.W, H: k.H, ver: sm.ver + 1, hi: 2, lo: base };
+    if (now === 1) return sm;   // (still loading, or not to be had: the 4k stays)
   }
-  if (!HI_MAPS.has(sm.file) || shownPx < 300) return sm;   // (shownPx: the radius on screen, CSS pixels)
-  const img = loadImage(sm.file + '-4k');
-  return img ? { ...sm, img, W: img.width, H: img.height, ver: sm.ver + 1, hi: true, lo: sm } : sm;
+  const img = loadImage(base.file + '-4k');
+  return img ? { ...base, img, W: img.width, H: img.height, ver: sm.ver + 1, hi: 1, lo: base } : now ? base : sm;
 }
 // Donor maps: a world with no map of its own (one you create, or a random planetesimal) borrows the
 // brightness pattern of a real one of its type (cratered highlands, ice, dust, volcanic plains, small
@@ -1714,7 +1726,7 @@ export class Renderer3D {
     gl.uniform1f(u.uMapMode, b.surfaceMap && this.mapTex.get(b) ? b.surfaceMap.mode : 0);
     if (b.surfaceMap && this.mapTex.get(b)) { gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, this.mapTex.get(b).tex); gl.uniform1i(u.uMap, 5); gl.activeTexture(gl.TEXTURE0); }
     this.bindDonor(u, b, l);
-    this.bindEarthDay(u, b, th);
+    this.bindEarthDay(u, b, th, 1e9);
     this.bindHeight(u, b, false);
     this.bindGen(u, b, Infinity);
     // (Capped at ~2.5% of the radius on small worlds: the 1/g rule would raise peaks a fifth of the radius high on
@@ -1951,9 +1963,29 @@ export class Renderer3D {
     return t;
   }
 
+  // Earth's 8192 x 4096 map (js/ktx.js), while Earth is large on screen (px: its radius in device pixels), as
+  // the close-up maps of hiMap; null until it is ready, or when not wanted (then let go).
+  earthHiTex(px) {
+    const gl = this.gl, e = this.earthHi;
+    if (px < (e ? 450 : 700)) {
+      if (e) { if (e.tex) gl.deleteTexture(e.tex); this.earthHi = null; }
+      return null;
+    }
+    if (e && e.tex) return e.tex;
+    const k = ktxMap('earth-day-8k', gl);
+    this.earthHi = { tex: null };
+    if (!k) return null;
+    const tex = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE8);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    uploadKtx(gl, k);
+    this.aniso(8);
+    return (this.earthHi.tex = tex);
+  }
+
   // Earth's real colours (Blue Marble), while its climate and life are Earth-like; otherwise the colours
   // come from the climate model (deserts, ice ages, a dead or a greenhouse world).
-  bindEarthDay(u, b, th) {
+  bindEarthDay(u, b, th, px = 0) {
     const gl = this.gl;
     let k = 0;
     if (/^Earth( \d+)?$/.test(b.name) && b.kind === 'rocky' && b.life && (b.lifeAge || 0) > 1e9 && th) {
@@ -1961,7 +1993,7 @@ export class Renderer3D {
       if (img) {
         k = Math.max(0, Math.min(1, 1 - Math.abs(th.Ts - 288) / 18)) * Math.min(1, th.ocean * 2.5 || 0);
         gl.activeTexture(gl.TEXTURE8);
-        gl.bindTexture(gl.TEXTURE_2D, this.donorTex(img));
+        gl.bindTexture(gl.TEXTURE_2D, this.earthHiTex(px) || this.donorTex(img));
         gl.uniform1i(u.uDay, 8);
         gl.activeTexture(gl.TEXTURE0);
       }
@@ -2589,9 +2621,22 @@ export class Renderer3D {
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     }
     gl.activeTexture(gl.TEXTURE5);
+    if (t.ver !== sm.ver || t.sm !== sm) {
+      // (a compressed map gets a texture of its own; so does the map that follows one)
+      if (!!sm.ktx !== !!t.ktx) {
+        gl.deleteTexture(t.tex);
+        t.tex = gl.createTexture(); t.ktx = !!sm.ktx;
+        gl.bindTexture(gl.TEXTURE_2D, t.tex);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      }
+    }
     gl.bindTexture(gl.TEXTURE_2D, t.tex);
     if (t.ver !== sm.ver || t.sm !== sm) {
-      if (sm.img) {
+      if (sm.ktx) {
+        if (sm.ktx.levels) uploadKtx(gl, sm.ktx);
+        this.aniso(8);
+      } else if (sm.img) {
         // Image maps are only ever shown whole, often small on screen: mipmapped against shimmer.
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, sm.img);
         gl.generateMipmap(gl.TEXTURE_2D);
@@ -2671,7 +2716,7 @@ export class Renderer3D {
     // Standing on this body: draw the local terrain instead of the globe.
     if (this.surface && this.surface.body === b && l.kind === 0 && !this.forceGlobe) {
       // (standing on it: its close-up map, if it has one)
-      if (b.surfaceMap && (b.surfaceMap.hi || b.surfaceMap.img)) { b.surfaceMap = hiMap(b.surfaceMap, 1e9); this.syncMapTex(b); }
+      if (b.surfaceMap && (b.surfaceMap.hi || b.surfaceMap.img)) { b.surfaceMap = hiMap(b.surfaceMap, 1e9, 1e9, gl); this.syncMapTex(b); }
       this.drawTerrain(b, l, rot, lights, temp);
       return;
     }
@@ -2758,7 +2803,7 @@ export class Renderer3D {
       else if (!b.surfaceMap) b.surfaceMap = { mode: 2, W: 512, H: 256, data: (MOON_MAP ||= moonMap()).slice(), ver: 1, standIn: true };
     }
     if (!b.surfaceMap) b.surfaceMap = photoMap(b) || undefined;
-    if (b.surfaceMap && (b.surfaceMap.hi || b.surfaceMap.img)) b.surfaceMap = hiMap(b.surfaceMap, shownPx / Math.max(this.dpr || 1, 0.5));
+    if (b.surfaceMap && (b.surfaceMap.hi || b.surfaceMap.img)) b.surfaceMap = hiMap(b.surfaceMap, shownPx / Math.max(this.dpr || 1, 0.5), shownPx, gl);
     const sm = b.surfaceMap;
     if (sm) {
       this.syncMapTex(b);
@@ -2769,7 +2814,7 @@ export class Renderer3D {
     }
     gl.uniform1f(u.uMapMode, sm ? sm.mode : 0);
     this.bindDonor(u, b, l);
-    this.bindEarthDay(u, b, th);
+    this.bindEarthDay(u, b, th, shownPx);
     this.bindHeight(u, b, true);
     this.bindGen(u, b, shownPx);
     // A donor already brings real craters; keep only a trace of the generated ring-shaped ones.

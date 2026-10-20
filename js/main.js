@@ -124,7 +124,8 @@ class App {
       if (!navigator.gpu) throw new Error('this browser has no WebGPU');
       const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
       if (!adapter) throw new Error('no WebGPU adapter');
-      const device = await adapter.requestDevice();
+      // (the compressed texture formats the adapter has, for the close-up maps: js/ktx.js)
+      const device = await adapter.requestDevice({ requiredFeatures: ['texture-compression-bc', 'texture-compression-etc2', 'texture-compression-astc'].filter((f) => adapter.features.has(f)) });
       let cv = this.gpuCanvas;
       if (!cv) {
         cv = document.createElement('canvas');

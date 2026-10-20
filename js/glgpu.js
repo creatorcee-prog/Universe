@@ -37,6 +37,9 @@ function toHalf(v) {
 
 let nextId = 1;
 
+const CFMT = { 0x9274: 'etc2-rgb8unorm', 0x8e8c: 'bc7-rgba-unorm', 0x83f0: 'bc1-rgba-unorm', 0x93b0: 'astc-4x4-unorm' };
+const CBYTES = { 0x9274: 8, 0x8e8c: 16, 0x83f0: 8, 0x93b0: 16 };
+
 export class GLonGPU {
   // device: a GPUDevice. canvas: where frames go (configured here), unless offscreen (tests), when the
   // default framebuffer is a texture that readDefault() returns.
@@ -163,6 +166,12 @@ export class GLonGPU {
   // ---------- misc state ----------
 
   getExtension(name) {
+    // Compressed formats (js/ktx.js), as the device's features allow: the WebGL constant -> WebGPU format.
+    const f = this.device.features, cx = { WEBGL_compressed_texture_etc: ['texture-compression-etc2', { COMPRESSED_RGB8_ETC2: 0x9274 }],
+      EXT_texture_compression_bptc: ['texture-compression-bc', { COMPRESSED_RGBA_BPTC_UNORM_EXT: 0x8e8c }],
+      WEBGL_compressed_texture_s3tc: ['texture-compression-bc', { COMPRESSED_RGB_S3TC_DXT1_EXT: 0x83f0 }],
+      WEBGL_compressed_texture_astc: ['texture-compression-astc', { COMPRESSED_RGBA_ASTC_4x4_KHR: 0x93b0 }] }[name];
+    if (cx) return f && f.has(cx[0]) ? cx[1] : null;
     if (/texture_filter_anisotropic/.test(name)) return { TEXTURE_MAX_ANISOTROPY_EXT: 0x84fe, MAX_TEXTURE_MAX_ANISOTROPY_EXT: 0x84ff };
     return /color_buffer_float|color_buffer_half_float|float_blend|texture_float_linear/.test(name) ? {} : null;
   }
@@ -242,6 +251,7 @@ export class GLonGPU {
     if (!t) return;
     if (p === this.TEXTURE_MIN_FILTER) t.minF = v; else if (p === this.TEXTURE_MAG_FILTER) t.magF = v;
     else if (p === this.TEXTURE_WRAP_S) t.wrapS = v; else if (p === this.TEXTURE_WRAP_T) t.wrapT = v;
+    else if (p === this.TEXTURE_MAX_LEVEL) t.maxLevel = v;
     else if (p === 0x84fe) t.aniso = Math.max(1, Math.min(16, Math.round(v)));
   }
   texParameterf(target, p, v) { this.texParameteri(target, p, v); }
@@ -270,6 +280,24 @@ export class GLonGPU {
     const w = a, h = b, type = e, data = f, format = this.fmt(internal, type);
     this.allocTex(t, w, h, format);
     if (data) this.upload(t, 0, 0, w, h, data, type);
+  }
+  // Compressed textures (js/ktx.js): allocated whole with a given number of levels, filled block by block.
+  compressedTexImage2D(target, level, internal, w, h, border, data) {
+    const t = this.state.units[this.state.unit], format = CFMT[internal];
+    if (!t || !format) return;
+    if (level === 0) {
+      if (t.gpu) this.retire(t.gpu);
+      t.mips = t.maxLevel != null ? t.maxLevel + 1 : Math.floor(Math.log2(Math.max(w, h))) + 1;
+      t.gpu = this.device.createTexture({ size: [w, h], format, mipLevelCount: t.mips, usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
+      t.view = t.gpu.createView(); t.w = w; t.h = h; t.format = format; t.samples = 1;
+    }
+    if (data && data.byteLength) this.compressedTexSubImage2D(target, level, 0, 0, w, h, internal, data);
+  }
+  compressedTexSubImage2D(target, level, x, y, w, h, internal, data) {
+    const t = this.state.units[this.state.unit];
+    if (!t || !t.gpu || level >= t.mips) return;
+    const bw = Math.ceil(w / 4), bh = Math.ceil(h / 4), bpb = CBYTES[internal];
+    this.device.queue.writeTexture({ texture: t.gpu, mipLevel: level, origin: [x, y] }, data, { bytesPerRow: bw * bpb, rowsPerImage: bh }, [bw * 4, bh * 4]);
   }
   texSubImage2D(target, level, x, y, w, h, format, type, data) {
     const t = this.state.units[this.state.unit];
