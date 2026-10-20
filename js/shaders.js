@@ -4062,3 +4062,49 @@ void main() {
   outColor = vec4(col * 1.6, 1.0);
 }
 `;
+
+// Spacecraft (js/satmodels.js, NASA 3D Resources): real meshes, coloured by part, shaded flat (each facet's normal
+// from screen-space derivatives, as machined panels look), lit by the star with a little earthshine.
+export const SAT_VS = HEAD + `
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec3 aCol;
+uniform mat4 uProj;
+uniform mat3 uView;
+uniform vec3 uCenter;    // the craft's centre relative to the eye, world axes (AU)
+uniform mat3 uRot;       // model -> world
+uniform float uHalf;     // half its longest dimension (AU)
+out vec3 vCol;
+out vec3 vViewPos;
+out vec3 vShape;         // the model's own shape at unit size, view-oriented: its derivatives give the facet normal
+` + LOGDEPTH_V + `
+void main() {
+  vec3 world = uCenter + uRot * aPos * uHalf;
+  vViewPos = uView * world;
+  vShape = uView * (uRot * aPos);
+  vCol = aCol;
+  gl_Position = uProj * vec4(vViewPos, 1.0);
+  vFragDepth = 1.0 + gl_Position.w * ` + DEPTH_K + `;
+}
+`;
+export const SAT_FS = HEAD + `
+in vec3 vCol;
+in vec3 vViewPos;
+in vec3 vShape;
+` + LOGDEPTH_F + `
+uniform vec3 uL0, uLc0, uL2, uLc2;   // the star (view-space direction, colour) and the planet's reflected light
+out vec4 outColor;
+void main() {
+  // (from the unit-size shape: in AU a 10 m craft spans 1e-10, and the cross product of its derivatives underflows)
+  vec3 n = normalize(cross(dFdx(vShape), dFdy(vShape)));
+  vec3 v = normalize(-vViewPos);
+  if (dot(n, v) < 0.0) n = -n;               // (thin panels: both faces lit alike)
+  vec3 alb = pow(vCol, vec3(2.2));
+  float d0 = max(dot(n, uL0), 0.0), d2 = max(dot(n, uL2), 0.0);
+  vec3 h = normalize(uL0 + v);
+  float metal = clamp((max(alb.r, max(alb.g, alb.b)) - 0.15) * 1.6, 0.0, 1.0);
+  float spec = pow(max(dot(n, h), 0.0), 48.0) * (0.08 + 0.6 * metal) * d0;
+  vec3 col = alb * (uLc0 * d0 + uLc2 * d2 * 0.8 + 0.02) + uLc0 * spec;
+  outColor = vec4(col, 1.0);
+  ` + WRITE_DEPTH + `
+}
+`;

@@ -265,6 +265,7 @@ export function reclassify(b) {
 
 export function typeName(b) {
   const me = b.m / EARTH_MASS;
+  if (b.craft) return b.craft;   // (spacecraft: presets.js CRAFT)
   switch (b.kind) {
     case 'rocky':
       if (b.dwarf) return 'Dwarf planet';
@@ -306,4 +307,40 @@ export function typeName(b) {
 
 export function isLuminous(b) {
   return b.kind === 'star' || b.kind === 'wd' || b.kind === 'ns' || (b.kind === 'bh' && b.lum > 0);   // (a feeding hole)
+}
+
+// Rotation for axial tilt (about x) then spin (about the body's own pole), as a column-major mat3.
+export function tiltSpin(tilt, ang) {
+  // (The pole leans toward world -z, ecliptic +Y: Earth's toward ecliptic longitude 90°, so the June solstice
+  // falls when the Sun is there, as it really does. It leaned the other way until October 2026, which put
+  // northern summer in December once the Solar System started on today's date.)
+  const ct = Math.cos(tilt), st = -Math.sin(tilt), ca = Math.cos(ang), sa = Math.sin(ang);
+  // Rx(tilt) * Ry(ang), row-major:
+  // [ ca,      0,    sa     ]
+  // [ st*sa,   ct,  -st*ca  ]
+  // [-ct*sa,   st,   ct*ca  ]
+  // (Double precision: the surface view places the eye a planet's radius out along this; single precision's
+  // error, ~3e-8, is 15 cm on Venus, and the ground bobbed by that from frame to frame.)
+  return new Float64Array([ca, st * sa, -ct * sa, 0, ct, st, sa, -st * ca, ct * ca]);
+}
+
+// The spin angle (for tiltSpin) that puts body-frame longitude lonDeg (east positive, 0 at the map's centre:
+// direction (cos λ, 0, -sin λ)) under the world direction u. Real worlds use it to start turned to the real time
+// of day (Earth: render3d.js stepSpins), and geostationary satellites to sit over their longitudes.
+export function spinFacing(tiltRad, u, lonDeg) {
+  const l = (lonDeg * Math.PI) / 180, d = [Math.cos(l), 0, -Math.sin(l)];
+  let best = 0, bestDot = -2;
+  const dot = (a) => { const M = tiltSpin(tiltRad, a); return (M[0] * d[0] + M[3] * d[1] + M[6] * d[2]) * u[0] + (M[1] * d[0] + M[4] * d[1] + M[7] * d[2]) * u[1] + (M[2] * d[0] + M[5] * d[1] + M[8] * d[2]) * u[2]; };
+  for (let k = 0; k < 360; k++) { const a = (k / 360) * 2 * Math.PI, v = dot(a); if (v > bestDot) { bestDot = v; best = a; } }
+  for (let h = Math.PI / 360; h > 1e-7; h /= 2) { const a1 = dot(best - h), a2 = dot(best + h); if (a1 > bestDot) { bestDot = a1; best -= h; } else if (a2 > bestDot) { bestDot = a2; best += h; } }
+  return best;
+}
+// The longitude (deg) where the Sun stands overhead at a UTC time (ms): noon at Greenwich, less the equation of
+// time (the Sun runs up to 16 minutes ahead of or behind the clock: Spencer's series, NOAA).
+export function subsolarLon(ms) {
+  const d = new Date(ms), day = (ms - Date.UTC(d.getUTCFullYear(), 0, 1)) / 86400e3, g = (2 * Math.PI / 365) * day;
+  const eot = 229.18 * (0.000075 + 0.001868 * Math.cos(g) - 0.032077 * Math.sin(g) - 0.014615 * Math.cos(2 * g) - 0.040849 * Math.sin(2 * g));   // minutes
+  const utcMin = d.getUTCHours() * 60 + d.getUTCMinutes() + d.getUTCSeconds() / 60;
+  let lon = -((utcMin + eot) / 4 - 180);
+  return ((lon + 540) % 360) - 180;
 }

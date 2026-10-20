@@ -75,7 +75,12 @@ export class Input {
     p.x = x; p.y = y;
     const cam = this.app.cam;
     if (this.mode === 'tap' && Math.hypot(x - p.x0, y - p.y0) > 6) this.mode = 'rotate';
-    if (this.mode === 'rotate' && this.app.surface) {
+    if (this.mode === 'rotate' && this.app.ride) {
+      // Riding with a spacecraft: drag to look around from it.
+      const rd = this.app.ride, k = 0.005 * (cam.fov / ((55 * Math.PI) / 180));
+      rd.yaw -= dx * k;
+      rd.pitch = Math.max(-1.5, Math.min(1.5, rd.pitch + dy * k));
+    } else if (this.mode === 'rotate' && this.app.surface) {
       // Surface view: drag to look around.
       const sv = this.app.surface;
       const k = 0.005 * (cam.fov / ((55 * Math.PI) / 180));   // (finer when zoomed in)

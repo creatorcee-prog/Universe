@@ -222,7 +222,12 @@ export class UI {
       app.addRings(b);
       this.refreshInfo(true);
     });
-    $('i-stand').addEventListener('click', () => { if (app.state.selected) app.enterSurface(app.state.selected, 'day'); });
+    $('i-stand').addEventListener('click', () => {
+      const b = app.state.selected;
+      if (!b) return;
+      if (b.craft && b.minor) app.rideAlong(b); else app.enterSurface(b, 'day');
+    });
+    $('ride-chip').addEventListener('click', () => app.exitRide());
     $('i-cutaway').addEventListener('click', () => {
       const b = app.state.selected;
       if (!b) return;
@@ -732,7 +737,9 @@ export class UI {
     const ex = hv && hv.verdict === 'Habitable' ? null : exoticLife(b), exEl = $('i-exotic');
     exEl.hidden = !ex;
     if (ex) exEl.textContent = `Exotic life: ${ex.verdict.toLowerCase()} · ${ex.ideas.map((x) => x[0].toLowerCase()).join(', ')}`;
-    $('i-stand').hidden = b.kind !== 'rocky';
+    // (a spacecraft in orbit: ride along with it instead)
+    $('i-stand').hidden = b.kind !== 'rocky' || (b.craft && !b.minor);
+    $('i-stand').textContent = b.craft ? `View from ${b.name}` : 'Stand on the surface';
     $('i-rings').hidden = !(b.kind === 'rocky' || b.kind === 'gas') || app.world.ringOuter.has(b);
     // Any heat source whose zones reach beyond its own surface can show them.
     const following = app.cam.follow === b;
@@ -1137,7 +1144,7 @@ export class UI {
     lim.hidden = !limited;
     if (limited) lim.textContent = 'Running at ' + formatRate(app.rate);
     this.refreshInfo(false);
-    const locked = app.cam.follow;
+    const locked = app.ride ? null : app.cam.follow;   // (riding with a craft: its own chip instead)
     if (locked !== this.lockShown) {
       this.lockShown = locked;
       $('lock-chip').hidden = !locked;

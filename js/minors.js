@@ -25,7 +25,7 @@ const TILT = { Earth: 23.44, Mars: 25.2, Jupiter: 3.1, Saturn: 26.7, Uranus: 97.
 // Kepler drift of (r, v) about mass mu = GM for time dt, elliptic orbits (f and g functions in the change of
 // eccentric anomaly; Danby, Fundamentals of Celestial Mechanics §6.8). Writes into s = [x, y, z, vx, vy, vz].
 // Returns false if the orbit is not bound.
-function kepler(s, mu, dt) {
+export function kepler(s, mu, dt) {
   const x = s[0], y = s[1], z = s[2], vx = s[3], vy = s[4], vz = s[5];
   const r0 = Math.sqrt(x * x + y * y + z * z), v2 = vx * vx + vy * vy + vz * vz;
   const ia = 2 / r0 - v2 / mu;                       // 1/a
@@ -61,7 +61,7 @@ function kepler(s, mu, dt) {
 export function prepareMinors(world) {
   const groups = new Map();
   for (const b of world.bodies) {
-    if (!b.minor) continue;
+    if (!b.minor || b.station || b.craft) continue;   // (spacecraft move in physics.js stepCraft / stationKeep)
     // One level of nesting: Charon rides on Pluto, which rides on the Sun.
     const h = world.resolve(b.host);
     if (!h || !h.alive || (h.minor && !(h.host && h.host.alive && !h.host.minor))) { promote(world, b); continue; }
@@ -95,6 +95,7 @@ export function prepareMinors(world) {
 }
 
 export function promote(world, b) {
+  if (b.craft) return;   // (spacecraft never join the full integrator: they pull on nothing)
   b.minor = false;
   b._s = null;
   world.dirty = true;
@@ -191,7 +192,7 @@ export function stepMinors(world, groups, att, cp, cpT, steps, t0, span) {
     // Oblateness: a = -(3/2) J2 GM R² / r^5 [(1 - 5 z²/r²) r + 2 z pole], z along the pole.
     const pname = h.name.replace(/ \d+$/, ''), j2 = J2[pname] || 0;
     const tl = ((h.tiltDeg !== undefined ? h.tiltDeg : TILT[pname] || 0) * Math.PI) / 180;
-    const pole = [0, Math.cos(tl), Math.sin(tl)], jk = 1.5 * j2 * muH * h.r * h.r;
+    const pole = [0, Math.cos(tl), -Math.sin(tl)], jk = 1.5 * j2 * muH * h.r * h.r;
     const pullJ2 = (s, acc) => {
       if (!j2) return;
       const r2 = s[0] * s[0] + s[1] * s[1] + s[2] * s[2], r = Math.sqrt(r2), z = s[0] * pole[0] + s[1] * pole[1] + s[2] * pole[2];

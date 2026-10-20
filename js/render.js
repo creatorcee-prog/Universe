@@ -161,7 +161,7 @@ export class Renderer {
     ctx.fillRect(0, 0, W, H);
 
     if (this.settings.stars) this.drawStars();
-    if (this.settings.grid) this.drawGrid();
+    if (this.settings.grid && !this.riding) this.drawGrid();   // (riding with a spacecraft: main.js rideAlong)
     if (this.settings.trails) this.drawTrails();
     this.drawOrbits(ui, !this.settings.orbits);
     if (this.settings.magnetic) this.drawMagnetic(ui);
@@ -730,7 +730,7 @@ export class Renderer {
         ctx.lineWidth = dpr;
         ctx.beginPath(); ctx.arc(p.x, p.y, 6 * dpr, 0, Math.PI * 2); ctx.stroke();
       }
-      if (!this.photo && (b === ui.selected || b === cam.follow)) {
+      if (!this.photo && !this.riding && (b === ui.selected || b === cam.follow)) {
         ctx.globalCompositeOperation = 'source-over';
         ctx.strokeStyle = b === ui.selected ? 'rgba(255,190,90,0.95)' : 'rgba(150,180,255,0.55)';
         ctx.lineWidth = 1.5 * dpr;

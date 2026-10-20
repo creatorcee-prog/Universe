@@ -3,7 +3,7 @@
 // the WebGPU renderer unable to start).
 import * as S from '../js/shaders.js';
 export const PROGRAMS = [
-  ['body', S.BODY_VS, S.BODY_FS], ['atmo', S.BODY_VS, S.ATMO_FS], ['rim', S.BODY_VS, S.RIM_FS], ['cloud', S.BODY_VS, S.CLOUD_FS],
+  ['body', S.BODY_VS, S.BODY_FS], ['sat', S.SAT_VS, S.SAT_FS], ['atmo', S.BODY_VS, S.ATMO_FS], ['rim', S.BODY_VS, S.RIM_FS], ['cloud', S.BODY_VS, S.CLOUD_FS],
   ['sprite', S.SPRITE_VS, S.SPRITE_FS], ['disk', S.DISK_VS, S.DISK_FS], ['points', S.POINTS_VS, S.POINTS_FS, true],
   ['lines', S.LINES_VS, S.LINES_FS], ['sky', S.SKY_VS, S.SKY_FS, true], ['milky', S.FULL_VS, S.MILKYWAY_FS],
   ['down', S.FULL_VS, S.DOWN_FS], ['up', S.FULL_VS, S.UP_FS], ['comp', S.FULL_VS, S.COMPOSITE_FS], ['pixel', S.FULL_VS, S.PIXEL_FS],

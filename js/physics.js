@@ -6,7 +6,7 @@ import { IAS15, IAS15_NODES } from './ias15.js';
 import { WH } from './wh.js';
 import { Octree, particleGravity } from './tree.js';
 import { coagulate } from './coagulate.js';
-import { prepareMinors, stepMinors } from './minors.js';
+import { prepareMinors, stepMinors, kepler } from './minors.js';
 
 // Particle kinds (purely visual categories; particles carry mass but do not attract each other).
 export const PK = { DEBRIS: 0, HOT: 1, STAR_BLUE: 2, STAR_GOLD: 3, ICE: 4, DUST: 5, GAS: 6, ROCK: 7, SN_H: 8, SN_O: 9, SN_SI: 10, SN_FE: 11, WIND: 12, JET: 13 };
@@ -128,6 +128,76 @@ export class World {
     b.mergedInto = null;
     this.bodies = this.bodies.filter((o) => o !== b);
     this.dirty = true;
+  }
+
+  // Spacecraft about a planet: each on its exact Kepler orbit about the planet's centre (the Moon-Earth pair's
+  // barycentre, which the moons orbit, is 4,700 km off it: low orbits need the planet itself), turned by the
+  // secular nodal drift of the planet's flattening, dΩ/dt = -1.5 n J2 (R/a)² cos i / (1 - e²)² (the ISS's orbit
+  // swings ~5° a day westward; sun-synchronous orbits at 98° swing ~1° a day east, keeping pace with the Sun).
+  // (Each step starts from where the craft are relative to their planet before the planet moves.)
+  prepCraft() {
+    for (const b of this.bodies) {
+      if (!b.craft || !b.minor || b.station || !b.alive) { if (b.craft) b._cs = null; continue; }
+      const h = this.resolve(b.host);
+      b._cs = h && h.alive ? [b.x - h.x, b.y - h.y, b.z - h.z, b.vx - h.vx, b.vy - h.vy, b.vz - h.vz] : null;
+    }
+  }
+
+  stepCraft(span) {
+    const J2 = { Earth: 1.0826e-3 };
+    for (const b of this.bodies) {
+      if (!b.craft || !b.minor || b.station || !b.alive) continue;
+      const h = this.resolve(b.host);
+      if (!h || !h.alive) continue;
+      const s = b._cs;
+      if (!s) continue;
+      const mu = G * h.m;
+      if (span > 0) {
+        if (!kepler(s, mu, span)) continue;
+        const j2 = J2[(h.ident || h.name).replace(/ \d+$/, '')];
+        if (j2) {
+          // Angular momentum (the orbit's pole) and the planet's pole (as tiltSpin: leaning to -z).
+          const lx = s[1] * s[5] - s[2] * s[4], ly = s[2] * s[3] - s[0] * s[5], lz = s[0] * s[4] - s[1] * s[3], L = Math.hypot(lx, ly, lz);
+          const tl = (23.44 * Math.PI) / 180, P = [0, Math.cos(tl), -Math.sin(tl)];
+          const r = Math.hypot(s[0], s[1], s[2]), v2 = s[3] ** 2 + s[4] ** 2 + s[5] ** 2, a = 1 / (2 / r - v2 / mu);
+          const e2 = Math.max(0, 1 - (L * L) / (mu * a)), n = Math.sqrt(mu / (a * a * a)), ci = (lx * P[0] + ly * P[1] + lz * P[2]) / L;
+          const dO = -1.5 * n * j2 * (h.r / a) ** 2 * ci / (1 - e2) ** 2 * span;
+          // Rotate position and velocity about the planet's pole by dΩ (Rodrigues).
+          const c = Math.cos(dO), sn = Math.sin(dO);
+          for (const o of [0, 3]) {
+            const x = s[o], y = s[o + 1], z = s[o + 2], d = x * P[0] + y * P[1] + z * P[2];
+            const cx = P[1] * z - P[2] * y, cy = P[2] * x - P[0] * z, cz = P[0] * y - P[1] * x;
+            s[o] = x * c + cx * sn + P[0] * d * (1 - c); s[o + 1] = y * c + cy * sn + P[1] * d * (1 - c); s[o + 2] = z * c + cz * sn + P[2] * d * (1 - c);
+          }
+        }
+      }
+      b.x = h.x + s[0]; b.y = h.y + s[1]; b.z = h.z + s[2];
+      b.vx = h.vx + s[3]; b.vy = h.vy + s[4]; b.vz = h.vz + s[5];
+    }
+  }
+
+  // Craft held at a Lagrange point by station-keeping (the James Webb Space Telescope at Sun-Earth L2, which
+  // burns its thrusters every few weeks: the point is unstable). Placed each step at L2, a Hill radius beyond the
+  // planet, r (m/3M)^(1/3), ~1.5 million km for Earth, on a halo orbit about it (Webb's: ~250,000-830,000 km
+  // across, about six months round).
+  stationKeep() {
+    for (const b of this.bodies) {
+      if (b.station !== 'L2' || !b.alive) continue;
+      const E = this.resolve(b.host);
+      let S = null;
+      for (const s of this.bodies) if (s !== E && s.kind === 'star' && (!S || s.m > S.m)) S = s;
+      if (!E || !E.alive || !S) continue;
+      const dx = E.x - S.x, dy = E.y - S.y, dz = E.z - S.z, R = Math.hypot(dx, dy, dz), u = [dx / R, dy / R, dz / R];
+      const rL = R * Math.cbrt(E.m / (3 * S.m));
+      const n = [0, 1, 0], t = [n[1] * u[2] - n[2] * u[1], n[2] * u[0] - n[0] * u[2], n[0] * u[1] - n[1] * u[0]];
+      const ph = (2 * Math.PI * this.t) / 0.5, w = (2 * Math.PI) / 0.5, Ax = 0.0035, Az = 0.0053;
+      const off = [0, 1, 2].map((k) => u[k] * rL + t[k] * Ax * Math.cos(ph) + n[k] * Az * Math.sin(ph));
+      const dv = [E.vx - S.vx, E.vy - S.vy, E.vz - S.vz], k = 1 + rL / R;
+      b.x = E.x + off[0]; b.y = E.y + off[1]; b.z = E.z + off[2];
+      b.vx = S.vx + dv[0] * k + w * (-t[0] * Ax * Math.sin(ph) + n[0] * Az * Math.cos(ph));
+      b.vy = S.vy + dv[1] * k + w * (-t[1] * Ax * Math.sin(ph) + n[1] * Az * Math.cos(ph));
+      b.vz = S.vz + dv[2] * k + w * (-t[2] * Ax * Math.sin(ph) + n[2] * Az * Math.cos(ph));
+    }
   }
 
   findByName(name) {
@@ -814,6 +884,7 @@ export class World {
     const t0 = this.t;
 
     // Small moons: their state relative to their planet, before the planets move.
+    this.prepCraft();   // (before prepareMinors moves a planet with a big moon to the pair's barycentre)
     const minorGroups = prepareMinors(this);
     // Particles feel only the heaviest bodies; record their path through this frame.
     // Beyond the twelve heaviest, bodies under 1e-8 of the heaviest (dwarf planets beside the Sun) are left out.
@@ -929,6 +1000,8 @@ export class World {
     // Where the time goes (Settings → Show performance): bodies, moons, particles, the rest.
     const pf = this.prof || (this.prof = [0, 0, 0, 0]), t1 = performance.now();
     stepMinors(this, minorGroups, att, cp, cpT, steps, t0, done);
+    this.stepCraft(done);
+    this.stationKeep();
     const t2 = performance.now();
     this.stepParticles(att, steps, t0, done);
     const t3 = performance.now();

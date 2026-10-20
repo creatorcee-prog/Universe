@@ -15,6 +15,8 @@ import { Sound } from './audio.js';
 import { UI } from './ui.js';
 import { Challenges } from './challenges.js';
 import { atmosphereOptics } from './optics.js';
+const $id = (id) => document.getElementById(id);
+const SAT_SIZE = (b) => b.r * 2 * 1.495978707e11;   // a spacecraft's size (m): presets.js gives it a radius of half
 
 const SETTINGS_KEY = 'universe-pocket-settings';
 
@@ -169,6 +171,7 @@ class App {
   // colour of the entry (bright air, or black on an airless world), and the surface view fades in beneath.
   // (Already on a surface, or asked to skip, it switches at once.)
   enterSurface(b, where = 'day', now = false) {
+    if (this.ride) this.exitRide();
     if (!this.r3d || !this.renderer.overlay) { this.audio.ui('no-surface'); this.ui.toast('Switch to the Realistic or Pixel view to stand on a surface.'); return; }
     if (b.kind !== 'rocky') { this.audio.ui('no-surface'); this.ui.toast(`${b.name} has no solid surface to stand on.`); return; }
     if (!now && !this.surface && !this.descent && !window.__TEST_NO_DESCENT) { this.startDescent(b, where); return; }
@@ -241,6 +244,51 @@ class App {
       const cv = document.getElementById('snap');
       if (cv) requestAnimationFrame(() => { cv.style.transition = 'opacity 1.1s ease-in'; cv.style.opacity = '0'; });
     }
+  }
+
+  // Ride along with a spacecraft (the ISS's cupola view): the eye just behind and beside it in its orbit frame (along
+  // the motion, away from the planet), looking ahead and down at the planet's horizon; drag to look around. Time
+  // runs at real speed (a station circles Earth in 92 minutes; faster, the view would spin).
+  rideAlong(b) {
+    if (this.surface) this.exitSurface();
+    this.ride = { b, yaw: 0, pitch: -0.32, prevSpeed: this.ride ? this.ride.prevSpeed : this.state.speed };
+    this.ui.setSpeed(1 / (365.25 * 86400));
+    this.cam.follow = b; this.cam.trans = null;
+    this.select(null);
+    $id('ride-name').textContent = b.name; $id('ride-chip').hidden = false;
+    this.audio.ui('descent');
+    this.ui.toast(`Riding with ${b.name}, in real time. Drag to look around.`);
+    this.updateRide();
+  }
+
+  exitRide() {
+    if (!this.ride) return;
+    const b = this.ride.b;
+    this.ui.setSpeed(this.ride.prevSpeed);
+    this.ride = null;
+    this.cam.override = null;
+    $id('ride-chip').hidden = true;
+    this.audio.ui('leave-surface');
+    if (b && b.alive) { this.cam.follow = b; this.cam.dist = this.cam.distGoal = Math.max(this.cam.dist, (SAT_SIZE(b) * 3) / 1.495978707e11); }
+  }
+
+  updateRide() {
+    const rd = this.ride, b = rd.b, h = b.host && this.world.resolve(b.host);
+    if (!b.alive || !h || !h.alive) { this.exitRide(); return; }
+    const nrm = (v) => { const l = Math.hypot(...v) || 1; return v.map((c) => c / l); };
+    const cr = (a, c) => [a[1] * c[2] - a[2] * c[1], a[2] * c[0] - a[0] * c[2], a[0] * c[1] - a[1] * c[0]];
+    const up = nrm([b.x - h.x, b.y - h.y, b.z - h.z]);
+    let fw = [b.vx - h.vx, b.vy - h.vy, b.vz - h.vz];
+    const d = fw[0] * up[0] + fw[1] * up[1] + fw[2] * up[2];
+    fw = nrm([fw[0] - d * up[0], fw[1] - d * up[1], fw[2] - d * up[2]]);
+    const side = cr(fw, up);
+    const s = SAT_SIZE(b) / 1.495978707e11;
+    const eye = [0, 1, 2].map((i) => [b.x, b.y, b.z][i] - fw[i] * 0.55 * s + side[i] * 0.3 * s + up[i] * 0.12 * s);
+    const cp = Math.cos(rd.pitch), sp = Math.sin(rd.pitch), cy = Math.cos(rd.yaw), sy = Math.sin(rd.yaw);
+    const f = [0, 1, 2].map((i) => cp * (cy * fw[i] + sy * side[i]) + sp * up[i]);
+    const r = nrm(cr(f, up)), u = cr(r, f);
+    this.cam.override = { eye, f, r, u };
+    this.cam.dist = this.cam.distGoal = s * 0.5;
   }
 
   exitSurface() {
@@ -429,6 +477,7 @@ class App {
   }
 
   loadPreset(id) {
+    if (this.ride) this.exitRide();
     this.descent = null;   // (a descent under way ends with the scene)
     if (this.challenges && !this.challenges.starting && this.challenges.active) this.challenges.stop();   // (another scenario ends a challenge)
     this.impactSped = false;
@@ -1047,6 +1096,8 @@ class App {
     // (Planets' spins first, so the surface view's camera turns with the ground it stands on.)
     if (this.r3d && this.renderer.overlay) this.r3d.stepSpins(this.world, done, dtReal, now);
     if (this.surface) this.updateSurface();
+    if (this.ride) this.updateRide();
+    this.renderer.riding = !!this.ride; if (this.r3d) this.r3d.riding = !!this.ride;
     // Surface lock: turn the camera with the locked body's spin so its surface stays put.
     const fb = this.cam.follow;
     if (this.surfaceLock && fb && this.r3d && !this.surface) {

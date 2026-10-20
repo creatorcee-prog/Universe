@@ -1,9 +1,10 @@
 import { PK } from './physics.js';
-import { isLuminous, tempToRGB, schwarzschild } from './bodies.js';
+import { isLuminous, tempToRGB, schwarzschild, tiltSpin, spinFacing, subsolarLon } from './bodies.js';
 import { transientLum } from './stellar.js';
 import { G, EARTH_MASS, KPC_AU } from './units.js';
 import { starCatalog, bvToTemp, GAL_N, GAL_C } from './stars.js';
-import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, RING_POINTS_VS, SKY_FS, SKY_VS, GALGLOW_VS, GALGLOW_FS, GALCOMP_FS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS, RIM_FS, TERRAIN_VS, TERRAIN_FS, RING_FS, CLOUD_FS, GEN_FS, SURFACE_CLOUD_FS, WEATHER_FS, NEBULA_FS, BLIT_FS, CUT_FS, UPSAMPLE_FS, REMBAKE_FS } from './shaders.js';
+import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, RING_POINTS_VS, SKY_FS, SKY_VS, GALGLOW_VS, GALGLOW_FS, GALCOMP_FS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS, RIM_FS, TERRAIN_VS, TERRAIN_FS, RING_FS, CLOUD_FS, GEN_FS, SURFACE_CLOUD_FS, WEATHER_FS, NEBULA_FS, BLIT_FS, CUT_FS, UPSAMPLE_FS, REMBAKE_FS, SAT_VS, SAT_FS } from './shaders.js';
+import { SAT_MODELS } from './satmodels.js';
 import { atmosphereOptics, giantOptics, setOpticsUniforms, stretchOptics, atmosphereTop, shellTop, groundLight } from './optics.js';
 import { heatOutput } from './thermal.js';
 import { interiorOf } from './interior.js';
@@ -417,17 +418,6 @@ function perspective(fovy, aspect, near, far) {
   return new Float32Array([f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, (far + near) * nf, -1, 0, 0, 2 * far * near * nf, 0]);
 }
 
-// Rotation for axial tilt (about x) then spin (about the body's own pole), as a column-major mat3.
-function tiltSpin(tilt, ang) {
-  const ct = Math.cos(tilt), st = Math.sin(tilt), ca = Math.cos(ang), sa = Math.sin(ang);
-  // Rx(tilt) * Ry(ang), row-major:
-  // [ ca,      0,    sa     ]
-  // [ st*sa,   ct,  -st*ca  ]
-  // [-ct*sa,   st,   ct*ca  ]
-  // (Double precision: the surface view places the eye a planet's radius out along this; single precision's
-  // error, ~3e-8, is 15 cm on Venus, and the ground bobbed by that from frame to frame.)
-  return new Float64Array([ca, st * sa, -ct * sa, 0, ct, st, sa, -st * ca, ct * ca]);
-}
 
 // Vegetation colour. Early life is purple (retinal-based phototrophs may have dominated before
 // chlorophyll: DasSarma & Schwieterman 2018, Int. J. Astrobiology 20, 241). Mature plant life is tuned to
@@ -584,6 +574,7 @@ export class Renderer3D {
     this.pWeather = this.program(FULL_VS, WEATHER_FS);
     this.pNebula = this.program(FULL_VS, NEBULA_FS);
     this.pCut = this.program(FULL_VS, CUT_FS);
+    this.pSat = this.program(SAT_VS, SAT_FS);
     this.pBlit = this.program(FULL_VS, BLIT_FS);
     this.hdr = !!gl.getExtension('EXT_color_buffer_float');
     this.post = null;
@@ -2293,7 +2284,16 @@ export class Renderer3D {
     for (const b of world.bodies) {
       const l = this.look(b);
       let s = this.spin.get(b);
-      if (!s) { s = { ang: seeded(b.id) * 6.28 }; this.spin.set(b, s); }
+      if (!s) {
+        s = { ang: seeded(b.id) * 6.28 };
+        // Earth in a dated scenario starts turned to the real time of day (the Sun over the right longitude).
+        const sun = world.epoch && /^Earth$/.test(b.ident || b.name) && world.findByName('Sun');
+        if (sun) {
+          const v = [sun.x - b.x, sun.y - b.y, sun.z - b.z], dv = Math.hypot(...v);
+          s.ang = spinFacing((l.tilt || 0) * D2R, v.map((x) => x / dv), subsolarLon(world.epoch + world.t * 365.25 * 86400e3));
+        }
+        this.spin.set(b, s);
+      }
       if (l.locked || (l.locked === undefined && b.kind === 'rocky')) {
         // Tidally locked: the same face (body +x, longitude 0) always points at the parent planet.
         const par = this.tidalParent(world, b);
@@ -2452,7 +2452,7 @@ export class Renderer3D {
       glows.push(() => this.sprite(vp, (px * depth) / this.F, rgb, 0, 0, 1));
     }
     if (!ground) this.drawParticles(false);
-    if (this.settings.grid && !this.surface) this.drawGrid();
+    if (this.settings.grid && !this.surface && !this.riding) this.drawGrid();
 
     // Additive passes: atmospheres, disks, glows, hot particles.
     gl.enable(gl.BLEND);
@@ -2633,6 +2633,53 @@ export class Renderer3D {
     return this.spheres[4];
   }
 
+  // A spacecraft (js/satmodels.js): its mesh, unpacked once, oriented along its orbit about its host (long axis
+  // along the motion, the model's up away from the host), lit like everything else.
+  drawSat(b, x, y, z) {
+    const gl = this.gl, m = SAT_MODELS[b.sat];
+    this.satMesh ||= {};
+    let g = this.satMesh[b.sat];
+    if (!g || g.gen !== this.gen) {
+      const dec = (s, T) => { const bin = atob(s), u = new Uint8Array(bin.length); for (let i = 0; i < u.length; i++) u[i] = bin.charCodeAt(i); return new T(u.buffer); };
+      const q = dec(m.pos, Int16Array), c = dec(m.col, Uint8Array), idx = dec(m.idx, Uint16Array);
+      const pos = Float32Array.from(q, (v) => v / 32767), col = Float32Array.from(c, (v) => v / 255);
+      const vao = gl.createVertexArray();
+      gl.bindVertexArray(vao);
+      for (const [loc, data] of [[0, pos], [1, col]]) {
+        const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb); gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 3, gl.FLOAT, false, 0, 0);
+      }
+      const ib = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+      gl.bindVertexArray(null);
+      g = this.satMesh[b.sat] = { vao, n: idx.length, gen: this.gen };
+    }
+    // Orientation: x along the velocity relative to the host, y away from it (the orbit frame craft fly in).
+    const h = b.host && b.host.alive ? b.host : null;
+    let up = h ? [b.x - h.x, b.y - h.y, b.z - h.z] : [0, 1, 0], fw = h ? [b.vx - h.vx, b.vy - h.vy, b.vz - h.vz] : [1, 0, 0];
+    const nrm = (v) => { const l = Math.hypot(...v) || 1; return v.map((c) => c / l); };
+    up = nrm(up);
+    const d = fw[0] * up[0] + fw[1] * up[1] + fw[2] * up[2];
+    fw = nrm([fw[0] - d * up[0], fw[1] - d * up[1], fw[2] - d * up[2]]);
+    const sd = [fw[1] * up[2] - fw[2] * up[1], fw[2] * up[0] - fw[0] * up[2], fw[0] * up[1] - fw[1] * up[0]];   // (x × y: a rotation, not a mirror)
+    const rot = new Float32Array([...fw, ...up, ...sd]);
+    const p = this.pSat, u = p.u, lights = this.lightsFor(b);
+    const ld = lights ? lights.dirs : [[0, 1, 0], [0, 0, 0], [0, 1, 0], [0, 0, 0]];
+    const bounce = lights ? this.planetshine(b, ld[1]) : null;
+    gl.useProgram(p.p);
+    gl.uniformMatrix4fv(u.uProj, false, this.P);
+    gl.uniformMatrix3fv(u.uView, false, this.V);
+    gl.uniform3f(u.uCenter, x, y, z);
+    gl.uniformMatrix3fv(u.uRot, false, rot);
+    gl.uniform1f(u.uHalf, (m.size / 2) / 1.495978707e11);
+    gl.uniform1f(u.uLogDepthFC, this.logFC);
+    gl.uniform3fv(u.uL0, ld[0]); gl.uniform3fv(u.uLc0, ld[1]);
+    gl.uniform3fv(u.uL2, bounce ? bounce[0] : [0, 1, 0]); gl.uniform3fv(u.uLc2, bounce ? bounce[1] : [0, 0, 0]);
+    gl.disable(gl.CULL_FACE);
+    gl.bindVertexArray(g.vao);
+    gl.drawElements(gl.TRIANGLES, g.n, gl.UNSIGNED_SHORT, 0);
+    gl.bindVertexArray(null);
+  }
+
   // For the info panel's Surface tab: the picture of the world (its photo map, Earth's Blue Marble, or the map a
   // made-up world borrows, with that borrowing's turn) and its real elevation, when it has them.
   surfaceInfo(b) {
@@ -2727,6 +2774,8 @@ export class Renderer3D {
     const shownPx = Math.max(Rpx, minPx);
     // Far smaller than a pixel: a lit dot shows all a full draw would (most of the moons, most of the time).
     if (l.kind === 0 && Rpx < 0.6 * dpr && depth > 0 && !(this.surface && this.surface.body === b)) { this.queueDot(b, vp, depth, l, minPx, glows); return; }
+    // A spacecraft large enough to see: its NASA model.
+    if (b.sat && SAT_MODELS[b.sat] && depth > 0) { this.drawSat(b, x, y, z); return; }
     const lod = this.surface && this.surface.body === b ? 3 : shownPx > (b.impacts ? 60 : 140) ? 2 : shownPx > 22 ? 1 : 0;
 
     const spin = this.spin.get(b);

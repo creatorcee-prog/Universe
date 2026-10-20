@@ -1,5 +1,5 @@
 import { G, EARTH_MASS, MOON_MASS, KPC_AU, DAY_YR, SUN_RADIUS, km, kms, massFromGM } from './units.js';
-import { makeBody } from './bodies.js';
+import { makeBody, tiltSpin, spinFacing, subsolarLon } from './bodies.js';
 import { PK, circularSpeed } from './physics.js';
 import { MOONS } from './moons.js';
 
@@ -59,7 +59,7 @@ export function ring(world, host, rIn, rOut, count, tiltDeg, kind) {
     let r = between(rIn, rOut);
     const f = (r - rIn) / (rOut - rIn);
     if (f > 0.62 && f < 0.68) r = rIn + (rOut - rIn) * (rand() < 0.5 ? 0.6 : 0.7);
-    world.addRingParticle(host, r, rand() * Math.PI * 2, 1, 0, 0, 0, Math.sin(t), -Math.cos(t), kind);
+    world.addRingParticle(host, r, rand() * Math.PI * 2, 1, 0, 0, 0, -Math.sin(t), -Math.cos(t), kind);   // (normal (0, cos t, -sin t): the pole, as tiltSpin)
   }
 }
 
@@ -183,7 +183,7 @@ const DWARF_MOONS = [
 
 // Axial tilts the 3D view gives the planets (render3d.js LOOKS); moons in a planet's equator or local
 // Laplace plane are placed in that same frame, so they line up with its rings and equator.
-const AXIS = { Mars: 25.2, Jupiter: 3.1, Saturn: 26.7, Uranus: 97.8, Neptune: 28.3, Pluto: 122.5 };
+const AXIS = { Earth: 23.44, Mars: 25.2, Jupiter: 3.1, Saturn: 26.7, Uranus: 97.8, Neptune: 28.3, Pluto: 122.5 };
 
 // State of a moon relative to its planet. Ecliptic elements (irregular moons) are used as they are. Elements in
 // the planet's equator ('Q') or local Laplace plane ('L', tilted from the planet's pole toward its orbit's pole
@@ -195,7 +195,7 @@ function moonState(host, row, mu) {
   if (f === 'E') return o;
   const T = host.tiltDeg !== undefined ? host.tiltDeg : AXIS[host.ident || host.name] || 0;
   const L = f === 'L' ? (lap > 90 ? 180 - lap : lap) : 0;
-  const th = (T - L) * D2R, c = Math.cos(th), sn = Math.sin(th);
+  const th = -(T - L) * D2R, c = Math.cos(th), sn = Math.sin(th);   // (negative: the pole leans to -z, as tiltSpin)
   // Orbit-plane coordinates (x, y, z = pole) from kepler's world mapping [X, Z, −Y], then onto the basis
   // e1 = x, e2 = (0, sin θ, −cos θ), e3 = (0, cos θ, sin θ).
   const map = (X, Y, Z) => [X, Y * sn + Z * c, -Y * c + Z * sn];
@@ -247,6 +247,102 @@ function addMoons(world, made) {
 }
 
 const COMP_KEYS = { Io: 'Io', Europa: 'Europa', Ganymede: 'Ganymede', Callisto: 'Callisto', Titan: 'Titan', Triton: 'Triton', Phobos: 'asteroid', Deimos: 'asteroid' };
+
+// Spacecraft around Earth, on their real orbits (inclination to the equator, height; NASA, ESA, CNSA, NOAA,
+// EUMETSAT, JMA mission pages; the phases along each orbit are not the real ones, which change daily). Models from
+// NASA's 3D Resources (js/satmodels.js); the rest are drawn as points. Geostationary craft sit over their real
+// longitudes (Earth starts turned to the real time of day: bodies.js spinFacing). The James Webb Space Telescope
+// is held at the Sun-Earth L2 point (physics.js stationKeep).
+//   name, model, height (km; or perigee/apogee), inclination (deg), mass (kg), size (m), kind
+const RE_KM = 6378.137;
+const CRAFT = [
+  ['ISS', 'iss', 415, 51.64, 420000, 109, 'Space station'],
+  ['Tiangong', null, 385, 41.47, 100000, 55, 'Space station'],
+  ['Hubble Space Telescope', 'hubble', 510, 28.47, 11110, 13.2, 'Space telescope'],
+  ['Terra', 'terra', 705, 98.2, 5190, 11, 'Earth-observing satellite'],
+  ['Landsat 8', 'landsat8', 705, 98.2, 2623, 9.8, 'Earth-observing satellite'],
+  ['Landsat 9', 'landsat8', 705, 98.2, 2711, 9.8, 'Earth-observing satellite'],
+  ['Chandra X-ray Observatory', 'chandra', [14300, 134000], 65, 4790, 19.5, 'Space telescope'],
+  // (Sputnik 1, the first, burned up in January 1958 after three months; Vanguard 1, launched that March, is still up.)
+  ['Vanguard 1', null, [654, 3969], 34.25, 1.47, 0.16, 'Satellite: the oldest still in orbit (1958)'],
+];
+// Geostationary: name, longitude (deg east). GPS: 24 slots in 6 planes 60° apart at 55°, 20,200 km up.
+const GEO = [['GOES-19 (GOES-East)', -75.2], ['GOES-18 (GOES-West)', -137.2], ['Meteosat-10', 0], ['Himawari-9', 140.7], ['Intelsat 37e', -18], ['Fengyun-4B', 105]];
+function addSatellites(world, earth, sun, epochMs) {
+  const R = Math.PI / 180, kg = 1 / 1.98847e30;
+  const add = (name, model, kind, mass, size, s, extra = {}) => {
+    const b = makeBody({ name, kind: 'rocky', m: mass * kg, r: km(size / 2000), color: [200, 200, 205] });
+    Object.assign(b, { sat: model, craft: kind, round: true, minor: true, host: earth }, extra);
+    b.x = earth.x + s[0]; b.y = earth.y + s[1]; b.z = earth.z + s[2];
+    b.vx = earth.vx + s[3]; b.vy = earth.vy + s[4]; b.vz = earth.vz + s[5];
+    world.addBody(b);
+  };
+  const mu = G * earth.m;
+  CRAFT.forEach(([name, model, h, inc, mass, size, kind], k) => {
+    const [hp, ha] = Array.isArray(h) ? h : [h, h], rp = RE_KM + hp, ra = RE_KM + ha;
+    add(name, model, kind, mass, size, moonState(earth, ['Earth', name, (rp + ra) / 2, (ra - rp) / (ra + rp), inc, k * 47 % 360, k * 83 % 360, k * 131 % 360, 'Q', 0], mu));
+  });
+  for (let p = 0; p < 6; p++) for (let s = 0; s < 4; s++) {
+    add(`GPS ${'ABCDEF'[p]}${s + 1}`, null, 'Navigation satellite (GPS)', 2000, 5, moonState(earth, ['Earth', 'GPS', RE_KM + 20200, 0.005, 55, p * 60, 0, s * 90 + p * 15, 'Q', 0], mu));
+  }
+  // Geostationary: over its longitude, moving east with the ground (the same spin the renderer starts Earth with).
+  const tilt = 23.44 * R, u = [sun.x - earth.x, sun.y - earth.y, sun.z - earth.z], ul = Math.hypot(...u);
+  const ang = spinFacing(tilt, u.map((v) => v / ul), subsolarLon(epochMs)), rG = km(42164), vG = Math.sqrt(mu / rG);
+  const dirAt = (a, lon) => { const M = tiltSpin(tilt, a), d = [Math.cos(lon * R), 0, -Math.sin(lon * R)]; return [0, 1, 2].map((i) => M[i] * d[0] + M[3 + i] * d[1] + M[6 + i] * d[2]); };
+  for (const [name, lon] of GEO) {
+    const w = dirAt(ang, lon), w2 = dirAt(ang + 1e-4, lon), v = w2.map((c, i) => c - w[i]), vl = Math.hypot(...v);
+    add(name, null, 'Weather/communications satellite (geostationary)', 5000, 8, [...w.map((c) => c * rG), ...v.map((c) => (c / vl) * vG)]);
+  }
+  // Orbiting other worlds: the Lunar Reconnaissance Orbiter (polar, ~50 x 180 km over the Moon) and the Mars
+  // Reconnaissance Orbiter (~255 x 320 km, sun-synchronous at 93°).
+  const moonB = world.findByName('Moon'), mars = world.findByName('Mars');
+  const orbiter = (host, name, model, hp, ha, inc, mass, size, kind) => {
+    if (!host) return;
+    const R0 = host.r * 1.495978707e8, rp = R0 + hp, ra = R0 + ha;
+    const st = moonState(host, [host.name, name, (rp + ra) / 2, (ra - rp) / (ra + rp), inc, 30, 60, 90, 'Q', 0], G * host.m);
+    const b = makeBody({ name, kind: 'rocky', m: mass * kg, r: km(size / 2000), color: [200, 200, 205] });
+    Object.assign(b, { sat: model, craft: kind, round: true, minor: true, host });
+    b.x = host.x + st[0]; b.y = host.y + st[1]; b.z = host.z + st[2]; b.vx = host.vx + st[3]; b.vy = host.vy + st[4]; b.vz = host.vz + st[5];
+    world.addBody(b);
+  };
+  orbiter(moonB, 'Lunar Reconnaissance Orbiter', 'lro', 50, 180, 90, 1916, 4, 'Lunar orbiter');
+  orbiter(mars, 'Mars Reconnaissance Orbiter', null, 255, 320, 93, 2180, 13.6, 'Mars orbiter');
+  // Webb: placed at L2 by stationKeep on the first step.
+  add('James Webb Space Telescope', 'jwst', 'Space telescope (at Sun-Earth L2)', 6500, 21.2, [0.01, 0, 0, 0, 0, 0], { station: 'L2' });
+}
+
+// Probes leaving the Solar System, where they are now: distance (AU) at a reference date and outward speed, and their
+// direction on the sky (RA h, Dec deg; from the Sun at these distances). Voyager 1 reaches one light-day (173.1 AU)
+// on 2026 November 18 (NASA); Voyager 2 ~143.3 AU on 2026 June 28; the others approximate. Speeds: NASA/JPL.
+//   name, model, AU, date, km/s, RA (h), Dec (deg), mass (kg), size (m), kind
+const PROBES = [
+  ['Voyager 1', 'voyager', 173.1, '2026-11-18', 16.9, 17.2, 12.1, 722, 13, 'Interstellar probe (launched 1977)'],
+  ['Voyager 2', 'voyager', 143.3, '2026-06-28', 15.3, 20.0, -59, 722, 13, 'Interstellar probe (launched 1977)'],
+  ['New Horizons', null, 62.5, '2026-10-20', 13.7, 19.9, -20.5, 478, 2.7, 'Kuiper belt probe (flew past Pluto in 2015)'],
+  ['Pioneer 10', 'pioneer', 138, '2026-10-20', 11.9, 5.2, 26, 258, 6.6, 'Probe, silent since 2003 (launched 1972)'],
+  ['Pioneer 11', 'pioneer', 115, '2026-10-20', 11.1, 18.8, -8.7, 259, 6.6, 'Probe, silent since 1995 (launched 1973)'],
+];
+function addProbes(world, sun, epochMs) {
+  const E = 23.4393 * Math.PI / 180, kg = 1 / 1.98847e30;
+  for (const [name, model, au, date, kms_, ra, dec, mass, size, kind] of PROBES) {
+    const a = (ra * 15 * Math.PI) / 180, d = (dec * Math.PI) / 180;
+    const xe = Math.cos(d) * Math.cos(a), ye = Math.cos(d) * Math.sin(a), ze = Math.sin(d);
+    const X = xe, Y = ye * Math.cos(E) + ze * Math.sin(E), Z = -ye * Math.sin(E) + ze * Math.cos(E);   // ecliptic
+    const u = [X, Z, -Y];                                                                              // app frame
+    const v = kms(kms_), r = au + v * (epochMs - Date.parse(date)) / (365.25 * 86400e3);
+    const b = makeBody({ name, kind: 'rocky', m: mass * kg, r: km(size / 2000), color: [200, 200, 205] });
+    Object.assign(b, { sat: model, craft: kind, round: true });
+    b.x = sun.x + u[0] * r; b.y = sun.y + u[1] * r; b.z = sun.z + u[2] * r;
+    b.vx = sun.vx + u[0] * v; b.vy = sun.vy + u[1] * v; b.vz = sun.vz + u[2] * v;
+    world.addBody(b);
+  }
+  // Parker Solar Probe: its final orbit since 2024 (perihelion 0.046 AU, 6.2 million km, every 88 days, 3.4° to the
+  // ecliptic; first of these perihelia 2024 December 24).
+  const pt = (epochMs - Date.UTC(2024, 11, 24)) / (365.25 * 86400e3), P = 88 / 365.25;
+  const pb = makeBody({ name: 'Parker Solar Probe', kind: 'rocky', m: 685 * kg, r: km(0.0015), color: [200, 200, 205] });
+  Object.assign(pb, { sat: 'parker', craft: 'Solar probe (closest to the Sun)', round: true, minor: true, host: sun });
+  orbit(world, sun, pb, 0.3889, 0.882, 3.4, 76.7, 0, ((pt / P) % 1) * 360);
+}
 
 function solarSystem(world, { belts = true, moon = true, moons = true } = {}) {
   const s = world.addBody(sun());
@@ -307,6 +403,8 @@ function solarSystem(world, { belts = true, moon = true, moons = true } = {}) {
     // Kepler orbit about Earth, kicked by the Sun's and planets' tides), so its 27-day month no longer sets the
     // step for every planet: the Solar System runs ~2x faster at the same accuracy.
     m.host = made.Earth; m.minor = true;
+    addSatellites(world, made.Earth, s, world.epoch);
+    addProbes(world, s, world.epoch);
   }
   ring(world, made.Saturn, km(74500), km(136800), 24000, 26.7, PK.ICE);
   if (belts) {
