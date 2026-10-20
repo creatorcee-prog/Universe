@@ -83,6 +83,11 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 - (Done) Ocean Moon scenario (from a user's picture, the land made sea): Pelagia, a made-up ocean moon locked
   close to Rhodon, a cream-and-rose giant that spans ~34° of its sky; "Facing <planet>" in the Surface view
   for any locked moon (stands where the planet hangs ~25° up, by daylight); Pelagia in the book.
+- (Done) The Solar System's Moon rides on Earth (minors.js partner): the pair's centre of mass in IAS15, the
+  Moon on a Kepler orbit kicked by the Sun's and planets' tides, 128 kicks an orbit (matches a full N-body run
+  to ~0.05° after a year, ~0.6° after five). Its month no longer sets every planet's step: at 100x the Solar
+  System keeps up (98%, was 45%). Not done: a hybrid integrator (MERCURIUS-like) for Planet Formation at 30x
+  and Rogue Black Hole at 30x (30 years a second); both keep up at their default speeds.
 - (Done) Mars's pinkish-white ground: its skylight came out brighter than the Sun and blue (the model's sky
   average overweights the blue glow around the Sun); now capped by what the air can scatter down (with
   headroom: Earth unchanged), butterscotch as measured. Placing a body while time runs: the tap point is held

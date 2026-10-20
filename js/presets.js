@@ -273,7 +273,10 @@ function solarSystem(world, { belts = true, moon = true, moons = true } = {}) {
     // perturbations, so the starting (osculating) semi-major axis is calibrated, 381,815 km, so the
     // simulated mean sidereal month matches the measured 27.32166 days (mean distance stays ~384,400 km).
     orbitLW(world, made.Earth, m, km(LUNAR_A), 0.0549, 5.145, 218.3165, 83.3532, 125.0445, true);
-    m.host = made.Earth;
+    // It rides on Earth (minors.js: the pair's centre of mass moves in the main integrator, the Moon on its
+    // Kepler orbit about Earth, kicked by the Sun's and planets' tides), so its 27-day month no longer sets the
+    // step for every planet: the Solar System runs ~2x faster at the same accuracy.
+    m.host = made.Earth; m.minor = true;
   }
   ring(world, made.Saturn, km(74500), km(136800), 24000, 26.7, PK.ICE);
   if (belts) {

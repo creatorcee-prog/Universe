@@ -126,6 +126,9 @@ export function stepMinors(world, groups, att, cp, cpT, steps, t0, span) {
   const hp = [0, 0, 0], kp = [0, 0, 0];
   const period = (r, M) => 2 * Math.PI * Math.sqrt((r * r * r) / (G * M));
   const kicks = (P) => Math.max(1, Math.min(MAX_SUB, Math.ceil(span / (P / 8))));
+  // (The partner, one body however many moons: 128 kicks an orbit, which matches a full N-body run to ~0.05° of
+  // the Moon's position after a year; 8 an orbit, as for the small moons, drifted ~8°.)
+  const kicksP = (P) => Math.max(1, Math.min(MAX_SUB * 4, Math.ceil(span / (P / 128))));
   for (const g of groups.values()) {
     const h = g.host, ms = g.ms, muH = G * h.m;
     const hi = att.indexOf(h);
@@ -284,7 +287,21 @@ export function stepMinors(world, groups, att, cp, cpT, steps, t0, span) {
     const p = g.partner;
     if (p) {
       h.m = g.mh;
-      if (!kepler(p._s, G * (h.m + p.m), span) || !h.alive) p._hit = true;
+      // Kepler drift between kicks from the other bodies' tides (the Sun's on the Moon's orbit: its nodes turn
+      // in 18.6 years, its apsides in 8.85, evection and variation swing it by ~1°), as for the small moons;
+      // a pure two-body orbit when nothing pulls on it enough to matter.
+      const rp = Math.hypot(p._s[0], p._s[1], p._s[2]), pertP = pertFor(rp), Pp = period(rp, h.m + p.m);
+      if (!h.alive) p._hit = true;
+      else if (!pertP.length || span / kicksP(Pp) > Pp / 4) { if (!kepler(p._s, G * (h.m + p.m), span)) p._hit = true; }
+      else {
+        const n = kicksP(Pp), dt = span / n, muP = G * (h.m + p.m);
+        p._j2 = false;
+        smallKick(p, pertP, [], t0, dt / 2);
+        for (let k = 0; k < n && !p._hit; k++) {
+          if (!kepler(p._s, muP, dt)) { p._hit = true; break; }
+          smallKick(p, pertP, [], t0 + (k + 1) * dt, k === n - 1 ? dt / 2 : dt);
+        }
+      }
       const s = p._s, f = g.f;
       for (const m of ms) { const q = m._s; for (let k = 0; k < 6; k++) q[k] += f * s[k]; }
       ms.push(p);
