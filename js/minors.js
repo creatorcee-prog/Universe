@@ -205,6 +205,9 @@ export function stepMinors(world, groups, att, cp, cpT, steps, t0, span) {
       let pMin = Infinity, rMax = 0;
       for (const m of core) { const r = rOf(m); pMin = Math.min(pMin, period(r, h.m + m.m)); rMax = Math.max(rMax, r); }
       nc = kicks(pMin); dtc = span / nc;
+      // (Big moons with under ~4 kicks an orbit follow their Kepler orbits this frame, as the small ones below;
+      // they still pull on the others.)
+      for (const m of core) m._fast = period(rOf(m), h.m + m.m) < 4 * dtc;
       const pert = pertFor(rMax);
       snaps = new Float64Array((nc + 1) * core.length * 6);
       const keep = (k) => { for (let j = 0; j < core.length; j++) { const s = core[j]._s, q = (k * core.length + j) * 6; for (let c = 0; c < 6; c++) snaps[q + c] = s[c]; } };
@@ -219,7 +222,7 @@ export function stepMinors(world, groups, att, cp, cpT, steps, t0, span) {
           m._acc = m._acc || [0, 0, 0];
           m._acc[0] = acc[0]; m._acc[1] = acc[1]; m._acc[2] = acc[2];
         }
-        for (const m of core) apply(m, m._acc, w);
+        for (const m of core) if (!m._fast) apply(m, m._acc, w);
       };
       keep(0);
       kick(t0, dtc / 2);
@@ -265,7 +268,12 @@ export function stepMinors(world, groups, att, cp, cpT, steps, t0, span) {
       // every inner moon take them.)
       m._j2 = j2Matters(r);
       if (!pert.length && !sibs.length) { drift(m, span); continue; }
-      const n = kicks(period(r, M)), dt = span / n;
+      const Pm = period(r, M), n = kicks(Pm), dt = span / n;
+      // Under ~4 kicks an orbit (an inner moon at high time speed: Daphnis circles Saturn in 14 hours), each kick
+      // would deliver a whole orbit's worth of perturbation at one point of it and knock the moon off course
+      // (into the rings, inside the Roche limit). It follows its exact Kepler orbit for this frame instead:
+      // only the slow effects of the perturbations (precession) are left out while time runs that fast.
+      if (dt > Pm / 4) { drift(m, span); continue; }
       smallKick(m, pert, sibs, t0, dt / 2);
       for (let k = 0; k < n; k++) {
         drift(m, dt);

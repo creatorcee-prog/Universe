@@ -83,6 +83,19 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 - (Done) Ocean Moon scenario (from a user's picture, the land made sea): Pelagia, a made-up ocean moon locked
   close to Rhodon, a cream-and-rose giant that spans ~34° of its sky; "Facing <planet>" in the Surface view
   for any locked moon (stands where the planet hangs ~25° up, by daylight); Pelagia in the book.
+- (Done) Sim speed under load (user: "the sim speed gets slower and capped because of almost everything that
+  happens"). An impact in the Solar System used to hold it at 7-11% of the speed asked for (Node, fast CPU): the
+  frame was split into up to 24 pieces for the debris's sake, each re-running everything, and only one fitted
+  the 8 ms budget. Now the pieces are as many as the budget affords (debris self-gravity skipped when they are
+  far too coarse), and particle sub-steps coarsen from ~80 to ~10 an orbit while particles overrun their share:
+  100% after the first second. At high speed inner moons (Daphnis, Janus, Adrastea) got under one kick an orbit,
+  were knocked into the rings or inside the Roche limit, and freed all 24,000 ring particles (700 ms frames at
+  100x); they now follow their Kepler orbits when kicks would be that sparse. Still slow at high speed: Planet
+  Formation and Rogue Black Hole at 30x (the bodies' own IAS15 integration; a hybrid Wisdom-Holman integrator,
+  as REBOUND's MERCURIUS, would be the fix).
+- (Done) Small moons: tidal locking from the despin time (Gladman et al. 1996) for worlds without a set look,
+  so "Facing <planet>" works on Epimetheus and the rest; exact sphere geometry for the ground under 300 km
+  (it rose in spires) and relief capped to the world's size.
 - (Done) Ringed Sky scenario (from a user's photo: a ringed giant in a daytime sky over golden grass): Elysia, a
   grassland moon of Kyklos, on an orbit tilted 30° to the rings so they show open (an equatorial moon sees them
   edge-on). For every world with life: 3D grass blades in the Surface view (48k, out to 20 m, swaying in gusts,

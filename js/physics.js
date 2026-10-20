@@ -591,15 +591,27 @@ export class World {
     const np = this.np, pm = this.pm, ptl = this.ptl;
     for (let i = 0; i < np; i++) if (pm[i] > 0 && ptl[i] > 0 && ptl[i] < chunk) chunk = ptl[i];
     // Not with many bodies: re-running the N-body step 24 times a frame would cost more than it buys.
+    // As many pieces as the time budget affords (from what the last ones cost), so the speed asked for holds
+    // and only the debris's detail coarsens; when the pieces are much longer than the debris's own orbits,
+    // particleGravity is left out (kicks that long would fling the swarm apart; it still orbits and sticks).
+    this.coarse = 1;
+    this.partShare = budgetMs * 0.35;
     if (simDt > chunk * 1.5 && this.majors().length <= 30) {
       const start = performance.now();
-      const n = Math.min(24, Math.ceil(simDt / chunk));
+      const need = Math.min(24, Math.ceil(simDt / chunk));
+      const afford = this.coreMs > 0 ? Math.max(1, Math.floor((budgetMs * 0.9) / this.coreMs)) : need;
+      const n = Math.min(need, afford);
+      this.partShare = (budgetMs * 0.35) / n;
+      this.coarse = Math.ceil(simDt / chunk) / n;
       const h = simDt / n;
       let done = 0;
       for (let k = 0; k < n; k++) {
         const left = budgetMs - (performance.now() - start);
         if (left <= 0) break;
+        const tc = performance.now();
         const d = this.advanceCore(h, left);
+        const ms = performance.now() - tc;
+        this.coreMs = this.coreMs > 0 ? this.coreMs * 0.7 + ms * 0.3 : ms;
         done += d;
         if (d < h * 0.999) break;
       }
@@ -688,7 +700,7 @@ export class World {
     this.diskAccretion(done);
     this.feedingLight(done);
     // Particles with mass pull on each other and on the bodies (Barnes-Hut tree).
-    particleGravity(this, done, this.tree);
+    if (!(this.coarse > 4)) particleGravity(this, done, this.tree);
     // Touching clumps bounce or stick; big clumps become moonlets.
     coagulate(this, done);
     this.flushPending();
@@ -869,6 +881,10 @@ export class World {
     }
     const px = this.px, py = this.py, pz = this.pz, vx = this.pvx, vy = this.pvy, vz = this.pvz, ptl = this.ptl;
     const absorbed = [];
+    // Sub-step length as a fraction of a particle's dynamical time t = sqrt(r³/GM) (an orbit is 2πt): 0.08,
+    // ~80 steps an orbit, while there is time; coarser, down to 0.6 (~10 an orbit, still bound and smooth with
+    // this leapfrog), when the particles overrun their share of the frame (see the end of stepParticles).
+    const pK = this.pK || (this.pK = 0.08), tStart = performance.now();
     for (let i = 0; i < np; i++) {
       let x = px[i], y = py[i], z = pz[i], ux = vx[i], uy = vy[i], uz = vz[i];
       let tl = ptl[i];
@@ -884,7 +900,7 @@ export class World {
         }
         tl = Math.sqrt(tl);
       }
-      let L = Math.ceil(Math.log2(span / (0.08 * tl)));
+      let L = Math.ceil(Math.log2(span / (pK * tl)));
       if (!(L > 0)) L = 0;
       // Up to 32 sub-steps normally; particles in tight orbits (a debris disk at high time speed) may take
       // up to 1024 so their orbits stay intact, ~25+ steps per orbit.
@@ -1019,6 +1035,9 @@ export class World {
       ptl[i] = minT2 < Infinity ? Math.sqrt(minT2) : tl;
       if (hitA >= 0) absorbed.push(i, hitA);
     }
+    const ms = performance.now() - tStart, share = this.partShare || 3;
+    if (ms > share) this.pK = Math.min(0.6, pK * 1.3);
+    else if (ms < share * 0.4) this.pK = Math.max(0.08, pK / 1.15);
     // Absorb from the end so swap-removal does not disturb unprocessed indices.
     const touched = new Set();
     for (let k = absorbed.length - 2; k >= 0; k -= 2) {
