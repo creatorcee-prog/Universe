@@ -314,3 +314,5 @@ on the phone.
    Temporal reprojection was not done: with planets, moons, particles and clouds all moving on their own, it
    needs per-object motion vectors to avoid ghost trails, a renderer-wide change for this gain.) 7. Keep the frame rate: temporal reprojection to recover sharpness at reduced resolution; test on the iPhone
    after every step; regenerate the WebGPU shader translations after any shader edit.
+
+- [x] Gravity view as a warped-space grid (rubber sheet / Flamm's paraboloid shape, exaggerated depth, compressed so planets show beside the Sun); temperature and gravity switches moved to Settings beside Magnetic fields.

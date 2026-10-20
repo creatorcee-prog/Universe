@@ -1062,7 +1062,7 @@ class App {
     // the ones too small to see. Gravity zones for the 40 heaviest bodies (dust and boulders have none worth drawing).
     let zones = this.zones, gzones = this.gzones;
     if (this.settings.allTemp) { zones = new Set(this.zones); for (const b of this.world.bodies) if (b.alive && tempZones(b)) zones.add(b); }
-    if (this.settings.allGrav) { gzones = new Set(this.gzones); for (const b of this.world.bodies.filter((x) => x.alive && x.kind !== 'nebula').sort((a, c) => c.m - a.m).slice(0, 40)) gzones.add(b); }
+    // (Gravity: the warped grid, render.js drawGravityGrid.)
     const ui = { selected: this.state.selected, preview, surface: this.surface, zones, gzones, laser: this.laser && this.laser.body ? this.laser : null };
     const tr = performance.now();
     // Rings drawn as GPU debris (Realistic view only; the Pixel view and the surface keep WebGL's). With the

@@ -145,6 +145,7 @@ export class Renderer {
       if (this.settings.trails) this.drawTrails();
       this.drawOrbits(ui, !this.settings.orbits);
       if (this.settings.magnetic) this.drawMagnetic(ui);
+      if (this.settings.allGrav) this.drawGravityGrid(ui);
       this.drawZones(ui);
       this.drawBodies(now, ui);
       this.drawFlashes(now);
@@ -164,6 +165,7 @@ export class Renderer {
     if (this.settings.trails) this.drawTrails();
     this.drawOrbits(ui, !this.settings.orbits);
     if (this.settings.magnetic) this.drawMagnetic(ui);
+    if (this.settings.allGrav) this.drawGravityGrid(ui);
     this.drawZones(ui);
     this.drawParticles();
     this.drawBodies(now, ui);
@@ -400,6 +402,59 @@ export class Renderer {
       if (qx * qx + qy * qy + qz * qz < o.r * o.r) return true;
     }
     return false;
+  }
+
+  // Gravity as warped space (Settings): a grid in the plane of the orbits, through the point the camera looks
+  // at, sunk into a well around each mass by its potential, -GM/r (the "rubber sheet": its shape is that of
+  // the curved space around a mass in general relativity, Flamm's paraboloid, though the real dent is tiny:
+  // ~9 mm for Earth, ~1.5 km for the Sun). Exaggerated to be seen, compressed (power 0.6) so the planets'
+  // dents show beside the Sun's, still deeper for more mass; flat at the grid's edge. Hidden behind worlds.
+  drawGravityGrid(ui) {
+    const { ctx, cam, dpr, world } = this;
+    if (ui.surface) return;
+    const p = this.tmp, cx = cam.tx, cy = cam.ty, cz = cam.tz;
+    const L = Math.max(cam.dist * 2.2, 1e-9), N = 36, S = 72;
+    // The masses that matter here: on or near the grid (a far star's pull only tilts it), heaviest by mass over
+    // distance (at most 16).
+    const ms = world.bodies.filter((b) => b.alive && b.m > 0 && b.kind !== 'nebula' && Math.hypot(b.x - cx, b.z - cz) < L * 1.6)
+      .map((b) => ({ b, w: b.m / (Math.hypot(b.x - cx, b.z - cz) + L) })).sort((a, c) => c.w - a.w).slice(0, 16).map((o) => o.b);
+    if (!ms.length) return;
+    const phi = (x, z) => {
+      let f = 0;
+      for (const b of ms) f += b.m / Math.max(Math.hypot(x - b.x, z - b.z), b.r * 1.5, b.soft || 0, L * 0.025);
+      return f;
+    };
+    // scale: the deepest point on the grid sinks 0.25 L; its edge stays level
+    const grid = new Float64Array((N + 1) * (N + 1));
+    let fmax = 0, fedge = Infinity;
+    for (let i = 0; i <= N; i++) for (let j = 0; j <= N; j++) {
+      const x = cx - L + (2 * L * i) / N, z = cz - L + (2 * L * j) / N, f = Math.pow(phi(x, z), 0.6);
+      grid[i * (N + 1) + j] = f;
+      if (f > fmax) fmax = f;
+      if ((i === 0 || j === 0 || i === N || j === N) && f < fedge) fedge = f;
+    }
+    if (!(fmax > fedge)) return;
+    const depth = (x, z) => -0.25 * L * Math.max(0, Math.pow(phi(x, z), 0.6) - fedge) / (fmax - fedge);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineWidth = dpr;
+    for (let dir = 0; dir < 2; dir++) {
+      for (let i = 0; i <= N; i++) {
+        const u = -L + (2 * L * i) / N;
+        const a = 0.42 * (1 - Math.pow(Math.abs(u) / L, 3));   // (fading toward the grid's edge)
+        ctx.strokeStyle = `rgba(170,200,255,${a})`;
+        ctx.beginPath();
+        let pen = false;
+        for (let k = 0; k <= S; k++) {
+          const v = -L + (2 * L * k) / S;
+          const x = cx + (dir ? v : u), z = cz + (dir ? u : v), y = cy + depth(x, z);
+          if (cam.project(x, y, z, p) <= 0 || this.hiddenAt(x, y, z, p.x, p.y)) { pen = false; continue; }
+          if (pen) ctx.lineTo(p.x, p.y); else ctx.moveTo(p.x, p.y);
+          pen = true;
+        }
+        ctx.stroke();
+      }
+    }
+    ctx.globalCompositeOperation = 'source-over';
   }
 
   // Magnetic fields (Settings → Magnetic fields; js/magnetic.js): each magnetised world's field lines, closed
