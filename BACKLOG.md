@@ -83,6 +83,12 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 - (Done) Ocean Moon scenario (from a user's picture, the land made sea): Pelagia, a made-up ocean moon locked
   close to Rhodon, a cream-and-rose giant that spans ~34° of its sky; "Facing <planet>" in the Surface view
   for any locked moon (stands where the planet hangs ~25° up, by daylight); Pelagia in the book.
+- (Done) Nearby objects through air: particles (ring chunks, debris) drawn in the sky layer and veiled like the
+  bodies (Saturn's edge-on rings no longer show through Titan's haze); labels, orbit lines and trails hidden
+  where the air passes under 3% of the light or under a closed deck. Titan's deck: soft lumpy methane cloud
+  instead of the asperitas blanket, drifting on a sim-time wind clock (stops when paused, at most 120x real)
+  and slowly changing shape. (Real Titan from the ground is a nearly featureless haze; its methane clouds are
+  real but sparse: an artistic liberty, at the user's request.)
 - (Done) Sim speed under load (user: "the sim speed gets slower and capped because of almost everything that
   happens"). An impact in the Solar System used to hold it at 7-11% of the speed asked for (Node, fast CPU): the
   frame was split into up to 24 pieces for the debris's sake, each re-running everything, and only one fitted

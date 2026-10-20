@@ -4,6 +4,7 @@ import { G } from './units.js';
 import { isLuminous } from './bodies.js';
 import { tempZones } from './thermal.js';
 import { gravZones } from './gravzones.js';
+import { atmosphereOptics } from './optics.js';
 
 const TRAIL_LEN = 360;
 
@@ -363,12 +364,30 @@ export class Renderer {
     }
     this.occ = occ;
     this.eye = [ex, ey, ez];
+    // Standing on a world with air: what its air hides (see hiddenAt). Vertical optical depth in green light,
+    // and whether a closed deck (Venus, Titan) hides the sky altogether.
+    this.air = null;
+    const g = ui && ui.surface && ui.surface.body;
+    const op = g ? atmosphereOptics(g) : null;
+    if (op) {
+      const ux = ex - g.x, uy = ey - g.y, uz = ez - g.z, ul = Math.hypot(ux, uy, uz) || 1;
+      this.air = { up: [ux / ul, uy / ul, uz / ul], tau: op.tauE[1], closed: op.tauM > 3 || (g.th && g.th.cloud > 0.97) };
+    }
   }
 
   // Is the world point (x, y, z), at screen (sx, sy), behind one of those bodies (does the sight line to it
   // pass through one)? skip: a body that does not hide this point (its own label).
   hiddenAt(x, y, z, sx, sy, skip) {
     const [ex, ey, ez] = this.eye;
+    // Through air: hidden when the air lets less than 3% of its light through (airmass ~1/sin elevation, capped
+    // near the horizon by the air's curvature), or under a closed cloud deck. (Earth's sky passes ~80% straight
+    // up; Titan's haze, optical depth ~5 or more, hides Saturn: Huygens saw no sky through it.)
+    if (this.air) {
+      const dx = x - ex, dy = y - ey, dz = z - ez, dl = Math.hypot(dx, dy, dz) || 1, A = this.air;
+      if (A.closed) return true;
+      const se = (dx * A.up[0] + dy * A.up[1] + dz * A.up[2]) / dl;
+      if (se > -0.02 && Math.exp(-A.tau / Math.max(se + 0.03, 0.025)) < 0.03) return true;
+    }
     for (const o of this.occ) {
       if (o.b === skip) continue;
       if (o.sr !== Infinity && (sx - o.sx) ** 2 + (sy - o.sy) ** 2 > o.sr * o.sr) continue;

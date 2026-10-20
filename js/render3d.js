@@ -1064,13 +1064,22 @@ export class Renderer3D {
     if (optics) setOpticsUniforms(gl, u, optics, 8);
     gl.uniform1f(u.uSunPower, sv.sunPower);
     gl.uniform1f(u.uCloud, cover);
-    gl.uniform1f(u.uTime, performance.now() / 1000);
+    // The wind's clock: simulated seconds, so clouds race by with time sped up and stop when paused, at most
+    // 120x real time (a 15 m/s wind then crosses the sky in seconds; faster would only flicker).
+    const nowS = performance.now() / 1000, simT = this.world ? this.world.t * 3.15576e7 : nowS;
+    if (this.windAt !== this.frameNo) {
+      const dr = Math.min(0.25, Math.max(0, nowS - (this.windReal ?? nowS)));
+      this.windT = (this.windT || 0) + Math.min(Math.max(0, simT - (this.windSim ?? simT)), dr * 120);
+      this.windReal = nowS; this.windSim = simT; this.windAt = this.frameNo;
+    }
+    gl.uniform1f(u.uTime, this.windT);
     gl.uniform3fv(u.uCloudCol, this.look(b).colC || [0.95, 0.96, 1]);
     gl.uniform3f(u.uCloudH, (0.24 * Hkm) / Rkm, (0.3 * Hkm) / Rkm, Rkm);
     gl.uniform1f(u.uStorm, this.weather ? this.weather.rain || 0 : 0);
     gl.uniform1f(u.uCirrus, this.cirrus || 0);
     gl.uniform1f(u.uHs, Hkm / 8.5);
     gl.uniform1f(u.uBlanket, optics && optics.tauM > 3 ? 1 : 0);
+    gl.uniform1f(u.uFluff, optics && optics.kind === 'tholin' ? 1 : 0);
     // How convective the weather is here: warm, wet air builds cumulus and storm towers; cold or dry air,
     // flat sheets.
     const th = b.th, Tloc = sv.localT || (th ? th.Ts : 0), wetC = th && th.liquid > 0.005;
@@ -2167,6 +2176,16 @@ export class Renderer3D {
       glows.length = 0;
       gl.depthMask(true);
       gl.disable(gl.BLEND);
+      // Particles too (ring chunks, debris, gas): in the sky, seen through the air like the bodies (Saturn's
+      // rings edge-on from Titan are hidden by its haze with Saturn).
+      gl.enable(gl.DEPTH_TEST);
+      this.drawParticles(false);
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.ONE, gl.ONE);
+      gl.depthMask(false);
+      this.drawParticles(true);
+      gl.depthMask(true);
+      gl.disable(gl.BLEND);
       gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFB);
       gl.viewport(0, 0, this.sceneW, this.sceneH);
       this.drawSurfaceSky(this.surface, true);
@@ -2186,7 +2205,7 @@ export class Renderer3D {
       const rgb = tempToRGB(t.temp).map((v) => (v / 255) * 1.6);
       glows.push(() => this.sprite(vp, (px * depth) / this.F, rgb, 0, 0, 1));
     }
-    this.drawParticles(false);
+    if (!ground) this.drawParticles(false);
     if (this.settings.grid && !this.surface) this.drawGrid();
 
     // Additive passes: atmospheres, disks, glows, hot particles.
@@ -2195,7 +2214,7 @@ export class Renderer3D {
     gl.depthMask(false);
     gl.disable(gl.CULL_FACE);
     for (const g of glows) g();
-    this.drawParticles(true);
+    if (!ground) this.drawParticles(true);
     this.drawGalaxyGlow();
     gl.depthMask(true);
     gl.disable(gl.BLEND);

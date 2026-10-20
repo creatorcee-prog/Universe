@@ -3339,6 +3339,7 @@ uniform float uCirrus;      // cirrus cover 0..1 (thin ice cloud high up; also o
 uniform float uHs;          // the air's scale height / Earth's (8.5 km): cloud heights scale with it
 uniform float uConv;        // 0..1: how convective the climate is here (warm, wet air: cumulus, storm towers)
 uniform float uBlanket;     // 0..1: a closed deck with a wave-churned base (asperitas): thick atmospheres, storms
+uniform float uFluff;       // 1: the closed deck is soft lumpy cloud instead (Titan's methane clouds), changing as it drifts
 uniform vec3 uCloudH;       // base height, thickness (radii), planet radius (km)
 uniform sampler2D uPrev;    // last frame's result, blended in (see the end)
 uniform mat3 uPrevView;     // last frame's rotation from the planet's frame to its view
@@ -3387,6 +3388,16 @@ float remap(float v, float a, float b, float c, float d) { return c + (v - a) / 
 // creased there (0..1): strongly warped ridges that hang down as troughs, as in asperitas.
 // far: how much of the waves to keep (far off they are smaller than a pixel: smoothed toward their mean).
 vec2 blanketBase(vec3 w, float far) {
+  if (uFluff > 0.5) {
+    // Soft heaps: rounded cells (billows) at two sizes, ~4 and ~2 km, their undersides hanging lowest; they
+    // drift with the wind and slowly change shape (the pattern moves through its third axis with time).
+    vec3 q = w * 0.25 + vec3(0.0, uTime * 4e-4, 0.0) + 0.8 * vec3(tfbm(w * 0.04 + 3.0, 2), 0.0, tfbm(w * 0.04 + 8.0, 2));
+    // (the small heaps fade out sooner with distance than the big ones: past ~20 km they would only speckle)
+    float f2 = far * far * far;
+    float c = billow(q) * (1.0 - 0.35 * f2) + billow(q * 2.1 + 7.0) * 0.35 * f2;
+    float lump = smoothstep(0.15, 0.95, mix(0.55, c, far * far));
+    return vec2(2.4 - 0.8 * lump, lump);
+  }
   vec3 q = w * 0.22 + 1.6 * vec3(tfbm(w * 0.05 + 3.0, 3), 0.0, tfbm(w * 0.05 + 8.0, 3));
   float r1 = 1.0 - abs(2.0 * tnoise(q) - 1.0), r2 = 1.0 - abs(2.0 * tnoise(q * 2.3 + 5.0) - 1.0);
   float ridge = mix(0.45, r1 * r1 * 0.75 + r2 * r2 * 0.25 * far, far);
@@ -3500,7 +3511,7 @@ void main() {
     vec2 bb = vec2(1.6, 0.45);
     for (int k = 0; k < 7; k++) {
       bb = blanketBase(Rkm * (up * r0 + d * tb) + wind, 1.0 - smoothstep(15.0, 60.0, tb * Rkm));
-      tb = mix(tb, SHELL(bb.x * uHs / Rkm), 0.35);
+      tb = mix(tb, SHELL(bb.x * uHs / Rkm), uFluff > 0.5 ? 0.25 : 0.35);
     }
     bb = blanketBase(Rkm * (up * r0 + d * tb) + wind, 1.0 - smoothstep(15.0, 60.0, tb * Rkm));
     vec3 Pb = Rkm * (up * r0 + d * tb) + wind;
@@ -3508,6 +3519,8 @@ void main() {
     // (no blue skylight under a closed deck: only the light through it, coloured by the air above)
     vec3 Lsrc = uCloudCol * lightCol * (sunK + 0.35 * max(uSunPower, 0.15)) * (1.0 - 0.75 * uStorm) * 9.0 * mott * (0.8 + 0.4 * ph);
     vec3 Lb = Lsrc * exp(-0.6 * (5.0 - bb.x)) * (1.0 - 0.35 * bb.y * bb.y * bb.y);
+    // (Soft heaps: their hanging middles darker, the rims and gaps between them lit through, softly.)
+    if (uFluff > 0.5) Lb = Lsrc * exp(-0.6 * 2.6) * mix(1.25, 0.62, smoothstep(0.1, 0.95, bb.y));
     float fb = exp(-tb * Rkm / 220.0) * smoothstep(0.0, 0.03, h);
     cur = vec4(Lb * fb, fb);
   } else {
