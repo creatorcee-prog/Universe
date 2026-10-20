@@ -129,6 +129,8 @@ Switch in the **View** panel.
   magnifications. The Milky Way is stretched into arcs around the hole. Only the background is lensed:
   planets, particles and the accretion disk behind a hole are drawn unbent for now (the disk has its own
   approximate lensed image).
+- **Sound slots** (js/audio.js SLOTS): 43 places a sound plays, each named for what sets it off (selecting, pausing, opening a panel, an impact, a supernova...) and mapped to a file. The Sound Board page (`tools/make_sound_board.mjs`, published separately) lists them with every file playable and a picker per slot; its choices are copied back into SLOTS.
+- **Calendar** (Solar System scenario): the planets, Moon, dwarf planets and comets start where they are today (Standish's J2000 elements and rates per century, Meeus's lunar rates, two-body motion for small bodies), and a year tracker under the scenario name shows the simulated date (UTC).
 - **Background music** (Settings → Background music): twelve ambient tracks (seven of them binaural beats,
   in stereo: the beat between the ears needs headphones), shuffled (each plays once
   before any repeats, never the same twice in a row), fading in over 6 s and out over 8 s, with 30 s of

@@ -13,17 +13,60 @@
 // to unlock output. By default sound plays even with the ring/silent switch on silent ("playback"
 // session); Settings can switch to "ambient", which follows the switch and mixes with other audio.
 
-const UI = {
-  // name: [file, gain] — gains level the clips to about the same loudness (measured mean volume).
-  click: ['ui-click', 0.8],        // taps, selecting, toggles, pause
-  sequence: ['ui-sequence', 0.95], // opening a panel, switching tab or tool, placing an object
-  hint: ['ui-hint', 1.15],         // a notice appears; photo mode
-  affirm: ['ui-affirm', 1.35],     // loading a scenario, landing on a surface, adding rings
-  glitch: ['ui-glitch', 0.9],      // not possible / missed
-  // Lower, softer sounds for things the simulation does by itself.
-  transform: ['confirm7', 0.85], complete: ['complete', 1.2],
-};
-const COSMIC = ['rumble1', 'rumble4', 'rumbleloop', 'decay', 'amb-engine', 'amb-wind'];
+// Every place a sound plays (slot), what sets it off, and the file it plays (assets/audio/<file>.mp3). The
+// sound board (tools/sound-board.html, published as its own page) lists these and lets the files be swapped;
+// its choices are copied back here.
+export const SLOTS = [
+  // [slot, group, what plays it, file]
+  ['tap', 'Interface', 'Any button or switch with no sound of its own', 'ui-click'],
+  ['select', 'Interface', 'Selecting an object', 'ui-click'],
+  ['pause', 'Interface', 'Pause / play', 'ui-click'],
+  ['speed', 'Interface', 'Faster / slower buttons', 'ui-click'],
+  ['view-band', 'Interface', 'Choosing a spectrum (visible, infrared, UV, X-ray)', 'ui-click'],
+  ['option', 'Interface', 'Choosing an option in a row (view, quality, ...)', 'ui-click'],
+  ['star-type', 'Interface', 'Picking a star type in the star builder', 'ui-click'],
+  ['setting', 'Interface', 'Turning a setting on or off', 'ui-click'],
+  ['open-panel', 'Interface', 'Opening a panel (Scenarios, Create, Settings, ...)', 'ui-sequence'],
+  ['close-panel', 'Interface', 'Closing a panel', 'ui-click'],
+  ['tab', 'Interface', 'Switching a tab in the info panel', 'ui-sequence'],
+  ['tool', 'Interface', 'Choosing a tool', 'ui-sequence'],
+  ['notice', 'Interface', 'A notice pops up', 'ui-hint'],
+  ['photo-mode', 'Interface', 'Photo mode on', 'ui-hint'],
+  ['scenario', 'Actions', 'Loading a scenario', 'ui-affirm'],
+  ['place-object', 'Actions', 'Placing a new object', 'ui-sequence'],
+  ['place-dust', 'Actions', 'Spraying a dust cloud', 'ui-sequence'],
+  ['rings', 'Actions', 'Adding rings to a world', 'ui-affirm'],
+  ['delete', 'Actions', 'Deleting an object', 'ui-glitch'],
+  ['descent', 'Actions', 'Starting the descent to a surface', 'ui-affirm'],
+  ['land', 'Actions', 'Arriving in the Surface view', 'ui-affirm'],
+  ['leave-surface', 'Actions', 'Leaving the Surface view', 'ui-click'],
+  ['challenge-done', 'Actions', 'Completing a challenge', 'ui-affirm'],
+  ['no-surface', 'Not possible', 'Surface view refused (gas world, wrong view)', 'ui-glitch'],
+  ['nothing-to-lock', 'Not possible', 'Lock-on with nothing selected', 'ui-glitch'],
+  ['no-paint', 'Not possible', 'Painting refused (not a rocky world, wrong view)', 'ui-glitch'],
+  ['missed', 'Not possible', 'A tool missed (hold on an object)', 'ui-glitch'],
+  ['denied', 'Not possible', 'The simulation refused something', 'ui-glitch'],
+  ['transform', 'Simulation', 'An object changes kind (star to giant, planet to star, ...)', 'confirm7'],
+  ['transform-rumble', 'Simulation', 'Low rumble under that change', 'rumble4'],
+  ['complete', 'Simulation', 'Something finishes (an orbit closes, a merger settles)', 'complete'],
+  ['impact', 'Cosmic', 'An impact (bigger: louder, deeper, longer)', 'rumble1'],
+  ['swallow', 'Cosmic', 'A star or black hole swallows something', 'rumble4'],
+  ['tidal', 'Cosmic', 'A world torn apart by tides', 'rumble4'],
+  ['nova', 'Cosmic', 'A red nova (two stars merging): first layer', 'rumble4'],
+  ['nova-2', 'Cosmic', 'A red nova: second, deeper layer', 'rumble1'],
+  ['supernova', 'Cosmic', 'A supernova, collapse or new black hole (52 s)', 'decay'],
+  ['star-death', 'Cosmic', 'A gentler star death (planetary nebula)', 'decay'],
+  ['bh-merge', 'Cosmic', 'Two black holes merging: first layer', 'rumble4'],
+  ['bh-merge-2', 'Cosmic', 'Two black holes merging: second layer', 'rumble1'],
+  ['bh-drone', 'Ambience', 'Drone swelling near a black hole (loops)', 'rumbleloop'],
+  ['engine-hum', 'Ambience', 'Hum while flying fast close to a world (loops)', 'amb-engine'],
+  ['wind', 'Ambience', 'Wind in a thick atmosphere (loops)', 'amb-wind'],
+];
+const SLOT_FILE = Object.fromEntries(SLOTS.map((s) => [s[0], s[3]]));
+// Loudness per file (levels the clips to about the same loudness, from their measured mean volume); files
+// not listed (peak-normalised to -3 dB) play at 0.6.
+const FILE_GAIN = { 'ui-click': 0.8, 'ui-sequence': 0.95, 'ui-hint': 1.15, 'ui-affirm': 1.35, 'ui-glitch': 0.9, confirm7: 0.85, complete: 1.2,
+  rumble1: 1, rumble4: 1, rumbleloop: 1, decay: 1, 'amb-engine': 1, 'amb-wind': 1 };
 
 // Background music: shuffled, each track fading in and out, with 30 s of silence between tracks.
 const MUSIC = ['music-relax-beat', 'music-drone', 'music-vastness', 'music-space', 'music-valley-sunset',
@@ -98,8 +141,7 @@ export class Sound {
     const wet = (this.wet = ctx.createGain()); wet.gain.value = this.settings.bassBoost ? 0.22 : 0;
     this.fx.connect(band); band.connect(drive); drive.connect(shaper); shaper.connect(hp); hp.connect(lp); lp.connect(wet); wet.connect(comp);
     comp.connect(this.master);
-    for (const [name, [file]] of Object.entries(UI)) this.load(name, file);
-    for (const name of COSMIC) this.load(name, name);
+    for (const file of new Set(Object.values(SLOT_FILE))) this.load(file, file);
     this.startMusic();
   }
 
@@ -233,19 +275,21 @@ export class Sound {
     if (now - this.lastUI < (fallback ? 400 : 40)) return;
     this.lastUI = now;
     // Interface sounds are off for now (Settings → Interface sounds turns them back on).
-    if (!this.on || !this.settings.uiSound || !this.ctx || !this.buf[name]) return;
+    const file = SLOT_FILE[name];
+    if (!this.on || !this.settings.uiSound || !this.ctx || !this.buf[file]) return;
     const s = this.ctx.createBufferSource();
-    s.buffer = this.buf[name];
+    s.buffer = this.buf[file];
     const g = this.ctx.createGain();
-    g.gain.value = UI[name] ? UI[name][1] : 1;
+    g.gain.value = FILE_GAIN[file] ?? 0.6;
     s.connect(g); g.connect(this.uiBus);
     s.start();
   }
 
   // A rumble: gain 0..1, playbackRate for pitch (lower = bigger), and how long before it fades
   // (the source clips run 12–52 s; small events are cut short).
-  rumble(name, gain, rate = 1, hold = 30) {
-    const b = this.buf[name];
+  rumble(slot, gain, rate = 1, hold = 30) {
+    const file = SLOT_FILE[slot], b = this.buf[file];
+    gain *= FILE_GAIN[file] ?? 0.6;
     if (!this.on || !this.ctx || !b || gain < 0.02) return;
     const t = this.ctx.currentTime;
     const s = this.ctx.createBufferSource();
@@ -287,49 +331,49 @@ export class Sound {
       case 'impact':
         if (p < 0.04 || !ready('impact', 900)) return;
         // Bigger impacts: louder, deeper and longer.
-        this.rumble('rumble1', 0.25 + 0.75 * p, 1.15 - 0.3 * p, 4 + 18 * p);
+        this.rumble('impact', 0.25 + 0.75 * p, 1.15 - 0.3 * p, 4 + 18 * p);
         break;
       case 'swallow':
         if (!ready('swallow', 1500)) return;
-        this.rumble('rumble4', 0.3 + 0.6 * p, 0.8, 5 + 6 * p);
+        this.rumble('swallow', 0.3 + 0.6 * p, 0.8, 5 + 6 * p);
         break;
       case 'tidal':
         if (!ready('tidal', 2000)) return;
-        this.rumble('rumble4', 0.4 + 0.6 * p, 1, 13);
+        this.rumble('tidal', 0.4 + 0.6 * p, 1, 13);
         break;
       case 'nova':
         if (!ready('nova', 3000)) return;
-        this.rumble('rumble4', 0.9 * p + 0.1, 0.9, 13);
-        this.rumble('rumble1', 0.5 * p, 0.7, 20);
+        this.rumble('nova', 0.9 * p + 0.1, 0.9, 13);
+        this.rumble('nova-2', 0.5 * p, 0.7, 20);
         break;
       case 'death': {
         if (!ready('death', 4000)) return;
         const sn = /supernova|collapse|black hole|neutron/i.test(ev.text);
         // Supernovae get the full 52 s decay; gentler deaths (planetary nebulae) a shorter, higher one.
-        if (sn) this.rumble('decay', 0.25 + 0.75 * p, 1, 52);
-        else this.rumble('decay', 0.2 + 0.4 * p, 1.25, 14);
+        if (sn) this.rumble('supernova', 0.25 + 0.75 * p, 1, 52);
+        else this.rumble('star-death', 0.2 + 0.4 * p, 1.25, 14);
         break;
       }
       case 'bhmerge':
         // Two black holes becoming one: the deepest, longest rumble.
         if (!ready('bhmerge', 4000)) return;
-        this.rumble('rumble4', 1, 0.7, 13);
-        this.rumble('rumble1', 0.8, 0.6, 25);
+        this.rumble('bh-merge', 1, 0.7, 13);
+        this.rumble('bh-merge-2', 0.8, 0.6, 25);
         break;
       case 'transform':
         if (!ready('transform', 3000)) return;
-        this.rumble('rumble4', 0.2 + 0.4 * p, 1.2, 6);
+        this.rumble('transform-rumble', 0.2 + 0.4 * p, 1.2, 6);
         this.ui('transform');
         break;
       case 'complete': this.ui('complete'); break;
-      case 'denied': this.ui('glitch'); break;
+      case 'denied': this.ui('denied'); break;
     }
   }
 
   // Looping beds, set every frame: started once audible, stopped once faded out. The MP3 encoder's
   // padding at the ends is skipped so the loop doesn't click (the files are cut to loop seamlessly).
-  bed(key, file, level, rate = 1) {
-    const b = this.buf[file];
+  bed(key, slot, level, rate = 1) {
+    const b = this.buf[SLOT_FILE[slot]];
     if (!this.ctx || !b) return;
     const t = this.ctx.currentTime;
     this.beds = this.beds || {};
@@ -358,12 +402,12 @@ export class Sound {
   }
 
   // Black-hole drone: level 0..1 from how large the nearest hole looks, pitch from its mass.
-  ambient(level, rate) { this.bed('drone', 'rumbleloop', level * 0.8, rate); }
+  ambient(level, rate) { this.bed('drone', 'bh-drone', level * 0.8, rate); }
 
   // Object ambience: a low engine-like hum near solid worlds and stellar remnants, a deep wind near gas
   // giants and stars, and on the ground of a world with air. Levels 0..1.
   nearby(hum, wind, rate = 1) {
-    this.bed('hum', 'amb-engine', hum * 0.45, rate);
-    this.bed('wind', 'amb-wind', wind * 0.4, 1);
+    this.bed('hum', 'engine-hum', hum * 0.45, rate);
+    this.bed('wind', 'wind', wind * 0.4, 1);
   }
 }

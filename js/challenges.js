@@ -191,7 +191,7 @@ export class Challenges {
     if (r.done) {
       this.doneSet.add(a.c.id);
       try { localStorage.setItem('pu-challenges', JSON.stringify([...this.doneSet])); } catch { /* private mode: not remembered */ }
-      this.app.audio.ui('affirm');
+      this.app.audio.ui('challenge-done');
     }
     this.app.ui.showChallenge(a);
   }

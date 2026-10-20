@@ -169,10 +169,10 @@ class App {
   // colour of the entry (bright air, or black on an airless world), and the surface view fades in beneath.
   // (Already on a surface, or asked to skip, it switches at once.)
   enterSurface(b, where = 'day', now = false) {
-    if (!this.r3d || !this.renderer.overlay) { this.audio.ui('glitch'); this.ui.toast('Switch to the Realistic or Pixel view to stand on a surface.'); return; }
-    if (b.kind !== 'rocky') { this.audio.ui('glitch'); this.ui.toast(`${b.name} has no solid surface to stand on.`); return; }
+    if (!this.r3d || !this.renderer.overlay) { this.audio.ui('no-surface'); this.ui.toast('Switch to the Realistic or Pixel view to stand on a surface.'); return; }
+    if (b.kind !== 'rocky') { this.audio.ui('no-surface'); this.ui.toast(`${b.name} has no solid surface to stand on.`); return; }
     if (!now && !this.surface && !this.descent && !window.__TEST_NO_DESCENT) { this.startDescent(b, where); return; }
-    this.audio.ui('affirm');
+    this.audio.ui('land');
     const keep = this.surface ? this.surface.prevSpeed : this.state.speed;
     this.surface = { body: b, where, lat: 0, lon: 0, yaw: 0, pitch: 0.15, place: true, up: [0, 1, 0], sun: [1, 0, 0], sunPower: 0, prevSpeed: keep };
     // Slow time so one local day lasts about two minutes and the Sun can be watched crossing the sky.
@@ -210,7 +210,7 @@ class App {
     this.descent.hA = Math.min(60000, 0.02 * Rm);
     this.descent.d1 = b.r + this.descent.hA / 1.495978707e11;
     this.select(null);
-    this.audio.ui('affirm');
+    this.audio.ui('descent');
   }
 
   stepDescent(now) {
@@ -244,7 +244,7 @@ class App {
   }
 
   exitSurface() {
-    if (this.surface) this.audio.ui('click');
+    if (this.surface) this.audio.ui('leave-surface');
     const b = this.surface && this.surface.body;
     if (this.surface) this.ui.setSpeed(this.surface.prevSpeed);
     this.surface = null;
@@ -412,7 +412,7 @@ class App {
       Object.assign(this.settings, this.prePhoto);
     }
     this.photo = on;
-    if (on) this.audio.ui('hint');
+    if (on) this.audio.ui('photo-mode');
     this.ui.syncPhotoBar();
     document.getElementById('app').classList.toggle('photo', on);
     this.renderer.photo = on;
@@ -467,7 +467,7 @@ class App {
   }
 
   select(body, quiet = false) {
-    if (body && !quiet && body !== this.state.selected) this.audio.ui('click');
+    if (body && !quiet && body !== this.state.selected) this.audio.ui('select');
     this.state.selected = body;
     this.ui.showInfo(body);
   }
@@ -495,7 +495,7 @@ class App {
       const d = this.renderer.dpr;
       target = this.renderer.pickBody((this.canvas.clientWidth / 2) * d, (this.canvas.clientHeight / 2) * d, 2000);
     }
-    if (!target) { this.audio.ui('glitch'); this.ui.toast('Nothing to lock onto. Tap an object first.'); return; }
+    if (!target) { this.audio.ui('nothing-to-lock'); this.ui.toast('Nothing to lock onto. Tap an object first.'); return; }
     this.follow(target);
     this.ui.toast(`Camera locked on ${target.name}`);
   }
@@ -506,7 +506,7 @@ class App {
     const tilt = this.r3d.look(b).tilt || 0;
     const icy = b.kind === 'gas' || !b.th || b.th.Ts < 170;
     ring(this.world, b, b.r * (b.kind === 'gas' ? 1.24 : 1.4), b.r * (b.kind === 'gas' ? 2.27 : 2.5), b.kind === 'gas' ? 16000 : 9000, tilt, icy ? PK.ICE : PK.ROCK);
-    this.audio.ui('affirm');
+    this.audio.ui('rings');
     this.ui.toast(`${b.name} now has ${icy ? 'icy' : 'rocky'} rings`);
   }
 
@@ -521,7 +521,7 @@ class App {
   }
 
   deleteBody(b) {
-    this.audio.ui('glitch');
+    this.audio.ui('delete');
     if (this.cam.follow === b) this.cam.follow = null;
     if (this.state.selected === b) this.select(null);
     this.zones.delete(b);
@@ -534,7 +534,7 @@ class App {
   // Paints into the body's surface map (equirectangular RGBA: R land, G mountains, B ice, A land override).
 
   paintAt(sx, sy, first) {
-    if (!this.r3d) { if (first) { this.audio.ui('glitch'); this.ui.toast('Painting needs the Realistic or Pixel view.'); } return; }
+    if (!this.r3d) { if (first) { this.audio.ui('no-paint'); this.ui.toast('Painting needs the Realistic or Pixel view.'); } return; }
     const d = this.renderer.dpr, cam = this.cam;
     const dir = cam.ray(sx * d, sy * d);
     const E = [cam.tx + cam.ox, cam.ty + cam.oy, cam.tz + cam.oz];
@@ -548,7 +548,7 @@ class App {
       const t = -bq - Math.sqrt(disc);
       if (t > 0 && t < best) { best = t; hit = b; }
     }
-    if (!hit) { if (first) { this.audio.ui('glitch'); this.ui.toast('Touch a rocky world to paint it'); } return; }
+    if (!hit) { if (first) { this.audio.ui('no-paint'); this.ui.toast('Touch a rocky world to paint it'); } return; }
     const b = hit;
     const P = [E[0] + dir[0] * best - b.x, E[1] + dir[1] * best - b.y, E[2] + dir[2] * best - b.z];
     const R = this.r3d.bodyRotation(b); // column-major object -> world; object = Rᵀ · world
@@ -600,7 +600,7 @@ class App {
     const d = this.renderer.dpr;
     const body = this.renderer.pickBody(sx * d, sy * d, 44);
     this.laser = { body, sx, sy };
-    if (!body) { this.audio.ui('glitch'); this.ui.toast('Missed: hold on an object'); }
+    if (!body) { this.audio.ui('missed'); this.ui.toast('Missed: hold on an object'); }
   }
 
   laserMove(sx, sy) {
@@ -686,7 +686,7 @@ class App {
         this.world.addParticle(x + s * Math.cos(t) * r, y + u * r * 0.3, z + s * Math.sin(t) * r,
           vx + (Math.random() - 0.5) * j, vy + (Math.random() - 0.5) * j, vz + (Math.random() - 0.5) * j, mEach, PK.DUST);
       }
-      this.audio.ui('sequence');
+      this.audio.ui('place-dust');
       this.ui.toast('Released a dust cloud');
       return;
     }
@@ -728,7 +728,7 @@ class App {
     }
     thermalStep(this.world, 0);
     const where = a.parent ? (a.bound ? ` orbiting ${a.parent.name}` : ` on an escape path from ${a.parent.name}`) : '';
-    this.audio.ui('sequence');
+    this.audio.ui('place-object');
     this.ui.toast(`Added ${b.name}${where}. Tap it for details.`);
   }
 

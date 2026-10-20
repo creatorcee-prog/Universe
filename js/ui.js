@@ -82,7 +82,7 @@ export class UI {
 
   bind() {
     // Every button and switch clicks, unless its handler already played a sound of its own.
-    document.addEventListener('click', (e) => { if (e.target.closest('button, label, .tool-card')) setTimeout(() => this.app.audio.ui('click', true), 0); });
+    document.addEventListener('click', (e) => { if (e.target.closest('button, label, .tool-card')) setTimeout(() => this.app.audio.ui('tap', true), 0); });
     const app = this.app;
     $('speed').addEventListener('input', (e) => {
       app.state.speed = fromSlider(+e.target.value);
@@ -247,14 +247,14 @@ export class UI {
     tc(app.settings.trailColor || 'body');
     // Light seen: visible, or false colour in other bands (render3d.js spectrumMode).
     const sp = (v) => { app.settings.spectrum = v; app.saveSettings(); document.querySelectorAll('[data-spectrum]').forEach((x) => x.classList.toggle('on', x.dataset.spectrum === v)); };
-    document.querySelectorAll('[data-spectrum]').forEach((b) => b.addEventListener('click', () => { sp(b.dataset.spectrum); this.app.audio.ui('click'); if (b.dataset.spectrum !== 'visible') this.toast(SPECTRUM_NOTE[b.dataset.spectrum]); }));
+    document.querySelectorAll('[data-spectrum]').forEach((b) => b.addEventListener('click', () => { sp(b.dataset.spectrum); this.app.audio.ui('view-band'); if (b.dataset.spectrum !== 'visible') this.toast(SPECTRUM_NOTE[b.dataset.spectrum]); }));
     sp(app.settings.spectrum || 'visible');
     // Brightness: enhanced (every world lit about as brightly, as Universe Sandbox's Space Goggles), or
     // realistic (light falling off with distance from the star, the eye adapting partway). Tone curve: the
     // classic shoulder, or AgX (render3d.js, COMPOSITE_FS).
     const seg = (key, attr, note) => {
       const set = (v) => { app.settings[key] = v; app.saveSettings(); document.querySelectorAll(`[data-${attr}]`).forEach((x) => x.classList.toggle('on', x.dataset[attr] === v)); };
-      document.querySelectorAll(`[data-${attr}]`).forEach((b) => b.addEventListener('click', () => { set(b.dataset[attr]); this.app.audio.ui('click'); if (note[b.dataset[attr]]) this.toast(note[b.dataset[attr]]); }));
+      document.querySelectorAll(`[data-${attr}]`).forEach((b) => b.addEventListener('click', () => { set(b.dataset[attr]); this.app.audio.ui('option'); if (note[b.dataset[attr]]) this.toast(note[b.dataset[attr]]); }));
       return set;
     };
     seg('brightness', 'brightness', { realistic: 'Realistic brightness: light falls off with distance from the star; the eye adapts partway, so far worlds look dim.', enhanced: 'Enhanced brightness: every world lit about as brightly, so the far ones are easy to see.' })(app.settings.brightness || 'enhanced');
@@ -298,7 +298,7 @@ export class UI {
       b.type = 'button'; b.dataset.sbt = t.id; b.setAttribute('role', 'radio');
       const c = starFromType(t.id, 0.5).color;
       b.innerHTML = `<i style="background:rgb(${c.join(',')});${t.id === 'BHS' ? 'box-shadow:inset 0 0 0 3px #000' : ''}"></i>${t.label}`;
-      b.addEventListener('click', () => { this.sbType = t.id; this.app.audio.ui('click'); this.refreshStarBuilder(); });
+      b.addEventListener('click', () => { this.sbType = t.id; this.app.audio.ui('star-type'); this.refreshStarBuilder(); });
       types.appendChild(b);
     }
     size.addEventListener('input', () => this.refreshStarBuilder());
@@ -370,7 +370,7 @@ export class UI {
     let next;
     if (dir > 0) next = LADDER.find((v) => v > cur * 1.01) ?? LADDER[LADDER.length - 1];
     else next = [...LADDER].reverse().find((v) => v < cur * 0.99) ?? LADDER[0];
-    this.app.audio.ui('click');
+    this.app.audio.ui('speed');
     this.setSpeed(next);
     if (this.app.state.paused && dir > 0) this.setPaused(false);
   }
@@ -381,7 +381,7 @@ export class UI {
   }
 
   setTab(t) {
-    if (this.tab !== t) this.app.audio.ui('sequence');
+    if (this.tab !== t) this.app.audio.ui('tab');
     this.tab = t;
     document.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === t));
     document.querySelectorAll('[data-pane]').forEach((p) => { p.hidden = p.dataset.pane !== t; });
@@ -422,7 +422,7 @@ export class UI {
     this.updateSpeedLabel();
     this.showInfo(null);
     document.querySelectorAll('.scenario').forEach((el) => el.classList.toggle('current', el.id === 'scn-' + p.id));
-    this.app.audio.ui('affirm');
+    this.app.audio.ui('scenario');
     this.toast(p.blurb);
   }
 
@@ -444,7 +444,7 @@ export class UI {
   }
 
   setPaused(p) {
-    if (p !== this.app.state.paused) this.app.audio.ui('click');
+    if (p !== this.app.state.paused) this.app.audio.ui('pause');
     this.app.state.paused = p;
     $('btn-play').classList.toggle('paused', p);
     $('btn-play').setAttribute('aria-label', p ? 'Play' : 'Pause');
@@ -452,7 +452,7 @@ export class UI {
 
   setTool(t) {
     const app = this.app;
-    app.audio.ui('sequence');
+    app.audio.ui('tool');
     if (t === 'surface') {
       const b = app.state.selected;
       if (b && b.kind === 'rocky') app.enterSurface(b, 'day');
@@ -489,7 +489,7 @@ export class UI {
     if (key === 'music') this.app.audio.setMusic(s.music);
     if (key === 'soundSilent') this.app.audio.applySession();
     if (key === 'bassBoost') this.app.audio.setBassBoost(s.bassBoost);
-    this.app.audio.ui('click');
+    this.app.audio.ui('setting');
     const el = $('set-' + key);
     if (el) el.checked = s[key];
     if (key === 'collisions') this.app.world.collisions = s.collisions;
@@ -565,7 +565,7 @@ export class UI {
 
   openSheet(id) {
     this.closeSheets(true);
-    this.app.audio.ui('sequence');
+    this.app.audio.ui('open-panel');
     $(id).hidden = false;
     // Side panels on wide screens leave the simulation usable; phones get a modal sheet.
     $('scrim').hidden = false;
@@ -575,7 +575,7 @@ export class UI {
   }
 
   closeSheets(quiet = false) {
-    if (!quiet && [...document.querySelectorAll('.sheet')].some((s) => !s.hidden)) this.app.audio.ui('click');
+    if (!quiet && [...document.querySelectorAll('.sheet')].some((s) => !s.hidden)) this.app.audio.ui('close-panel');
     document.querySelectorAll('.sheet').forEach((s) => { s.classList.remove('open'); s.hidden = true; });
     document.querySelectorAll('[data-panel]').forEach((b) => b.classList.remove('on'));
     $('scrim').hidden = true;
@@ -962,7 +962,7 @@ export class UI {
   challengeProgress(text) { $('chal-prog').textContent = text || ''; }
 
   toast(text, big = false) {
-    this.app.audio.ui('hint');
+    this.app.audio.ui('notice');
     const t = $('toast');
     t.textContent = text;
     t.classList.toggle('big', big);
@@ -995,6 +995,18 @@ export class UI {
       $('sv-readout').textContent = `${Math.abs(lat)}°${lat >= 0 ? 'N' : 'S'} · ${sv.localT ? Math.round(sv.localT) + ' K (' + Math.round(sv.localT - 273.15) + ' °C)' : ''} · Sun ${Math.round((sv.elev * 180) / Math.PI)}° ${sv.elev >= 0 ? 'above' : 'below'} the horizon · air ${p < 0.001 ? 'none' : p.toPrecision(2) + ' bar'}${ecl}${zoom > 1.05 ? ` · ${zoom.toFixed(zoom < 10 ? 1 : 0)}× zoom` : ''}`;
     }
     $('sim-time').textContent = formatDuration(app.world.t);
+    // The Solar System scenario keeps the calendar: it starts at today's positions (presets.js epochNow).
+    const yr = $('year'), ep = app.state.preset && app.state.preset.id === 'solar' && app.world.epoch;
+    yr.hidden = !ep;
+    if (ep) {
+      const ms = ep + app.world.t * 365.25 * 86400e3;
+      let html;
+      if (Math.abs(ms) < 8e15) {
+        const d = new Date(ms), M = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getUTCMonth()];
+        html = `<b>${d.getUTCFullYear()}</b>${M} ${d.getUTCDate()} · ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`;
+      } else html = `<b>${Math.round(2000 + ms / (365.25 * 86400e3)).toLocaleString('en-US')}</b>CE`;
+      if (html !== this.yearHtml) { yr.innerHTML = html; this.yearHtml = html; }
+    }
     const lim = $('limit');
     const limited = app.world.limited && !app.state.paused;
     lim.hidden = !limited;

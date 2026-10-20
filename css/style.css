@@ -73,6 +73,8 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 #btn-lock.on { color: var(--cool); border-color: rgba(157,184,255,.55); background: rgba(157,184,255,.14); }
 .clock { justify-self: center; text-align: center; display: grid; gap: 1px; pointer-events: none; min-width: 0; padding-top: 2px; }
 .clock-name { font-weight: 700; font-size: 17px; letter-spacing: 0.04em; text-transform: uppercase; text-shadow: 0 1px 8px rgba(0,0,0,.8); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.clock-year { font: 500 12px var(--font-data); color: var(--ink, #fff); font-variant-numeric: tabular-nums; letter-spacing: 0.04em; text-shadow: 0 1px 6px rgba(0,0,0,.9); white-space: nowrap; }
+.clock-year b { font-size: 15px; font-weight: 700; margin-right: 4px; }
 .clock-time { font: 500 12px var(--font-data); color: var(--muted); font-variant-numeric: tabular-nums; text-shadow: 0 1px 6px rgba(0,0,0,.9); }
 .limit { justify-self: center; font: 500 11px var(--font-data); color: var(--accent); background: rgba(255,184,92,.12); border: 1px solid rgba(255,184,92,.35); padding: 1px 8px; border-radius: 999px; margin-top: 3px; }
 
