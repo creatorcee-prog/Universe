@@ -209,16 +209,26 @@ class App {
     cam.yaw = D.yaw0 + D.dYaw * Math.min(1, e * 1.6);
     cam.pitch = D.pitch0 + (D.pitch1 - D.pitch0) * Math.min(1, e * 1.6);
     cam.dist = cam.distGoal = Math.exp(Math.log(D.d0) + (Math.log(D.d1) - Math.log(D.d0)) * Math.pow(e, 0.8));
-    const fade = document.getElementById('fade');
-    if (fade && k > 0.82 && !D.faded) {
-      D.faded = true;
-      fade.style.background = D.air ? 'rgb(190, 214, 240)' : '#000';
-      fade.classList.add('on');
+    // At the end: this frame (the planet from ~100 km) is kept as a picture; the next frame enters the Surface
+    // view 1.5 km up, looking down, and the picture dissolves into it while the view glides down to the
+    // ground and levels out (see landing in the surface camera).
+    if (k >= 1 && !D.snapped) {
+      D.snapped = true;
+      this.snapPending = () => {
+        const src = this.glCanvas, cv = document.getElementById('snap');
+        if (!cv || !src) return;
+        cv.width = src.width; cv.height = src.height;
+        try { cv.getContext('2d').drawImage(src, 0, 0); } catch { return; }
+        cv.style.transition = 'none'; cv.style.opacity = '1';
+      };
+      return;
     }
-    if (k >= 1) {
+    if (D.snapped) {
       this.descent = null;
       this.enterSurface(D.b, D.where, true);
-      if (fade) setTimeout(() => fade.classList.remove('on'), 120);
+      if (this.surface) this.surface.land = { t0: performance.now(), dur: 2600, alt0: 1500 };
+      const cv = document.getElementById('snap');
+      if (cv) requestAnimationFrame(() => { cv.style.transition = 'opacity 1.1s ease-in'; cv.style.opacity = '0'; });
     }
   }
 
@@ -330,7 +340,15 @@ class App {
     let r = [f[1] * n[2] - f[2] * n[1], f[2] * n[0] - f[0] * n[2], f[0] * n[1] - f[1] * n[0]];
     const rl = Math.hypot(...r) || 1; r = r.map((v) => v / rl);
     const u = [r[1] * f[2] - r[2] * f[1], r[2] * f[0] - r[0] * f[2], r[0] * f[1] - r[1] * f[0]];
-    const h = b.r + 1.7 / 1.495978707e11; // eye 1.7 m above the ground (the terrain is built around it)
+    if (sv.land) {
+      // Landing: from alt0 m up, looking down, to the ground, levelling out (eased; faster near the ground).
+      const k = Math.min(1, (performance.now() - sv.land.t0) / sv.land.dur), e = 1 - Math.pow(1 - k, 3);
+      sv.alt = sv.land.alt0 * Math.pow(1 - e, 2);
+      if (sv.land.pitch1 === undefined) sv.land.pitch1 = sv.pitch;
+      sv.pitch = -0.75 + (sv.land.pitch1 + 0.75) * Math.min(1, e * 1.3);
+      if (k >= 1) { sv.alt = 0; sv.pitch = sv.land.pitch1; sv.land = null; }
+    }
+    const h = b.r + (1.7 + (sv.alt || 0)) / 1.495978707e11; // eye 1.7 m above the ground (the terrain is built around it), or alt m higher (coming down)
     this.cam.override = { eye: [b.x + n[0] * h, b.y + n[1] * h, b.z + n[2] * h], f, r, u };
     this.cam.dist = this.cam.distGoal = b.r * 0.01;
     sv.up = n; sv.sun = sun; sv.sunPower = star ? 1 : 0; sv.star = star; sv.north = north; sv.sunAng = sunAng; sv.sunTemp = sunTemp;
@@ -1054,6 +1072,7 @@ class App {
       if (own) this.gpu.draw(this.r3d, this.world, done, gpuHosts);
     }
     this.renderer.draw(now, ui);
+    if (this.snapPending) { this.snapPending(); this.snapPending = null; }
     this.perfReadout(now, dtReal, performance.now() - tr);
     this.ui.tick(now);
   }

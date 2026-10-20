@@ -502,7 +502,12 @@ export class World {
       this.events.push({ text: `${s.name} and ${o.name} merged in a luminous red nova`, body: s, big: true, snd: 'nova', power: 1, at: [s.x, s.y, s.z] });
     }
     const ev = reclassify(s);
-    this.flashes.push({ x: ix, y: iy, z: iz, r: Math.max(o.r * 4, s.r * Math.min(3, 0.5 + 8 * ratio)), born: performance.now(), life: 900 + 1400 * Math.min(1, ratio * 10), color: kind === PK.HOT ? [255, 230, 190] : [255, 170, 90] });
+    // The impact's flash, riding on the body that was hit (with time sped up it would otherwise be left behind,
+    // glowing where the body was). None for something falling into a star: against its light it is nothing.
+    // At most eight at once: thousands of impacts a second (Planet Formation sped up) would pile up into glare.
+    if (!(isLuminous(s) && !isLuminous(o)) && this.flashes.length < 8) {
+      this.flashes.push({ x: ix, y: iy, z: iz, body: s, dx: ix - s.x, dy: iy - s.y, dz: iz - s.z, r: Math.max(o.r * 4, s.r * Math.min(3, 0.5 + 8 * ratio)), born: performance.now(), life: 900 + 1400 * Math.min(1, ratio * 10), color: kind === PK.HOT ? [255, 230, 190] : [255, 170, 90] });
+    }
     if (gw) {
       const f = (x) => (x >= 100 ? Math.round(x).toLocaleString('en-US') : x.toPrecision(3));
       this.events.push({ text: `${s.name} and ${o.name} merged into a ${f(s.m)} M☉ black hole. ${f(gw.rad)} M☉ was radiated as gravitational waves${gw.kick > 1 ? `, and the remnant recoiled at ${Math.round(gw.kick)} km/s` : ''}.`, body: s, big: true, snd: 'bhmerge', power: 1, at: [s.x, s.y, s.z] });

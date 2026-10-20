@@ -878,6 +878,8 @@ export class Renderer {
     world.flashes = world.flashes.filter((f) => now - f.born < f.life);
     ctx.globalCompositeOperation = 'lighter';
     for (const f of world.flashes) {
+      const fb = f.body && world.resolve(f.body);
+      if (fb && fb.alive) { f.x = fb.x + f.dx; f.y = fb.y + f.dy; f.z = fb.z + f.dz; }
       if (cam.project(f.x, f.y, f.z, p) <= 0) continue;
       const k = Math.max(0, (now - f.born) / f.life);
       const R = Math.max(f.r * p.s, 14 * dpr) * (0.6 + 2.2 * Math.sqrt(k));

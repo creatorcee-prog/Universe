@@ -83,6 +83,14 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 - (Done) Ocean Moon scenario (from a user's picture, the land made sea): Pelagia, a made-up ocean moon locked
   close to Rhodon, a cream-and-rose giant that spans ~34° of its sky; "Facing <planet>" in the Surface view
   for any locked moon (stands where the planet hangs ~25° up, by daylight); Pelagia in the book.
+- (Done) Descent: the flat colour flash at the hand-off is gone: the last orbit frame dissolves (1.1 s) into the
+  Surface view entered 1.5 km up looking down, which glides to the ground and levels out (2.6 s). Next for a
+  true single-renderer descent: the Surface view at any altitude (sky from above the air, the globe beyond the
+  150 km terrain, clouds seen from above).
+- (Done) Planet Formation glare (user screenshot): impact flashes ride on the body hit (they were pinned where
+  the impact happened and left behind along the orbits when sped up), none for bodies falling into a star,
+  at most eight at once.
+- TODO (user, added): toggle tidal locking, and explain how it happens; better supernovae; magnetic field views.
 - (Done) The Solar System's Moon rides on Earth (minors.js partner): the pair's centre of mass in IAS15, the
   Moon on a Kepler orbit kicked by the Sun's and planets' tides, 128 kicks an orbit (matches a full N-body run
   to ~0.05° after a year, ~0.6° after five). Its month no longer sets every planet's step: at 100x the Solar
