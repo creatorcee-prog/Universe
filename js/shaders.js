@@ -2795,6 +2795,7 @@ uniform float uBright;
 uniform int uBand;       // 0 visible, 1 infrared, 2 ultraviolet, 3 X-ray
 uniform int uRem;        // 0 a nebula; a supernova remnant: 1 core collapse, 2 Type Ia
 uniform vec2 uRows;      // the band of the buffer drawn (render3d.js drawNebulae): first row, height (0..1)
+uniform int uBaked;      // 1: the remnant is read from its baked volume (uRemTex)
 out vec4 outColor;
 // Cellular noise, inverted (1 at the cells' centres): round cavities.
 float billowR(vec3 x) {
@@ -2812,63 +2813,87 @@ float billowR(vec3 x) {
 // the ejecta heated by the reverse shock in a bright, broken shell at ~0.6-0.75 of the radius, knots and
 // filaments drawn out radially into fingers (Rayleigh-Taylor), with cavities (bubbles) between; and cool dust
 // glowing in the infrared as a grey-violet smoke. Not a sphere: the explosion is lopsided.
+// The remnant's light (rgb) and dust (a, extinction per unit length) at p, in unit-sphere coordinates, in the
+// band shown. (Shared by the live ray-march, the bake into a volume atlas, and so the same either way.)
+vec4 remField(vec3 p, vec3 sd) {
+  float r = length(p);
+  if (r > 1.0) return vec4(0.0);
+  vec3 u = p / max(r, 1e-4);
+  // Lopsided: the shock and the ejecta shell lie farther out on some sides.
+  float lop = fbm(u * 1.3 + sd, 3) - 0.5;
+  float rs = 0.93 + 0.12 * lop, re = 0.68 + 0.16 * lop + 0.05 * (vnoise(u * 4.0 + sd + 3.0) - 0.5);
+  vec3 w = vec3(fbm(u * 3.0 + sd, 3), fbm(u * 3.0 + sd + 5.2, 3), fbm(u * 3.0 + sd + 9.7, 3)) - 0.5;
+  // The blast wave's rim: thin, faint, wispy.
+  float rim = exp(-pow((r - rs) / 0.03, 2.0)) * (0.35 + 0.65 * fbm(u * 7.0 + w * 2.0 + sd, 3));
+  // Ejecta: knots on the shell, stretched radially into fingers (the noise varies fast across, slowly along r),
+  // and a network of thin bright filaments (ridges); broken into patches.
+  float shell = smoothstep(re - 0.12, re - 0.01, r) * (1.0 - smoothstep(re + 0.01, re + 0.07, r));
+  // (In 3D, curling along the shell; stretched only a little along the radius: short fingers.)
+  vec3 pf = p * vec3(1.0) + u * 0.06 * sin(r * 40.0);
+  float knots = pow(vnoise(pf * 34.0 + w * 5.0 + sd), 4.0) * 1.6;
+  float fil = pow(1.0 - abs(2.0 * vnoise(pf * 15.0 + w * 3.0 + sd + 1.0) - 1.0), 14.0) * 1.3
+            + 0.8 * pow(1.0 - abs(2.0 * vnoise(pf * 36.0 + w * 5.0 + sd + 4.0) - 1.0), 16.0);
+  float patchy = smoothstep(0.38, 0.62, fbm(u * 2.2 + sd + 7.0, 3));
+  float ej = shell * (0.12 + 0.88 * patchy) * (knots * 2.4 + fil * 3.8);
+  // Oxygen-rich and silicon/iron-rich ejecta come out in different directions (Cas A's iron plumes).
+  float met = smoothstep(0.45, 0.7, fbm(u * 1.8 + sd + 11.0, 3));
+  float sul = smoothstep(0.5, 0.72, fbm(u * 2.6 + sd + 23.0, 3));   // (sulphur-rich patches)
+  // Cavities: the interior is mostly empty, with large bubbles bounded by thin walls.
+  float bub = r < re ? 1.0 - billowR(p * 2.6 + sd) : 0.0;   // (only inside the shell: it costs 27 hashes)
+  float inner = (1.0 - smoothstep(0.0, re, r)) * smoothstep(0.55, 0.8, bub) * 0.25;
+  // Dust: a smoky haze through the shell, warm in the infrared.
+  float dust = smoothstep(0.3, 0.75, fbm(p * 2.4 + w * 1.5 + sd + 2.0, 4)) * smoothstep(0.25, 0.7, r) * (1.0 - smoothstep(0.95, 1.05, r));
+  vec3 e;
+  float ext = dust * 1.5;
+  if (uBand == 3) {
+    // X-rays (as Chandra sees W49B or Cas A; false colour): hot gas everywhere inside the shock, iron in
+    // purple, silicon and sulphur in green and blue; the rim thin and bright.
+    vec3 xc = mix(mix(vec3(0.2, 0.7, 1.0), vec3(0.3, 0.9, 0.45), sul), vec3(1.0, 0.25, 0.95), met);
+    e = (xc * (shell * (0.4 + patchy * 1.2) * (0.6 + 0.8 * fil) + inner * 1.6 + dust * 0.3) + vec3(1.0, 0.55, 0.35) * rim * fil * 2.0 + vec3(0.6, 0.8, 1.0) * rim * 0.5) * 0.8;
+    ext = 0.0;
+  } else if (uBand == 1) {
+    e = vec3(1.0, 0.72, 0.5) * dust * 0.9 + vec3(1.0, 0.45, 0.3) * ej * 0.5;   // warm dust glows
+    ext *= 0.1;
+  } else if (uBand == 2) {
+    e = vec3(0.6, 0.75, 1.0) * (ej * 0.6 + rim * 1.2 + inner);
+  } else {
+    // Visible: hydrogen and sulphur (red, orange-pink), oxygen (teal) in the knots and filaments; the rim
+    // faint blue-white; the dust a dim grey-violet smoke, lit by the shell.
+    vec3 ejc = mix(mix(vec3(1.0, 0.36, 0.22), vec3(1.0, 0.55, 0.62), knots), vec3(0.3, 0.85, 0.85), met * 0.55);
+    e = ejc * ej + vec3(0.55, 0.62, 1.0) * rim * 0.35 + vec3(0.5, 0.46, 0.68) * dust * 0.5 + vec3(0.3, 0.25, 0.45) * inner;
+  }
+  return vec4(e, ext);
+}
+// The baked volume (render3d.js bakeRemnant): 144 slices of 144 x 144 tiled 12 x 12 in a 2D texture, light
+// stored as sqrt(e / 8) and dust as ext / 2 (8 bits each); read with linear filtering inside each slice and
+// blended between the two nearest slices, so a 3D lookup costs two texture reads.
+uniform sampler2D uRemTex;
+uniform vec3 uAtl;   // slices (N), tiles across, tiles down
+vec4 remAtlas(vec3 p) {
+  if (dot(p, p) > 1.0) return vec4(0.0);
+  float N = uAtl.x;
+  vec3 q = (p * 0.5 + 0.5) * (N - 1.0);
+  float z0 = floor(q.z), fz = q.z - z0, z1 = min(z0 + 1.0, N - 1.0);
+  vec2 ts = vec2(1.0) / (uAtl.yz * N);
+  vec2 inT = q.xy + 0.5;
+  vec2 a0 = (vec2(mod(z0, uAtl.y), floor(z0 / uAtl.y)) * N + inT) * ts;
+  vec2 a1 = (vec2(mod(z1, uAtl.y), floor(z1 / uAtl.y)) * N + inT) * ts;
+  vec4 f = mix(texture(uRemTex, a0), texture(uRemTex, a1), fz);
+  return vec4(8.0 * f.rgb * f.rgb, 2.0 * f.a);
+}
 vec4 remnant(vec3 o, vec3 dw, float t0, float t1, vec3 sd) {
-  // (56 samples through it, started at a different fraction of a step at each pixel, so the thin blast-wave rim
-  // does not band; the buffer is then smoothed as it is enlarged)
-  const int N = 56;
+  // (samples through it, started at a different fraction of a step at each pixel, so the thin blast-wave rim
+  // does not band. Baked: 96 cheap ones; live, while it is being baked: 56 costly ones)
+  int N = uBaked == 1 ? 96 : 56;
   float dt = (t1 - t0) / float(N), jit = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
   vec3 col = vec3(0.0);
   float T = 1.0;
-  for (int i = 0; i < N; i++) {
+  for (int i = 0; i < 96; i++) {
+    if (i >= N) break;
     vec3 p = o + dw * (t0 + (float(i) + jit) * dt);
-    float r = length(p);
-    if (r > 1.0) continue;
-    vec3 u = p / max(r, 1e-4);
-    // Lopsided: the shock and the ejecta shell lie farther out on some sides.
-    float lop = fbm(u * 1.3 + sd, 3) - 0.5;
-    float rs = 0.93 + 0.12 * lop, re = 0.68 + 0.16 * lop + 0.05 * (vnoise(u * 4.0 + sd + 3.0) - 0.5);
-    vec3 w = vec3(fbm(u * 3.0 + sd, 3), fbm(u * 3.0 + sd + 5.2, 3), fbm(u * 3.0 + sd + 9.7, 3)) - 0.5;
-    // The blast wave's rim: thin, faint, wispy.
-    float rim = exp(-pow((r - rs) / 0.03, 2.0)) * (0.35 + 0.65 * fbm(u * 7.0 + w * 2.0 + sd, 3));
-    // Ejecta: knots on the shell, stretched radially into fingers (the noise varies fast across, slowly along r),
-    // and a network of thin bright filaments (ridges); broken into patches.
-    float shell = smoothstep(re - 0.12, re - 0.01, r) * (1.0 - smoothstep(re + 0.01, re + 0.07, r));
-    // (In 3D, curling along the shell; stretched only a little along the radius: short fingers.)
-    vec3 pf = p * vec3(1.0) + u * 0.06 * sin(r * 40.0);
-    float knots = pow(vnoise(pf * 34.0 + w * 5.0 + sd), 4.0) * 1.6;
-    float fil = pow(1.0 - abs(2.0 * vnoise(pf * 15.0 + w * 3.0 + sd + 1.0) - 1.0), 14.0) * 1.3
-              + 0.8 * pow(1.0 - abs(2.0 * vnoise(pf * 36.0 + w * 5.0 + sd + 4.0) - 1.0), 16.0);
-    float patchy = smoothstep(0.38, 0.62, fbm(u * 2.2 + sd + 7.0, 3));
-    float ej = shell * (0.12 + 0.88 * patchy) * (knots * 2.4 + fil * 3.8);
-    // Oxygen-rich and silicon/iron-rich ejecta come out in different directions (Cas A's iron plumes).
-    float met = smoothstep(0.45, 0.7, fbm(u * 1.8 + sd + 11.0, 3));
-    float sul = smoothstep(0.5, 0.72, fbm(u * 2.6 + sd + 23.0, 3));   // (sulphur-rich patches)
-    // Cavities: the interior is mostly empty, with large bubbles bounded by thin walls.
-    float bub = r < re ? 1.0 - billowR(p * 2.6 + sd) : 0.0;   // (only inside the shell: it costs 27 hashes)
-    float inner = (1.0 - smoothstep(0.0, re, r)) * smoothstep(0.55, 0.8, bub) * 0.25;
-    // Dust: a smoky haze through the shell, warm in the infrared.
-    float dust = smoothstep(0.3, 0.75, fbm(p * 2.4 + w * 1.5 + sd + 2.0, 4)) * smoothstep(0.25, 0.7, r) * (1.0 - smoothstep(0.95, 1.05, r));
-    vec3 e;
-    float ext = dust * 1.5;
-    if (uBand == 3) {
-      // X-rays (as Chandra sees W49B or Cas A; false colour): hot gas everywhere inside the shock, iron in
-      // purple, silicon and sulphur in green and blue; the rim thin and bright.
-      vec3 xc = mix(mix(vec3(0.2, 0.7, 1.0), vec3(0.3, 0.9, 0.45), sul), vec3(1.0, 0.25, 0.95), met);
-      e = (xc * (shell * (0.4 + patchy * 1.2) * (0.6 + 0.8 * fil) + inner * 1.6 + dust * 0.3) + vec3(1.0, 0.55, 0.35) * rim * fil * 2.0 + vec3(0.6, 0.8, 1.0) * rim * 0.5) * 0.8;
-      ext = 0.0;
-    } else if (uBand == 1) {
-      e = vec3(1.0, 0.72, 0.5) * dust * 0.9 + vec3(1.0, 0.45, 0.3) * ej * 0.5;   // warm dust glows
-      ext *= 0.1;
-    } else if (uBand == 2) {
-      e = vec3(0.6, 0.75, 1.0) * (ej * 0.6 + rim * 1.2 + inner);
-    } else {
-      // Visible: hydrogen and sulphur (red, orange-pink), oxygen (teal) in the knots and filaments; the rim
-      // faint blue-white; the dust a dim grey-violet smoke, lit by the shell.
-      vec3 ejc = mix(mix(vec3(1.0, 0.36, 0.22), vec3(1.0, 0.55, 0.62), knots), vec3(0.3, 0.85, 0.85), met * 0.55);
-      e = ejc * ej + vec3(0.55, 0.62, 1.0) * rim * 0.35 + vec3(0.5, 0.46, 0.68) * dust * 0.5 + vec3(0.3, 0.25, 0.45) * inner;
-    }
-    col += T * e * dt * 2.0 * uBright;
-    T *= exp(-ext * dt);
+    vec4 f = uBaked == 1 ? remAtlas(p) : remField(p, sd);
+    col += T * f.rgb * dt * 2.0 * uBright;
+    T *= exp(-f.a * dt);
   }
   return vec4(col, min(1.0, (1.0 - T) + dot(col, vec3(0.1))));
 }
@@ -2973,6 +2998,26 @@ in vec2 vUV;
 uniform sampler2D uTex;
 out vec4 outColor;
 void main() { outColor = texture(uTex, vUV); }
+`;
+
+// Baking a supernova remnant into its volume atlas (render3d.js bakeRemnant; read by remAtlas): each texel of
+// the 12 x 12 tiles is one point of the 144^3 grid over the unit cube; the same remField as the live ray-march.
+const REM_SRC = NEBULA_FS.slice(NEBULA_FS.indexOf('// Cellular noise, inverted'), NEBULA_FS.indexOf('// The baked volume'));
+export const REMBAKE_FS = HEAD + NOISE + `
+in vec2 vUV;
+uniform int uBand;
+uniform vec3 uSd, uAtl;
+out vec4 outColor;
+` + REM_SRC + `
+void main() {
+  float N = uAtl.x;
+  vec2 px = floor(gl_FragCoord.xy), tile = floor(px / N), t = px - tile * N;
+  float z = tile.y * uAtl.y + tile.x;
+  if (z >= N) { outColor = vec4(0.0); return; }
+  vec3 p = vec3(t, z) / (N - 1.0) * 2.0 - 1.0;
+  vec4 f = remField(p, uSd);
+  outColor = vec4(sqrt(clamp(f.rgb / 8.0, 0.0, 1.0)), clamp(f.a / 2.0, 0.0, 1.0));
+}
 `;
 
 // A low-resolution buffer enlarged smoothly: cubic B-spline filtering from four bilinear taps (Sigg & Hadwiger,

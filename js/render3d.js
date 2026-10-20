@@ -3,7 +3,7 @@ import { isLuminous, tempToRGB, schwarzschild } from './bodies.js';
 import { transientLum } from './stellar.js';
 import { G, EARTH_MASS, KPC_AU } from './units.js';
 import { starCatalog, bvToTemp, GAL_N, GAL_C } from './stars.js';
-import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, RING_POINTS_VS, SKY_FS, SKY_VS, GALGLOW_VS, GALGLOW_FS, GALCOMP_FS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS, RIM_FS, TERRAIN_VS, TERRAIN_FS, RING_FS, CLOUD_FS, GEN_FS, SURFACE_CLOUD_FS, WEATHER_FS, NEBULA_FS, BLIT_FS, CUT_FS, UPSAMPLE_FS } from './shaders.js';
+import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, RING_POINTS_VS, SKY_FS, SKY_VS, GALGLOW_VS, GALGLOW_FS, GALCOMP_FS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS, RIM_FS, TERRAIN_VS, TERRAIN_FS, RING_FS, CLOUD_FS, GEN_FS, SURFACE_CLOUD_FS, WEATHER_FS, NEBULA_FS, BLIT_FS, CUT_FS, UPSAMPLE_FS, REMBAKE_FS } from './shaders.js';
 import { atmosphereOptics, giantOptics, setOpticsUniforms, stretchOptics, atmosphereTop, shellTop, groundLight } from './optics.js';
 import { heatOutput } from './thermal.js';
 import { interiorOf } from './interior.js';
@@ -234,6 +234,7 @@ function icosphere(sub) {
 // so the same scene works from a few kilometres up to galaxy scale.
 
 const D2R = Math.PI / 180;
+const REM_N = 144, REM_T = 12;   // a remnant's baked volume: slices, and tiles across its atlas (render3d.js bakeRemnant)
 const HOUR_YR = 1 / 8766;
 const MAX_SPIN = Math.PI * 2 * 0.2; // visual cap: at most 0.2 turns per real second, so fast time doesn't strobe
 
@@ -965,11 +966,20 @@ export class Renderer3D {
       list.push([pseudo, vp]);
     }
     if (!list.length) return;
-    // (Quarter resolution, enlarged smoothly below; half for a remnant while it is small on screen, so its fine
-    // knots and filaments stay sharp where they cost little: big on screen, a quarter.)
+    // A remnant is baked into a volume once (bakeRemnant, a strip a frame), then read from it: a few texture
+    // reads a step instead of dozens of noise samples. (The nearest one; others, if any, ray-marched live.)
+    const band0 = this.spectrumMode();
+    const remItem = list.filter((e) => e[0].rem).sort((a, c) => -a[1][2] + c[1][2])[0];
+    let bakedKey = null;
+    if (remItem) {
+      const b = remItem[0], key = `${b.id}|${b.rem}|${band0}`;
+      if (this.bakeRemnant(key, (b.id % 97) * 0.13, band0)) bakedKey = key;
+    }
+    // (Quarter resolution, enlarged smoothly below; half for a remnant read from its baked volume, or while it is
+    // small on screen, so its fine knots and filaments stay sharp where they cost little.)
     const tanY = Math.tan(cam.fov / 2);
     const big = list.some(([b, vp]) => b.rem && b.r / Math.max(-vp[2] * tanY, 1e-30) > 0.35 || -vp[2] < b.r);
-    const div = list.some((e) => e[0].rem) && !big ? 2 : 4;
+    const div = list.some((e) => e[0].rem) && (!big || bakedKey) ? 2 : 4;
     const w = Math.max(16, Math.ceil(W / div)), h = Math.max(16, Math.ceil(H / div));
     let fresh = false;
     if (!this.nebRT || this.nebRT.w !== w || this.nebRT.h !== h) {
@@ -982,10 +992,10 @@ export class Renderer3D {
     // camera drifting), one band of four is drawn again each frame, in turn, so every frame costs the same (a
     // whole redraw every few frames would be felt as a stutter); changed a lot (turning the camera, a new
     // nebula), all of it at once.
-    const band = this.spectrumMode(), tanX = Math.tan(cam.fov / 2) * (this.canvas.width / this.canvas.height);
+    const band = band0, tanX = Math.tan(cam.fov / 2) * (this.canvas.width / this.canvas.height);
     const sig = list.map(([b, vp]) => [vp[0] / b.r, vp[1] / b.r, vp[2] / b.r, b.r, b.glow === undefined ? 1 : b.glow]);
     const last = this.nebSig;
-    let change = fresh || !last || last.band !== band || last.tanX !== tanX || last.items.length !== sig.length ? 2 : 0;
+    let change = fresh || !last || last.band !== band || last.tanX !== tanX || last.items.length !== sig.length || last.baked !== bakedKey ? 2 : 0;
     for (let k = 0; k < sig.length && change < 2; k++) {
       const a = sig[k], c = last.items[k];
       const dp = Math.abs(a[0] - c[0]) + Math.abs(a[1] - c[1]) + Math.abs(a[2] - c[2]), sc = Math.max(1, Math.hypot(a[0], a[1], a[2]));
@@ -999,7 +1009,7 @@ export class Renderer3D {
         if (d > 0.002) change = 2; else if (d > 1e-7) change = Math.max(change, 1);
       }
     }
-    if (change) { this.nebSig = { band, tanX, items: sig }; this.nebView = Float32Array.from(this.V); }
+    if (change) { this.nebSig = { band, tanX, items: sig, baked: bakedKey }; this.nebView = Float32Array.from(this.V); }
     if (change === 2) this.nebBands = 0;
     else if (change === 1) this.nebBands = 4;   // (bands still to draw at the newest state)
     if (change === 0 && !(this.nebBands > 0)) { this.compositeNebulae(fbo, W, H, w, h); return; }
@@ -1029,10 +1039,51 @@ export class Renderer3D {
       gl.uniform1f(u.uSeed, (b.id % 97) * 0.13);
       gl.uniform1f(u.uBright, b.glow === undefined ? 1 : b.glow);
       gl.uniform1i(u.uRem, b.rem || 0);
+      const baked = !!b.rem && bakedKey === `${b.id}|${b.rem}|${band}`;
+      gl.uniform1i(u.uBaked, baked ? 1 : 0);
+      if (baked) { this.bindTex(1, this.remB.tex, u.uRemTex); gl.uniform3f(u.uAtl, REM_N, REM_T, REM_T); }
       gl.bindVertexArray(this.quad);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     }
     this.compositeNebulae(fbo, W, H, w, h);
+  }
+
+  // Bake a remnant's light and dust into its volume atlas (REMBAKE_FS): 144 slices of 144 x 144, tiled 12 x 12 in
+  // one 1728 x 1728 texture (12 MB). A strip of 72 rows a frame, so baking does not cost a stutter (24 frames,
+  // under half a second); the remnant is ray-marched live meanwhile. Again for a new remnant or another band.
+  // Returns true once ready.
+  bakeRemnant(key, seed, band) {
+    const gl = this.gl, S = REM_N * REM_T;
+    let B = this.remB;
+    if (!B) {
+      const tex = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, S, S, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      const fbo = gl.createFramebuffer();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+      B = this.remB = { tex, fbo, key: null, row: 0 };
+    }
+    if (B.key !== key) { B.key = key; B.row = 0; }
+    if (B.row >= S) return true;
+    const p = this.pRemBake || (this.pRemBake = this.program(FULL_VS, REMBAKE_FS)), u = p.u;
+    const rows = Math.min(72, S - B.row);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, B.fbo);
+    gl.viewport(0, B.row, S, rows);
+    gl.disable(gl.BLEND);
+    gl.disable(gl.DEPTH_TEST);
+    gl.useProgram(p.p);
+    gl.uniform1i(u.uBand, band);
+    gl.uniform3f(u.uSd, seed * 17, seed * 31, seed * 7);
+    gl.uniform3f(u.uAtl, REM_N, REM_T, REM_T);
+    gl.bindVertexArray(this.quad);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    B.row += rows;
+    return B.row >= S;
   }
 
   // The nebulae's buffer onto the scene, enlarged smoothly.

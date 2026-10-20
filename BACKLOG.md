@@ -1,6 +1,13 @@
 # Backlog
 
-Ideas parked for later, roughly in the order they were asked for. Done items move to the README.
+Done items move to the README. (October 2026: the user cleared everything else; these four are open.)
+
+- [x] Supernova remnants baked into a 3D volume: 144^3 in a 12 x 12 slice atlas (1728², RGBA8, 12 MB; light as sqrt(e/8)), baked 72 rows a frame (~24 frames) with the live march meanwhile, per remnant and spectral band; then 96 samples of two texture reads each instead of 56 of ~30 noise samples, at half resolution. Same remField code for both.
+- [ ] Gas giant bands: swirling eddies (curl noise, Bridson et al. 2007) over the flowing jets.
+- [ ] Sharper planet maps without running out of memory: compressed textures (KTX2/Basis).
+- [ ] Seamless descent, stage B: a globe whose detail sharpens continuously from orbit to the ground (quadtree level of detail).
+
+## Done (history)
 
 ## Earlier list (parked October 2026)
 
