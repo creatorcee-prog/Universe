@@ -12,7 +12,7 @@ const TRAIL_LEN = 360;
 const PARTICLE_RGB = {
   [PK.DEBRIS]: [196, 150, 116], [PK.HOT]: [255, 196, 130], [PK.STAR_BLUE]: [168, 196, 255], [PK.STAR_GOLD]: [255, 218, 168],
   [PK.ICE]: [214, 220, 232], [PK.DUST]: [190, 160, 128], [PK.GAS]: [214, 184, 146], [PK.ROCK]: [164, 148, 132],
-  [PK.SN_H]: [255, 80, 100], [PK.SN_O]: [80, 230, 210], [PK.SN_SI]: [255, 205, 90], [PK.SN_FE]: [230, 228, 255], [PK.WIND]: [255, 110, 80],
+  [PK.SN_H]: [255, 80, 100], [PK.SN_O]: [80, 230, 210], [PK.SN_SI]: [255, 205, 90], [PK.SN_FE]: [230, 228, 255], [PK.WIND]: [255, 110, 80], [PK.JET]: [170, 200, 255],
 };
 
 // On-screen radius in device pixels that both views give a body (tiny bodies get a minimum size).
@@ -581,9 +581,11 @@ export class Renderer {
     ctx.globalCompositeOperation = 'lighter';
     ctx.lineWidth = 1.3 * this.dpr;
     ctx.lineJoin = 'round';
-    const CH = 6;
-    // With crowded scenes, only the heaviest bodies (plus the selection) keep a trail.
+    // With crowded scenes, only the heaviest bodies (plus the selection) keep a trail, in three fading pieces
+    // instead of six and every other point (a crowd's trails are short on screen: no visible difference, half
+    // the strokes).
     let list = this.world.bodies;
+    const crowd = list.length > 40, CH = crowd ? 3 : 6, every = crowd ? 2 : 1;
     // Optional colour coding (like Universe Sandbox): orbital speed or surface temperature.
     const mode = this.settings.trailColor || 'body';
     const hier = mode === 'velocity' ? this.world.hierarchy() : null;
@@ -613,7 +615,7 @@ export class Renderer {
         const ga = g0 + Math.floor((span * c) / CH), gb = g0 + Math.floor((span * (c + 1)) / CH);
         const path = new Path2D();
         let pen = false;
-        for (let g = ga; g <= gb; g++) {
+        for (let g = ga; g <= gb; g += g + every > gb && g < gb ? gb - g : every) {
           const o = (g % TRAIL_LEN) * 3;
           let x = t.buf[o], y = t.buf[o + 1], z = t.buf[o + 2];
           if (rel) { x += f.x - rel.buf[o]; y += f.y - rel.buf[o + 1]; z += f.z - rel.buf[o + 2]; }

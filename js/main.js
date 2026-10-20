@@ -19,12 +19,13 @@ import { atmosphereOptics } from './optics.js';
 const SETTINGS_KEY = 'universe-pocket-settings';
 
 function loadSettings() {
-  const defaults = { trails: true, labels: true, grid: true, stars: true, trailsRelative: true, collisions: true, sound: true, music: true, uiSound: true, soundSilent: false, bassBoost: false, sharp: false, perf: false, gpuRings: false, webgpu: false, v: 4, view: 'realistic', bloom: true, flare: true, brightness: 'enhanced', tone: 'classic', rocks: true, trailColor: 'body', orbits: false, trueSize: false, magnetic: false, allTemp: false, allGrav: false, gpuParticles: true };
+  const defaults = { trails: true, labels: true, grid: true, stars: true, trailsRelative: true, collisions: true, sound: true, music: true, uiSound: true, soundSilent: false, bassBoost: false, sharp: false, perf: false, gpuRings: false, webgpu: false, v: 5, view: 'realistic', bloom: true, flare: true, brightness: 'enhanced', tone: 'classic', rocks: true, trailColor: 'body', orbits: false, trueSize: false, magnetic: false, allTemp: false, allGrav: false, gpuParticles: true };
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
     // v2: interface sounds were off in v1 while the sound set was being replaced; the new set is on.
     if ((saved.v || 1) < 2) { delete saved.uiSound; saved.v = 2; }
     if (saved.v < 4) { saved.flare = true; saved.v = 4; }   // the flare is back, now without rays
+    if (saved.v < 5) { saved.gpuParticles = true; saved.v = 5; }   // particles on the GPU: the default, on again once
     return { ...defaults, ...saved };
   } catch {
     return defaults;

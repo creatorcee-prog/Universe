@@ -3,12 +3,13 @@ import { reclassify, refresh, isLuminous, makeBody, starRadius } from './bodies.
 import { thermalStep, mergeThermal, finishMerge, accreteHeat, accreteMaterial } from './thermal.js';
 import { evolveStar, stellarDeath, transientLum } from './stellar.js';
 import { IAS15, IAS15_NODES } from './ias15.js';
+import { WH } from './wh.js';
 import { Octree, particleGravity } from './tree.js';
 import { coagulate } from './coagulate.js';
 import { prepareMinors, stepMinors } from './minors.js';
 
 // Particle kinds (purely visual categories; particles carry mass but do not attract each other).
-export const PK = { DEBRIS: 0, HOT: 1, STAR_BLUE: 2, STAR_GOLD: 3, ICE: 4, DUST: 5, GAS: 6, ROCK: 7, SN_H: 8, SN_O: 9, SN_SI: 10, SN_FE: 11, WIND: 12 };
+export const PK = { DEBRIS: 0, HOT: 1, STAR_BLUE: 2, STAR_GOLD: 3, ICE: 4, DUST: 5, GAS: 6, ROCK: 7, SN_H: 8, SN_O: 9, SN_SI: 10, SN_FE: 11, WIND: 12, JET: 13 };
 
 const PCAP = 16000; // free particles
 const RCAP = 30000; // ring particles locked to a host body
@@ -837,6 +838,8 @@ export class World {
     let remaining = simDt;
     let steps = 0;
     const integ = this.integ;
+    const idxs = new Int32Array(na);
+    let idxDyn = null, idxLen = -1;
     while (remaining > 0) {
       if (this.dirty) { this.computeAcc(); integ.invalidate(); }
       const dyn = this.majors();
@@ -844,6 +847,47 @@ export class World {
       // IAS15 picks its own step; it is also capped at a fraction of the shortest pairwise orbital
       // timescale so swept collision tests and particle checkpoints stay fine-grained.
       const cap = 0.3 * this.dtMax / this.eta;
+      // A swarm about one star with no close pairs: the Wisdom-Holman step (wh.js), one force evaluation.
+      const hw = this.whOn !== false ? (this.wh || (this.wh = new WH())).eligible(dyn, remaining) : 0;
+      if (hw > 0) {
+        const t0w = this.t;
+        const recordAt = (tt) => {
+          if (steps >= MAX_STEPS) return;
+          steps++;
+          cpT[steps] = tt;
+          const o = steps * stride;
+          for (let a = 0; a < na; a++) {
+            const q = o + a * 4, idx = idxs[a];
+            if (idx >= 0) { const bb = dyn[idx]; cp[q] = bb.x; cp[q + 1] = bb.y; cp[q + 2] = bb.z; cp[q + 3] = bb.m; } else cp[q + 3] = 0;
+          }
+        };
+        if (idxDyn !== dyn || idxLen !== dyn.length || this.dirtyIdx) {
+          const pos = new Map();
+          for (let i = 0; i < dyn.length; i++) pos.set(dyn[i], i);
+          for (let a = 0; a < na; a++) { const bb = this.resolve(att[a]); idxs[a] = bb && pos.has(bb) ? pos.get(bb) : -1; }
+          idxDyn = dyn; idxLen = dyn.length; this.dirtyIdx = false;
+        }
+        this.wh.step(dyn, hw, () => recordAt(t0w + hw / 2));
+        this.t = t0w + hw;
+        // (bodies that touched during an encounter: merged or shattered as handleContacts does)
+        let hitW = false;
+        for (const [a, b] of this.wh.contacts) {
+          if (!this.collisions || !a.alive || !b.alive) continue;
+          if (!this.shatter(a, b)) this.merge(a, b);
+          hitW = true;
+        }
+        if (hitW) { this.bodies = this.bodies.filter((b) => b.alive); this.dirty = true; }
+        recordAt(this.t);
+        remaining -= hw;
+        if (remaining < hw * 1e-9) remaining = 0;
+        this.whLast = true;   // (IAS15's memory of its last step no longer holds: cleared if it steps next)
+        this.whSteps = (this.whSteps || 0) + 1;
+        this.handleContacts(hw);
+        if (steps >= MAX_STEPS - 8) break;
+        if (performance.now() - start > budgetMs) break;
+        continue;
+      }
+      if (this.whLast) { integ.invalidate(); this.whLast = false; }
       let dt = Math.min(remaining, integ.dt > 0 ? integ.dt : this.dtMax, cap);
       if (remaining - dt < dt * 1e-3) dt = remaining;
       const t0s = this.t;
@@ -851,7 +895,13 @@ export class World {
       if (!(taken > 0)) break;
       this.dtMax = this.eta * Math.sqrt(integ.minT2);
       // Dense output: bodies' positions at the 7 Gauss-Radau nodes and the end of the step.
-      const idxs = att.map((x) => { const bb = this.resolve(x); return bb ? dyn.indexOf(bb) : -1; });
+      // (where each attractor sits in the integrator's list: found again only when the list changes)
+      if (idxDyn !== dyn || idxLen !== dyn.length || this.dirtyIdx) {
+        const pos = new Map();
+        for (let i = 0; i < dyn.length; i++) pos.set(dyn[i], i);
+        for (let a = 0; a < na; a++) { const bb = this.resolve(att[a]); idxs[a] = bb && pos.has(bb) ? pos.get(bb) : -1; }
+        idxDyn = dyn; idxLen = dyn.length; this.dirtyIdx = false;
+      }
       for (let k = 0; k < 8 && steps < MAX_STEPS; k++) {
         const hk = k < 7 ? IAS15_NODES[k + 1] : 1;
         this.t = t0s + hk * taken;
@@ -921,6 +971,48 @@ export class World {
       if (L < 1e-4) { h.mdot = 0; h.lum = 0; continue; }
       h.lum = L;
       h.temp = 3e4;   // (the disk's light peaks in ultraviolet and X-rays; its colour, blue-white)
+      if (h.jet && h.mdot > 0.1 * 2.16e-8 * h.m) this.jetParticles(h, dt);
+    }
+    this.cullJets();
+  }
+
+  // A jet (maybeJet) as particles: gas leaving both poles of the disk in a cone a few degrees wide at 90% of
+  // light speed, released through the frame so the jet is a continuous stream. Massless tracers: they feel the
+  // bodies' gravity (the hole's barely slows them: escape speed near its disk is ~0.1 c) but not each other.
+  jetParticles(h, dt) {
+    const L = h.diskL, ln = L ? Math.hypot(L[0], L[1], L[2]) : 0;
+    const ax = ln > 0 ? [L[0] / ln, L[1] / ln, L[2] / ln] : [0, 1, 0];
+    const v = 0.9 * C_AU_YR, r0 = 6 * ((2 * G * h.m) / (C_AU_YR * C_AU_YR));
+    // (as many released as keep ~300 in flight in each jet, whatever the frame rate: they cross the reach of
+    // cullJets in reach / v)
+    const reach = 150 * 2 * 0.00465047 * Math.cbrt(h.m);
+    h._jetAcc = (h._jetAcc || 0) + (2 * 300 * v * dt) / reach;
+    const N2 = Math.min(400, Math.floor(h._jetAcc));
+    h._jetAcc -= N2;
+    for (let k = 0; k < N2; k++) {
+      const sg = k % 2 ? 1 : -1, w = randUnit(), open = 0.05 * Math.sqrt(rand());   // (half-angle ~3°)
+      let dx = ax[0] * sg + w[0] * open, dy = ax[1] * sg + w[1] * open, dz = ax[2] * sg + w[2] * open;
+      const dn = Math.hypot(dx, dy, dz);
+      dx /= dn; dy /= dn; dz /= dn;
+      const r = r0 + v * dt * rand();   // (spread over how far the jet runs in a frame)
+      this.spawnParticle(h.x + dx * r, h.y + dy * r, h.z + dz * r, h.vx + dx * v, h.vy + dy * v, h.vz + dz * v, 0, PK.JET);
+    }
+  }
+
+  // Jet particles far out (beyond 150 times the hole's disk) have done their part: removed.
+  cullJets() {
+    if (!this.np) return;
+    let holes = null;
+    for (const b of this.bodies) if (b.kind === 'bh' && b.alive) (holes || (holes = [])).push(b);
+    const pk = this.pk;
+    for (let i = this.np - 1; i >= 0; i--) {
+      if (pk[i] !== PK.JET) continue;
+      let keep = false;
+      if (holes) for (const h of holes) {
+        const reach = 150 * 2 * 0.00465047 * Math.cbrt(h.m);
+        if ((this.px[i] - h.x) ** 2 + (this.py[i] - h.y) ** 2 + (this.pz[i] - h.z) ** 2 < reach * reach) { keep = true; break; }
+      }
+      if (!keep) this.removeParticle(i);
     }
   }
 

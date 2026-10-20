@@ -459,9 +459,9 @@ const PARTICLE_RGB = {
   [PK.ICE]: c3(214, 206, 190), [PK.DUST]: c3(150, 126, 100), [PK.GAS]: c3(214, 184, 146), [PK.ROCK]: c3(120, 112, 104),
   // Supernova and nebula materials, coloured like their emission lines: hydrogen-alpha red,
   // oxygen teal, silicon/sulfur gold, iron white-hot.
-  [PK.SN_H]: c3(255, 70, 90), [PK.SN_O]: c3(70, 230, 210), [PK.SN_SI]: c3(255, 200, 80), [PK.SN_FE]: c3(230, 225, 255), [PK.WIND]: c3(255, 110, 80),
+  [PK.SN_H]: c3(255, 70, 90), [PK.SN_O]: c3(70, 230, 210), [PK.SN_SI]: c3(255, 200, 80), [PK.SN_FE]: c3(230, 225, 255), [PK.WIND]: c3(255, 110, 80), [PK.JET]: c3(170, 200, 255),
 };
-const GLOW_KINDS = new Set([PK.HOT, PK.STAR_BLUE, PK.STAR_GOLD, PK.SN_H, PK.SN_O, PK.SN_SI, PK.SN_FE, PK.WIND]);
+const GLOW_KINDS = new Set([PK.HOT, PK.STAR_BLUE, PK.STAR_GOLD, PK.SN_H, PK.SN_O, PK.SN_SI, PK.SN_FE, PK.WIND, PK.JET]);
 
 export class Renderer3D {
   static supported() {
@@ -3154,7 +3154,7 @@ export class Renderer3D {
         glow.col[ng * 3] = c[0] * a * v; glow.col[ng * 3 + 1] = c[1] * a * v; glow.col[ng * 3 + 2] = c[2] * a * v;
         // (a stream of gas: soft points, so it reads as a band; the wind blown off a feeding black hole: a faint
         // haze of wide ones)
-        glow.size[ng] = kind === PK.WIND ? -11 * dpk : col ? -6 * dpk : kind === PK.HOT ? size : 0;
+        glow.size[ng] = kind === PK.WIND ? -11 * dpk : kind === PK.JET ? -3 * dpk : col ? -6 * dpk : kind === PK.HOT ? size : 0;
         glow.shade[ng] = 1;
         ng++;
       } else {
@@ -3194,6 +3194,13 @@ export class Renderer3D {
       let col = null;
       if (pk[i] === PK.WIND) {
         sc[0] = 0.07; sc[1] = 0.024; sc[2] = 0.016;
+        col = sc;
+      } else if (pk[i] === PK.JET) {
+        // (beamed: brighter coming towards us, D³ with D = 1/γ(1 − β cos θ), β = 0.9; as the jet sprites)
+        const vx = world.pvx[i], vy = world.pvy[i], vz = world.pvz[i], vl = Math.hypot(vx, vy, vz) || 1;
+        const ex = this.ex - px[i], ey = this.ey - py[i], ez = this.ez - pz[i], el = Math.hypot(ex, ey, ez) || 1;
+        const ct = (vx * ex + vy * ey + vz * ez) / (vl * el), b = 0.16 * Math.min(4, Math.pow(1 / (1 - 0.9 * ct), 3));
+        sc[0] = 0.62 * b; sc[1] = 0.74 * b; sc[2] = b;
         col = sc;
       } else if (holes.length && pk[i] === PK.SN_H) {
         let q2 = Infinity;

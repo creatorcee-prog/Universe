@@ -36,9 +36,10 @@ export function coagulate(world, dt) {
   for (let i = 0; i < np; i++) if (pm[i] > 0 && pm[i] < PROMOTE && pk[i] !== PK_GAS && pk[i] !== PK_SN_H && pk[i] !== PK_WIND && pk[i] !== 2 && pk[i] !== 3) idx.push(i);
   const n = idx.length;
   if (n < 2) return;
-  const bodies = world.bodies, nb = bodies.length;
-  // The bodies in flat arrays (this loop runs clumps × bodies), with each one's Roche factor
+  // The heaviest bodies (a clump's host, the one pulling hardest, is always among them: a planetesimal swarm's
+  // hundreds of small bodies are never it) in flat arrays (this loop runs clumps × bodies), with each one's Roche factor
   // 2.456 R ρ_host^(1/3), so a clump's Roche limit is that over its own ρ^(1/3).
+  const bodies = world.bodies.length > 24 ? world.bodies.slice().sort((a, b) => b.m - a.m).slice(0, 24) : world.bodies, nb = bodies.length;
   const B = new Float64Array(nb * 8);
   for (let h = 0; h < nb; h++) {
     const b = bodies[h], o = h * 8;
@@ -74,10 +75,13 @@ export function coagulate(world, dt) {
   // coordinates and the head of its clumps' linked list (next).
   const cx = new Int32Array(n), cy = new Int32Array(n), cz = new Int32Array(n), next = new Int32Array(n);
   let size = 16;
-  while (size < 2 * n) size *= 2;
+  while (size < 4 * n) size *= 2;
   const mask = size - 1, head = new Int32Array(size).fill(-1), sx = new Int32Array(size), sy = new Int32Array(size), sz = new Int32Array(size);
   const slot = (a, b, c) => {
-    let h = (Math.imul(a, 73856093) ^ Math.imul(b, 19349663) ^ Math.imul(c, 83492791)) & mask;
+    // (mixed well, so neighbouring cells do not cluster in the table and lengthen the probes)
+    let h = Math.imul(a, 0x9E3779B1) ^ Math.imul(b, 0x85EBCA77) ^ Math.imul(c, 0xC2B2AE3D);
+    h ^= h >>> 15; h = Math.imul(h, 0x2C1B3C6D); h ^= h >>> 12;
+    h &= mask;
     while (head[h] >= 0 && (sx[h] !== a || sy[h] !== b || sz[h] !== c)) h = (h + 1) & mask;
     return h;
   };

@@ -447,7 +447,7 @@ export function accreteHeat(b, mSun, vrel2AUyr) {
 
 // Material raining down (debris, supernova ejecta) joins the body's composition.
 // Particle kinds: 0 debris, 1 hot, 4 ice, 5 dust, 6 gas, 7 rock, 8 hydrogen, 9 oxygen, 10 silicon, 11 iron.
-const KIND_MATERIAL = { 0: 'rock', 1: 'rock', 4: 'water', 5: 'rock', 6: 'gas', 7: 'rock', 8: 'gas', 9: 'water', 10: 'rock', 11: 'iron', 12: 'gas' };
+const KIND_MATERIAL = { 0: 'rock', 1: 'rock', 4: 'water', 5: 'rock', 6: 'gas', 7: 'rock', 8: 'gas', 9: 'water', 10: 'rock', 11: 'iron', 12: 'gas', 13: 'gas' };
 export function accreteMaterial(b, mSun, kind) {
   if (!b.comp || mSun <= 0) return;
   const key = KIND_MATERIAL[kind];
