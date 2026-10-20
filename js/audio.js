@@ -26,7 +26,8 @@ const UI = {
 const COSMIC = ['rumble1', 'rumble4', 'rumbleloop', 'decay', 'amb-engine', 'amb-wind'];
 
 // Background music: shuffled, each track fading in and out, with 30 s of silence between tracks.
-const MUSIC = ['music-relax-beat', 'music-drone', 'music-vastness', 'music-space', 'music-valley-sunset'];
+const MUSIC = ['music-relax-beat', 'music-drone', 'music-vastness', 'music-space', 'music-valley-sunset',
+  'music-gamma-study', 'music-meditation', 'music-binaural-528', 'music-binaural-14hz', 'music-drifting-away', 'music-binaural-marlowe', 'music-binaural-mountain'];
 const FADE_IN = 6, FADE_OUT = 8, GAP_MS = 30000, MUSIC_LEVEL = 0.5;
 
 // Inlined sounds (single-file build) become blob: URLs, which audio players stream and seek properly.

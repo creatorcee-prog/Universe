@@ -129,7 +129,8 @@ Switch in the **View** panel.
   magnifications. The Milky Way is stretched into arcs around the hole. Only the background is lensed:
   planets, particles and the accretion disk behind a hole are drawn unbent for now (the disk has its own
   approximate lensed image).
-- **Background music** (Settings → Background music): five ambient tracks, shuffled (each plays once
+- **Background music** (Settings → Background music): twelve ambient tracks (seven of them binaural beats,
+  in stereo: the beat between the ears needs headphones), shuffled (each plays once
   before any repeats, never the same twice in a row), fading in over 6 s and out over 8 s, with 30 s of
   silence between them. Loudness-matched (EBU R128, -20 LUFS) and streamed rather than decoded, so they
   use little memory. Pauses when the app is in the background.

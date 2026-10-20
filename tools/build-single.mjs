@@ -27,7 +27,8 @@ let js = `window.__SINGLE_FILE__ = true;\nwindow.__BUILD__ = '${stamp}';\nconst 
 // Sounds are inlined as data URIs (js/audio.js looks here first).
 const audioDir = join(root, 'assets', 'audio');
 const sounds = {};
-for (const f of readdirSync(audioDir)) if (f.endsWith('.mp3')) sounds[f.slice(0, -4)] = 'data:audio/mpeg;base64,' + readFileSync(join(audioDir, f)).toString('base64');
+// (with --external-maps the music tracks, ~19 MB, load from assets/audio/ beside the page like the maps)
+for (const f of readdirSync(audioDir)) if (f.endsWith('.mp3') && !(process.argv.includes('--external-maps') && f.startsWith('music-'))) sounds[f.slice(0, -4)] = 'data:audio/mpeg;base64,' + readFileSync(join(audioDir, f)).toString('base64');
 js += `window.__AUDIO__ = ${JSON.stringify(sounds)};\n`;
 // Image maps likewise (js/render3d.js), unless --external-maps: then the page loads them from
 // assets/maps/ next to it (the artifact build, which publishes them as separate files to stay under the
