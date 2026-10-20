@@ -192,3 +192,21 @@ on the phone.
 - From farther than ~4 outer ring radii the rings are the smooth sheet (no more gravel look from afar).
 - Labels of bodies behind a nearer large disc (moons behind Saturn) are hidden.
 - Close-up rocks are 3D (fish-scale billboards remain only for sub-3-pixel rocks).
+
+## Plan: towards SpaceEngine's look (from the user, ranked by visual payoff for the effort)
+1. (Done: the Yale Bright Star Catalogue, 9,096 stars, tools/make_stars.py -> assets/maps/stars.png, js/stars.js;
+   the Milky Way panorama now in the true galactic frame) Real star sky: a real catalogue (~9,000 naked-eye stars; the full Hipparcos ~118,000 costs more) as a data
+   file beside the maps; magnitude to HDR brightness (bloom handles the bright ones), colour from B-V through
+   the black-body function; lensing bends them for free.
+2. Realistic and enhanced brightness modes: the surface view's eye adaptation in space, with a toggle like
+   Universe Sandbox's Space Goggles; test an AgX curve against the current one side by side before switching.
+3. Depth in orbit clouds: a few ray-march steps through the cloud shell at quarter resolution when a planet
+   fills the screen, reusing the surface-cloud density and lighting.
+4. Sharper planets without running out of memory: higher-resolution maps (artifact files up to 15 MB), 16-bit
+   heights and precomputed normal maps; compressed KTX2/Basis (ASTC on iPhone) instead of raw 8K (~180 MB each).
+5. Volumetric galaxies: a density field per galaxy core (bulge, disc, spiral arms, dust lanes), marched at
+   quarter resolution like the nebula; particle stars on top (the Galaxy Collision scenario).
+6. Seamless descent: (A) an animated descent zooming the globe and crossfading into the surface view;
+   (B) a quadtree LOD globe from orbit to ground (the largest job; last).
+7. Keep the frame rate: temporal reprojection to recover sharpness at reduced resolution; test on the iPhone
+   after every step; regenerate the WebGPU shader translations after any shader edit.

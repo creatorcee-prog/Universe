@@ -153,6 +153,10 @@ Switch in the **View** panel.
   (Venus, Titan) super-rotates at ~100 m/s (Venus's clouds circle it in about 4 days). Two generations of
   cloud field crossfade every few days, so clouds form, shear and dissipate. Cover follows the climate
   model, so the weather changes as the planet warms, cools or loses its oceans.
+- **Stars** (assets/maps/stars.png, built by `tools/make_stars.py`): the Yale Bright Star Catalogue, 5th
+  revised edition (Hoffleit & Warren 1991; CDS catalogue V/50, public domain), the 9,096 stars to about
+  magnitude 6.5, placed in the app's ecliptic J2000 frame; brightness from V magnitude, colour from B-V
+  (Ballesteros 2012) through the black-body colours. The Milky Way panorama is laid in the true galactic frame.
 - **Ground materials** (assets/maps/ground-*.jpg, colour and height, 1024²): photographed scans from Poly
   Haven, CC0: `dry_ground_rocks` (soil), `sand_03` (sand), `rock_face_03` (rock), `moon_01` (regolith on
   airless worlds), `forrest_ground_01` (vegetated ground). The Surface view tiles them near the eye with a

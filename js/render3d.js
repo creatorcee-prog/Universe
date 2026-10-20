@@ -2,6 +2,7 @@ import { PK } from './physics.js';
 import { isLuminous, tempToRGB, schwarzschild } from './bodies.js';
 import { transientLum } from './stellar.js';
 import { EARTH_MASS } from './units.js';
+import { starCatalog, bvToTemp, GAL_N, GAL_C } from './stars.js';
 import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS, RIM_FS, TERRAIN_VS, TERRAIN_FS, RING_FS, CLOUD_FS, GEN_FS, SURFACE_CLOUD_FS, WEATHER_FS, NEBULA_FS, BLIT_FS } from './shaders.js';
 import { atmosphereOptics, giantOptics, setOpticsUniforms, stretchOptics, atmosphereTop, shellTop, groundLight } from './optics.js';
 import { heatOutput } from './thermal.js';
@@ -1078,9 +1079,9 @@ export class Renderer3D {
     gl.useProgram(s.p);
     gl.uniformMatrix3fv(u.uView, false, this.V);
     gl.uniform2f(u.uTan, t * (this.canvas.width / this.canvas.height), t);
-    // Same galactic plane as the background star band.
-    gl.uniform3f(u.uGalN, 0, Math.cos(1.05), Math.sin(1.05));
-    gl.uniform3f(u.uGalC, 1, 0, 0);
+    // The real galactic frame (stars.js), as the catalogue stars.
+    gl.uniform3fv(u.uGalN, GAL_N);
+    gl.uniform3fv(u.uGalC, GAL_C);
     gl.uniform1f(u.uBright, 1);
     // The real panorama (ESO/Solar System Scope) when loaded; the generated band until then.
     const mw = loadImage('milkyway');
@@ -1571,27 +1572,23 @@ export class Renderer3D {
     gl.enable(gl.CULL_FACE);
   }
 
+  // The star sky: the real stars (stars.js), once their catalogue has loaded (empty until then). Brightness
+  // from the V magnitude: the light (10^-0.4 m, Sirius at -1.46 the brightest) compressed toward the faint end
+  // as the eye's response is (the faintest still show), HDR at the bright end so the bloom haloes the brightest;
+  // brighter stars a little larger. Colour from B-V through the black-body colours of its temperature.
   makeSky() {
     const set = this.dynamicSet();
-    const n = 2200;
-    this.ensure(set, n);
+    const cat = starCatalog();
+    set.fromCatalog = !!cat;
+    const n = cat ? cat.n : 0;
+    this.ensure(set, Math.max(n, 1));
     for (let i = 0; i < n; i++) {
-      let x, y, z;
-      if (i % 5 < 2) {
-        const t = Math.random() * Math.PI * 2, lat = (Math.random() + Math.random() + Math.random() - 1.5) * 0.22;
-        x = Math.cos(t) * Math.cos(lat); y = Math.sin(lat); z = Math.sin(t) * Math.cos(lat);
-        const tilt = 1.05, y2 = y * Math.cos(tilt) - z * Math.sin(tilt);
-        z = y * Math.sin(tilt) + z * Math.cos(tilt); y = y2;
-      } else {
-        const u = Math.random() * 2 - 1, t = Math.random() * Math.PI * 2, s = Math.sqrt(1 - u * u);
-        x = s * Math.cos(t); y = u; z = s * Math.sin(t);
-      }
-      const b = Math.pow(Math.random(), 3), tint = Math.random();
-      const col = tint < 0.2 ? [0.7, 0.78, 1] : tint < 0.85 ? [0.92, 0.92, 0.95] : [1, 0.85, 0.7];
-      const k = 0.25 + b * 0.75;
-      set.pos.set([x, y, z], i * 3);
-      set.col.set(col.map((v) => v * k), i * 3);
-      set.size[i] = 1 + b * 2.4;
+      const f = Math.pow(10, -0.4 * (cat.mag[i] + 1.46));
+      const k = Math.min(8, Math.max(0.05, 4.5 * Math.pow(f, 0.5)));
+      const rgb = tempToRGB(bvToTemp(cat.bv[i])), mx = Math.max(rgb[0], rgb[1], rgb[2]) || 1;
+      set.pos.set([cat.dir[i * 3], cat.dir[i * 3 + 1], cat.dir[i * 3 + 2]], i * 3);
+      set.col.set([(rgb[0] / mx) * k, (rgb[1] / mx) * k, (rgb[2] / mx) * k], i * 3);
+      set.size[i] = (1.3 + 2.6 * Math.pow(f, 0.25)) * Math.max(1, this.dpr || 1);
       set.shade[i] = 1;
     }
     set.n = n;
@@ -2614,6 +2611,7 @@ export class Renderer3D {
   }
 
   drawSky() {
+    if (!this.sky.fromCatalog && starCatalog()) this.sky = this.makeSky();   // (the catalogue has arrived)
     const gl = this.gl, s = this.pSky, u = s.u;
     gl.disable(gl.DEPTH_TEST);
     gl.depthMask(false);

@@ -1,4 +1,5 @@
 import { PK } from './physics.js';
+import { starCatalog } from './stars.js';
 import { G } from './units.js';
 import { isLuminous } from './bodies.js';
 import { tempZones } from './thermal.js';
@@ -70,29 +71,21 @@ export class Renderer {
     this.cam.setViewport(this.canvas.width, this.canvas.height);
   }
 
+  // The real stars (stars.js), as [x, y, z, brightness 0..1, tint 0..1 (blue..orange)] per star; empty until
+  // their catalogue has loaded.
   makeStars() {
-    const n = 1400;
+    const cat = starCatalog();
+    this.starsReal = !!cat;
+    const n = cat ? cat.n : 0;
     this.stars = new Float32Array(n * 5);
     for (let i = 0; i < n; i++) {
-      let x, y, z;
-      if (i % 5 < 2) {
-        // A Milky Way band: concentrate stars near a tilted great circle.
-        const t = Math.random() * Math.PI * 2;
-        const lat = (Math.random() + Math.random() + Math.random() - 1.5) * 0.22;
-        x = Math.cos(t) * Math.cos(lat); y = Math.sin(lat); z = Math.sin(t) * Math.cos(lat);
-        const tilt = 1.05;
-        const y2 = y * Math.cos(tilt) - z * Math.sin(tilt);
-        z = y * Math.sin(tilt) + z * Math.cos(tilt); y = y2;
-      } else {
-        const u = Math.random() * 2 - 1, t = Math.random() * Math.PI * 2, s = Math.sqrt(1 - u * u);
-        x = s * Math.cos(t); y = u; z = s * Math.sin(t);
-      }
       const o = i * 5;
-      this.stars[o] = x; this.stars[o + 1] = y; this.stars[o + 2] = z;
-      this.stars[o + 3] = Math.pow(Math.random(), 3); // brightness
-      this.stars[o + 4] = Math.random(); // tint
+      this.stars[o] = cat.dir[i * 3]; this.stars[o + 1] = cat.dir[i * 3 + 1]; this.stars[o + 2] = cat.dir[i * 3 + 2];
+      this.stars[o + 3] = Math.min(1, Math.pow(10, -0.2 * (cat.mag[i] + 1.46)) * 2);   // (the square root of the light)
+      this.stars[o + 4] = Math.max(0, Math.min(1, (cat.bv[i] + 0.2) / 1.6));
     }
   }
+
 
   resetTrails() {
     this.trails.clear();
@@ -178,6 +171,7 @@ export class Renderer {
   }
 
   drawStars() {
+    if (!this.starsReal && starCatalog()) this.makeStars();
     const { ctx, cam } = this;
     const W = this.canvas.width, H = this.canvas.height, F = cam.F, st = this.stars, d = this.dir;
     ctx.globalCompositeOperation = 'lighter';
