@@ -1687,6 +1687,8 @@ uniform float uShadowPass, uShOn;
 uniform vec3 uMicro;                   // airless (1: regolith), share of soil cells holding a stone, small craters (1 where impacts mark the ground)
 uniform sampler2D uGSoil, uGSand, uGRock, uGRegolith, uGGrass;   // photographed ground: colour, height in alpha
 uniform float uGroundOn;
+uniform float uEdgeFade;               // > 0: the distance (m) by which the terrain has dissolved into the globe
+uniform float uTerrK;                  // how much of the terrain shows at all (fading out far above the ground)
 uniform float uAU;                     // metres per AU (view space is in AU)
 uniform sampler2D uSea;                // the sea's slopes from OceanFFT (render3d.js): RG = 0.5 + slope, a 32 m tile
 uniform float uSeaFFT;                 // 1 when uSea holds them
@@ -1790,6 +1792,10 @@ void main() {
     }
   }
   float H = vInfo.x, mtnBig = vInfo.y, dist = vInfo.z;
+  // Seen from high up the ground beyond is the globe (drawn behind): the terrain fades into it toward its
+  // edge (and altogether far above it: uTerrK), blended over it (see the end).
+  float terrA = uEdgeFade > 0.0 ? (1.0 - smoothstep(uEdgeFade * 0.45, uEdgeFade, dist)) * uTerrK : 1.0;
+  if (terrA <= 0.002) discard;
   vec3 V = normalize(-vViewPos);
   float res = max(0.002, dist * uPxAng);            // metres per pixel here
   // ...along the ground's longer axis: seen at a slant a pixel covers far more ground lengthwise, and detail
@@ -2133,7 +2139,7 @@ void main() {
     if (ssrA <= 0.0) discard;
     outColor = vec4(max(col, 0.0), ssrA);
   } else
-  outColor = vec4(max(col, 0.0), 1.0);
+  outColor = vec4(max(col, 0.0), terrA);
   ` + WRITE_DEPTH + `
 }
 `;
@@ -3225,6 +3231,8 @@ uniform float uVeil;         // 1: compositing the planets and moons in the sky 
 uniform vec4 uFlash;         // lightning: direction of the bolt's top (world), brightness: lights the clouds
 uniform vec2 uRes;           // target size (px), for the bolt's width
 uniform sampler2D uBodies;   // ... drawn on their own: light (rgb) and where they are solid (a)
+uniform float uR0;           // the eye's distance from the centre (radii): 1 on the ground, more coming down
+uniform float uGroundGlobe;  // 1: the world itself is among the bodies drawn (seen from high up), behind its air
 out vec4 outColor;
 // Cubic B-spline filtering in 4 bilinear reads (Sigg & Hadwiger, GPU Gems 2 ch. 20): smoother than
 // Catmull-Rom, which sharpens and so shows the low-resolution buffer's pixels on soft cloud edges.
@@ -3247,13 +3255,18 @@ void main() {
   vec3 d = transpose(uView) * dv;
   float h = dot(d, uUp);
   float e = dot(uSun, uUp);
-  vec3 o = uUp * 1.00002;
+  float r0 = max(uR0, 1.00002);
+  vec3 o = uUp * r0;
   vec3 L = vec3(0.0), T = vec3(1.0), Tsun = vec3(1.0);
   bool ground = h < 0.0 && sphereHit(o, d, 1.0).x > 0.0;
   if (uAir > 0.0 && uSunPower > 0.0) {
-    float tMax = ground ? sphereHit(o, d, 1.0).x : sphereHit(o, d, uTop).y;
-    L = scatter(o, d, tMax, uSun, 2.2, T) * uSunPower;   // (an eclipse dims the light the air scatters)
-    Tsun = exp(-tauToSun(1.00002, e));
+    // (From above the air the path starts where the ray enters it; samples cluster near the eye only when
+    // the eye is in the air.)
+    vec2 tp = sphereHit(o, d, uTop);
+    float tA = max(tp.x, 0.0);
+    float tMax = ground ? sphereHit(o, d, 1.0).x : tp.y;
+    if (tp.y > 0.0 && tMax > tA) L = scatter(o + d * tA, d, tMax - tA, uSun, r0 < uTop ? 2.2 : 1.0, T) * uSunPower;   // (an eclipse dims the light the air scatters)
+    Tsun = exp(-tauToSun(r0, e));
     // Under Venus's deck the overcast is brighter under thin cloud and darker under thick: features smaller
     // than the ~50 km of air below are blurred away by the scattering, but the broad streaks the
     // super-rotation shears east-west (hundreds of km) still show, softly.
@@ -3375,7 +3388,7 @@ void main() {
   // from glows (rings, atmospheres, small dots) is dimmed the same way and added. No star disc: a moon in
   // front of the Sun hides it.
   if (uVeil > 0.5) {
-    vec3 Tv = ground ? vec3(0.0) : T;
+    vec3 Tv = ground ? (uGroundGlobe > 0.5 ? T : vec3(0.0)) : T;
     float cloudA = uCloudBuf > 0.5 ? clamp(bspline(uClouds, vUV).a, 0.0, 1.0) : 0.0;
     float a = clamp(B.a, 0.0, 1.0);
     outColor = vec4(col * a + Tv * (1.0 - cloudA) * B.rgb, a);

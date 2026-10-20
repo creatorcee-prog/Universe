@@ -721,7 +721,10 @@ export class Renderer3D {
     this.cirrus = optics && !(optics.tauM > 3) ? (cover > 0.001 ? Math.min(1, cover * 1.6) : !wetAir && optics.P > 0.002 ? 0.25 : 0) : 0;
     // (Under a thick atmosphere the blanket deck: closed, its base in waves; see SURFACE_CLOUD_FS.)
     const blanket = optics && optics.tauM > 3;
-    const clouds = veil ? this.cloudsNow : (cover > 0.001 || this.cirrus > 0 || blanket) && this.drawSurfaceClouds(sv, optics, blanket ? 1 : cover, t);
+    // (Coming down from high up: the clouds marched from the ground only below ~3 km; above, the globe's own
+    // cloud layer shows them from above.)
+    const lowK = Math.max(0, Math.min(1, (4000 - (sv.alt || 0)) / 2000));
+    const clouds = veil ? this.cloudsNow : lowK > 0 && (cover > 0.001 || this.cirrus > 0 || blanket) && this.drawSurfaceClouds(sv, optics, blanket ? 1 : cover, t);
     this.cloudsNow = clouds;
     gl.disable(gl.DEPTH_TEST);
     gl.enable(gl.BLEND);
@@ -743,8 +746,10 @@ export class Renderer3D {
     gl.uniform1f(u.uSunPower, sv.sunPower);
     gl.uniform1f(u.uSunAng, sv.sunAng || 0.00465);
     gl.uniform3fv(u.uSunCol, tempToRGB(sv.sunTemp || 5772).map((v) => v / 255));
-    gl.uniform1f(u.uCloud, cover);
+    gl.uniform1f(u.uCloud, cover * lowK);
     gl.uniform1f(u.uCloudBuf, clouds ? 1 : 0);
+    gl.uniform1f(u.uR0, 1 + (1.7 + (sv.alt || 0)) / (b.r * 1.495978707e11));
+    gl.uniform1f(u.uGroundGlobe, this.groundGlobe ? 1 : 0);
     if (clouds) this.bindTex(13, this.cloudRT.tex, u.uClouds);
     gl.uniform1f(u.uVeil, veil ? 1 : 0);
     if (veil) this.bindTex(12, this.skyLayer.tex, u.uBodies);
@@ -1671,7 +1676,7 @@ export class Renderer3D {
     // observer's east/north/up frame), so the ground and the rocks themselves can tell whether a rock stands
     // between them and the Sun.
     const rockiness = !optics ? 1 : optics.P > 10 ? 0.9 : th && th.liquid > 0.05 ? 0.35 : th && th.ice > 0.5 ? 0.6 : 0.85;
-    const rocksOn = rockiness > 0 && !(this.settings.rocks === false);
+    const rocksOn = rockiness > 0 && !(this.settings.rocks === false) && (sv.alt || 0) < 100;   // (local: not from high up)
     // Relief underfoot: regolith and small craters where nothing erodes them (no air), and how stony the soil
     // is. No small craters on Io (its volcanoes resurface it faster than impacts mark it: none are known) or
     // on Europa's young, cracked ice (very few).
@@ -1680,6 +1685,8 @@ export class Renderer3D {
     const gm = this.groundMats();
     GROUND_MATS.forEach((k, i) => this.bindTex(GROUND_UNITS[i], gm ? gm[i] : this.cloudNoise(), u['uG' + k[0].toUpperCase() + k.slice(1)]));
     gl.uniform1f(u.uGroundOn, gm ? 1 : 0);
+    gl.uniform1f(u.uEdgeFade, this.groundGlobe ? 150000 : 0);
+    gl.uniform1f(u.uTerrK, 1 - Math.max(0, Math.min(1, ((sv.alt || 0) - 15000) / 20000)));
     // The sea's waves (OceanFFT), where there is liquid.
     const seaOn = !!liquid && this.settings.view !== 'pixel';
     // (wind 10 m up, as sea-state models take it: ~1.3x that at eye height over the ground's roughness)
@@ -1733,8 +1740,11 @@ export class Renderer3D {
     const m = this.terrainMesh();
     gl.uniform1f(u.uRefl, 0);
     gl.disable(gl.CULL_FACE);
+    // (From high up: blended over the globe where it fades out; see TERRAIN_FS terrA.)
+    if (this.groundGlobe) { gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); }
     gl.bindVertexArray(m.vao);
     gl.drawElements(gl.TRIANGLES, m.n, gl.UNSIGNED_INT, 0);
+    if (this.groundGlobe) gl.disable(gl.BLEND);
     // Rocks: how rocky the ground is. Bare, dry worlds are strewn with them (the Moon, Mars, Venus's slabs);
     // Earth's are mostly under soil and plants; icy worlds have blocks of ice (Titan's rounded "rocks" at the
     // Huygens site are water ice).
@@ -1746,7 +1756,7 @@ export class Renderer3D {
       gl.uniform1f(u.uRocks, 0);
     }
     // Grass, on any world with plant life (the vertex shader keeps the blades where plants grow).
-    if (b.life && !(this.settings.rocks === false) && this.settings.view !== 'pixel') {
+    if (b.life && !(this.settings.rocks === false) && this.settings.view !== 'pixel' && (sv.alt || 0) < 60) {
       const gm2 = this.grassMesh();
       gl.bindVertexArray(gm2.vao);
       gl.drawElements(gl.TRIANGLES, gm2.n, gl.UNSIGNED_INT, 0);
@@ -2248,6 +2258,9 @@ export class Renderer3D {
     // (The star lighting the sky is drawn by the sky shader itself, at its full brightness.)
     const skyStar = ground ? this.surface.star : null;
     for (const b of world.bodies) if (b !== ground && b !== skyStar) this.drawBody(b, now, glows);
+    // From high up (coming down), the world itself as a globe beyond the terrain, behind its air (the veil).
+    this.groundGlobe = !!(ground && (this.surface.alt || 0) > 300);
+    if (this.groundGlobe) { this.forceGlobe = true; try { this.drawBody(ground, now, glows); } finally { this.forceGlobe = false; } }
     if (ground) {
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.ONE, gl.ONE);
@@ -2552,7 +2565,7 @@ export class Renderer3D {
     const crack = l.kind === 0 ? Math.max(0, Math.min(1, (tide.tau - 0.3) / 0.5)) : 0;
 
     // Standing on this body: draw the local terrain instead of the globe.
-    if (this.surface && this.surface.body === b && l.kind === 0) {
+    if (this.surface && this.surface.body === b && l.kind === 0 && !this.forceGlobe) {
       // (standing on it: its close-up map, if it has one)
       if (b.surfaceMap && (b.surfaceMap.hi || b.surfaceMap.img)) { b.surfaceMap = hiMap(b.surfaceMap, 1e9); this.syncMapTex(b); }
       this.drawTerrain(b, l, rot, lights, temp);
@@ -2786,7 +2799,7 @@ export class Renderer3D {
     }
 
     // The cloud layer: its own shell just above the ground, alpha-blended, under the atmosphere's glow.
-    if (!cutInt && !SC && cover > 0.001 && shownPx > 3 && !(this.surface && this.surface.body === b) && Math.hypot(x, y, z) > R * (1 + deckH) * 1.0005) {
+    if (!cutInt && !SC && cover > 0.001 && shownPx > 3 && (!(this.surface && this.surface.body === b) || this.forceGlobe) && Math.hypot(x, y, z) > R * (1 + deckH) * 1.0005) {
       const lc = ld.map((v) => Array.from(v)), colC = l.colC || [0.95, 0.96, 1];
       glows.push(() => {
         const c = this.pCloud, cu = c.u;

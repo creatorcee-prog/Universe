@@ -197,7 +197,12 @@ class App {
     const toYaw = Math.atan2(n[0], n[2]), toPitch = Math.asin(Math.max(-1, Math.min(1, n[1])));
     let dy = toYaw - cam.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));   // (the shorter way round)
     this.descent = { b, where, t0: performance.now(), dur: 2400, yaw0: cam.yaw, dYaw: dy, pitch0: cam.pitch, pitch1: Math.max(-1.45, Math.min(1.45, toPitch)),
-      d0: Math.max(cam.dist, b.r * 1.6), d1: b.r * 1.015, air: !!atmosphereOptics(b) };
+      d0: Math.max(cam.dist, b.r * 1.6), air: !!atmosphereOptics(b) };
+    // Down to ~60 km (2% of the radius on small worlds), where the Surface view takes over at the same height
+    // and glides the rest of the way (see landing).
+    const Rm = b.r * 1.495978707e11;
+    this.descent.hA = Math.min(60000, 0.02 * Rm);
+    this.descent.d1 = b.r + this.descent.hA / 1.495978707e11;
     this.select(null);
     this.audio.ui('affirm');
   }
@@ -226,7 +231,7 @@ class App {
     if (D.snapped) {
       this.descent = null;
       this.enterSurface(D.b, D.where, true);
-      if (this.surface) this.surface.land = { t0: performance.now(), dur: 2600, alt0: 1500 };
+      if (this.surface) this.surface.land = { t0: performance.now(), dur: 7000, alt0: D.hA };
       const cv = document.getElementById('snap');
       if (cv) requestAnimationFrame(() => { cv.style.transition = 'opacity 1.1s ease-in'; cv.style.opacity = '0'; });
     }
@@ -341,11 +346,13 @@ class App {
     const rl = Math.hypot(...r) || 1; r = r.map((v) => v / rl);
     const u = [r[1] * f[2] - r[2] * f[1], r[2] * f[0] - r[0] * f[2], r[0] * f[1] - r[1] * f[0]];
     if (sv.land) {
-      // Landing: from alt0 m up, looking down, to the ground, levelling out (eased; faster near the ground).
-      const k = Math.min(1, (performance.now() - sv.land.t0) / sv.land.dur), e = 1 - Math.pow(1 - k, 3);
-      sv.alt = sv.land.alt0 * Math.pow(1 - e, 2);
+      // Landing: from alt0 m up, looking straight down, to the ground: the height falls geometrically (the same
+      // share each second, as the view's scale changes evenly), and the view levels out over the last half.
+      const k = sv.land.fixK ?? Math.min(1, (performance.now() - sv.land.t0) / sv.land.dur), e = k * k * (3 - 2 * k);   // (fixK: tests)
+      sv.alt = Math.max(0, Math.exp(Math.log(sv.land.alt0 + 1) * (1 - e)) - 1);
       if (sv.land.pitch1 === undefined) sv.land.pitch1 = sv.pitch;
-      sv.pitch = -0.75 + (sv.land.pitch1 + 0.75) * Math.min(1, e * 1.3);
+      const lv = Math.max(0, Math.min(1, (k - 0.45) / 0.55)), lve = lv * lv * (3 - 2 * lv);
+      sv.pitch = -1.45 + (sv.land.pitch1 + 1.45) * lve;
       if (k >= 1) { sv.alt = 0; sv.pitch = sv.land.pitch1; sv.land = null; }
     }
     const h = b.r + (1.7 + (sv.alt || 0)) / 1.495978707e11; // eye 1.7 m above the ground (the terrain is built around it), or alt m higher (coming down)

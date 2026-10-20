@@ -110,6 +110,12 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
   are, centre temperature and pressure (PREM for Earth, InSight for Mars, Apollo for the Moon, MESSENGER, Juno,
   Cassini, Galileo; elsewhere built from the composition, P ~ M²/R⁴); a drawn cutaway in the Composition tab and
   a 3D cutaway (an orange-segment wedge taken out, CUT_FS ray-tracing the layered faces).
+- (Done) Seamless descent: the Surface view works from any height. The sky knows the eye's altitude (from above
+  the air the light path starts where it enters it: black sky, the blue limb); from above ~300 m the world is
+  drawn as its globe (with its cloud layer seen from above) behind its air via the veil, the terrain blended into
+  it toward its 150 km edge and fading out above ~15-35 km; the clouds marched from the ground only below ~3 km.
+  The descent: orbit view down to 60 km (2% of the radius on small worlds), a dissolve, then the Surface view
+  gliding down geometrically in 7 s, looking down and levelling out over the second half.
 - (Done) Shattering destruction (user photos): impacts above the target's binding energy per kilogram
   (Leinhardt & Stewart 2012 universal law: largest remnant 1 - Q_R/2Q*, super-catastrophic beyond 1.8 Q*)
   break rocky worlds into 5-9 fragments (bodies, with gravity; slow ones fall back together, as runs show:
