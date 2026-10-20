@@ -327,3 +327,4 @@ on the phone.
 - [x] Jets as particles (PK.JET): massless tracers at 0.9c in a ~3° cone, feel the bodies' gravity, ~300 per jet in flight, beamed brightness.
 - [x] GPU particles on by default (settings migration v5) and their real state shown in Settings.
 - [x] Supernova remnant cost (the GPU limit in supernova + black hole, 19 fps on a phone): ray-march cached between frames unless it moved/grew 0.2% or brightened 1%; quarter resolution when big on screen (half when small); 56 jittered samples instead of 80. Dynamic resolution may go to 55% when GPU-bound. Black-hole binaries placed as stars (0.1 AU √M apart), not 0.005 AU (a 40-minute orbit that capped the sim at ~6 days/s).
+- [x] Stutter (steady fps, uneven frames): remnant/nebula redraw spread over four frames as rotating bands (whole redraw only for big changes), so every frame costs the same; per-frame arrays pooled in the GPU stepper and coagulation (no garbage-collection pauses).

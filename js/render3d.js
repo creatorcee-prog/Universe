@@ -978,40 +978,52 @@ export class Renderer3D {
       fresh = true;
     }
     // Ray-marching a nebula or a remnant is the heaviest thing drawn (tens of noise samples per step), and it
-    // changes slowly: drawn again only when one has moved, grown or brightened noticeably on screen (0.2% of its
-    // size, 1% in brightness), or the view's shape or spectral band changed; otherwise last frame's is reused.
+    // changes slowly. So: unchanged on screen, last frame's is reused; changed a little (a remnant growing, a
+    // camera drifting), one band of four is drawn again each frame, in turn, so every frame costs the same (a
+    // whole redraw every few frames would be felt as a stutter); changed a lot (turning the camera, a new
+    // nebula), all of it at once.
     const band = this.spectrumMode(), tanX = Math.tan(cam.fov / 2) * (this.canvas.width / this.canvas.height);
     const sig = list.map(([b, vp]) => [vp[0] / b.r, vp[1] / b.r, vp[2] / b.r, b.r, b.glow === undefined ? 1 : b.glow]);
     const last = this.nebSig;
-    let same = !fresh && last && last.band === band && last.tanX === tanX && last.items.length === sig.length;
-    if (same) {
-      for (let k = 0; k < sig.length && same; k++) {
-        const a = sig[k], c = last.items[k];
-        if (Math.abs(a[0] - c[0]) + Math.abs(a[1] - c[1]) + Math.abs(a[2] - c[2]) > 0.002 * Math.max(1, Math.hypot(a[0], a[1], a[2])) || Math.abs(a[3] / c[3] - 1) > 0.002 || Math.abs(a[4] - c[4]) > 0.01 * Math.max(c[4], 0.05)) same = false;
+    let change = fresh || !last || last.band !== band || last.tanX !== tanX || last.items.length !== sig.length ? 2 : 0;
+    for (let k = 0; k < sig.length && change < 2; k++) {
+      const a = sig[k], c = last.items[k];
+      const dp = Math.abs(a[0] - c[0]) + Math.abs(a[1] - c[1]) + Math.abs(a[2] - c[2]), sc = Math.max(1, Math.hypot(a[0], a[1], a[2]));
+      const dr = Math.abs(a[3] / c[3] - 1), dg = Math.abs(a[4] - c[4]) / Math.max(c[4], 0.05);
+      if (dp > 0.02 * sc || dr > 0.02 || dg > 0.1) change = 2;
+      else if (dp > 1e-6 * sc || dr > 1e-6 || dg > 1e-4) change = Math.max(change, 1);
+    }
+    if (change < 2 && this.nebView) {
+      for (let k = 0; k < 9 && change < 2; k++) {
+        const d = Math.abs(this.V[k] - this.nebView[k]);
+        if (d > 0.002) change = 2; else if (d > 1e-7) change = Math.max(change, 1);
       }
     }
-    if (same && this.nebView) {
-      // (view rotation: the same check on the camera's axes)
-      for (let k = 0; k < 9 && same; k++) if (Math.abs(this.V[k] - this.nebView[k]) > 0.0015) same = false;
-    }
-    if (same) { this.compositeNebulae(fbo, W, H, w, h); return; }
-    this.nebSig = { band, tanX, items: sig };
-    this.nebView = Float32Array.from(this.V);
+    if (change) { this.nebSig = { band, tanX, items: sig }; this.nebView = Float32Array.from(this.V); }
+    if (change === 2) this.nebBands = 0;
+    else if (change === 1) this.nebBands = 4;   // (bands still to draw at the newest state)
+    if (change === 0 && !(this.nebBands > 0)) { this.compositeNebulae(fbo, W, H, w, h); return; }
+    const BANDS = 4, whole = change === 2;
+    const k = whole ? 0 : (this.nebBand = ((this.nebBand || 0) + 1) % BANDS);
+    if (!whole) this.nebBands--;
+    const y0 = whole ? 0 : Math.floor((h * k) / BANDS), y1 = whole ? h : Math.floor((h * (k + 1)) / BANDS);
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.nebRT.fbo);
-    gl.viewport(0, 0, w, h);
-    gl.clearColor(0, 0, 0, 0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.viewport(0, y0, w, y1 - y0);
     gl.disable(gl.DEPTH_TEST);
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     const p = this.pNebula, u = p.u, t = Math.tan(cam.fov / 2);
     gl.useProgram(p.p);
     gl.uniformMatrix3fv(u.uView, false, this.V);
     gl.uniform2f(u.uTan, t * (this.canvas.width / this.canvas.height), t);
-    gl.uniform1i(u.uBand, this.spectrumMode());
-    // Farthest first, so nearer nebulae lie over farther ones.
+    gl.uniform1i(u.uBand, band);
+    gl.uniform2f(u.uRows, y0 / h, (y1 - y0) / h);
+    // Farthest first, so nearer nebulae lie over farther ones; the first drawn without blending, so it replaces
+    // what the band held (no separate clear).
     list.sort((a, c) => a[1][2] - c[1][2]);
+    let first = true;
     for (const [b, vp] of list) {
+      if (first) gl.disable(gl.BLEND);
+      else { gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); }
+      first = false;
       gl.uniform3fv(u.uC, vp);
       gl.uniform1f(u.uR, b.r);
       gl.uniform1f(u.uSeed, (b.id % 97) * 0.13);

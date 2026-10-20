@@ -26,15 +26,24 @@ function radiusAU(m, kind) {
   return Math.cbrt((3 * kg) / (4 * Math.PI * rho)) / AU_M;
 }
 
+// Scratch arrays kept between frames (fresh ones each frame would mean garbage-collection pauses: stutters).
+const POOL = {};
+function pool(name, Type, n, fill) {
+  let a = POOL[name];
+  if (!a || a.length < n) a = POOL[name] = new Type(Math.max(n, 256) * 2);
+  if (fill !== undefined) a.fill(fill, 0, n);
+  return a;
+}
+
 export function coagulate(world, dt) {
   const np = world.np;
   if (np < 2 || !(dt > 0) || !world.collisions) return;
   const pm = world.pm, pk = world.pk, px = world.px, py = world.py, pz = world.pz, vx = world.pvx, vy = world.pvy, vz = world.pvz;
-  const idx = [];
+  const idx = pool('idx', Int32Array, np);
+  let n = 0;
   // Solid material only, and only clumps below the moonlet size: the coarse chunks of a whole shredded
   // planet are a numerical sampling, not real fragments, and must not each turn into a body.
-  for (let i = 0; i < np; i++) if (pm[i] > 0 && pm[i] < PROMOTE && pk[i] !== PK_GAS && pk[i] !== PK_SN_H && pk[i] !== PK_WIND && pk[i] !== 2 && pk[i] !== 3) idx.push(i);
-  const n = idx.length;
+  for (let i = 0; i < np; i++) if (pm[i] > 0 && pm[i] < PROMOTE && pk[i] !== PK_GAS && pk[i] !== PK_SN_H && pk[i] !== PK_WIND && pk[i] !== 2 && pk[i] !== 3) idx[n++] = i;
   if (n < 2) return;
   // The heaviest bodies (a clump's host, the one pulling hardest, is always among them: a planetesimal swarm's
   // hundreds of small bodies are never it) in flat arrays (this loop runs clumps × bodies), with each one's Roche factor
@@ -48,7 +57,7 @@ export function coagulate(world, dt) {
     B[o + 7] = 2.456 * b.r * Math.cbrt(rhoHost);
   }
   // Host (strongest pull) and physical radius per clump.
-  const rad = new Float64Array(n), rocheOK = new Uint8Array(n);
+  const rad = pool('rad', Float64Array, n), rocheOK = pool('roche', Uint8Array, n);
   let rmax = 0, smax = 0;
   for (let k = 0; k < n; k++) {
     const i = idx[k], x = px[i], y = py[i], z = pz[i];
@@ -73,10 +82,10 @@ export function coagulate(world, dt) {
   const cell = Math.max(reach, 1e-12);
   // Open-addressed hash of occupied cells (typed arrays, no per-frame Map or lists): each slot holds a cell's
   // coordinates and the head of its clumps' linked list (next).
-  const cx = new Int32Array(n), cy = new Int32Array(n), cz = new Int32Array(n), next = new Int32Array(n);
+  const cx = pool('cx', Int32Array, n), cy = pool('cy', Int32Array, n), cz = pool('cz', Int32Array, n), next = pool('next', Int32Array, n);
   let size = 16;
   while (size < 4 * n) size *= 2;
-  const mask = size - 1, head = new Int32Array(size).fill(-1), sx = new Int32Array(size), sy = new Int32Array(size), sz = new Int32Array(size);
+  const mask = size - 1, head = pool('head', Int32Array, size, -1), sx = pool('sx', Int32Array, size), sy = pool('sy', Int32Array, size), sz = pool('sz', Int32Array, size);
   const slot = (a, b, c) => {
     // (mixed well, so neighbouring cells do not cluster in the table and lengthen the probes)
     let h = Math.imul(a, 0x9E3779B1) ^ Math.imul(b, 0x85EBCA77) ^ Math.imul(c, 0xC2B2AE3D);
@@ -92,7 +101,7 @@ export function coagulate(world, dt) {
     if (head[h] < 0) { sx[h] = cx[k]; sy[h] = cy[k]; sz[h] = cz[k]; }
     next[k] = head[h]; head[h] = k;
   }
-  const dead = new Uint8Array(n);
+  const dead = pool('dead', Uint8Array, n, 0);
   let merges = 0;
   for (let k = 0; k < n; k++) {
     if (dead[k]) continue;

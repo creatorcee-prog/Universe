@@ -291,7 +291,9 @@ export class GpuStepper {
     // The bodies through the frame, resampled at S + 1 even times (from the frame's own steps).
     const S = Math.min(512, Math.max(16, 2 * steps));
     const disp = this.disp && this.disp.length >= (S + 1) * na * 4 ? this.disp : (this.disp = new Float32Array((S + 1) * MAXA * 4 * 2));
-    const A0 = new Float64Array(na * 3), VF = new Float64Array(na * 3);
+    // (buffers kept from frame to frame: last frame's job is collected before this one is sent, and fresh arrays
+    // every frame would mean garbage collection pauses, felt as stutters)
+    const A0 = this.A0 || (this.A0 = new Float64Array(MAXA * 3)), VF = this.VF || (this.VF = new Float64Array(MAXA * 3));
     for (let a = 0; a < na; a++) { A0[a * 3] = cp[a * 4]; A0[a * 3 + 1] = cp[a * 4 + 1]; A0[a * 3 + 2] = cp[a * 4 + 2]; }
     let seg = 0;
     for (let j = 0; j <= S; j++) {
@@ -331,7 +333,8 @@ export class GpuStepper {
       gl.bindBuffer(gl.ARRAY_BUFFER, this.outBuf);
       gl.bufferData(gl.ARRAY_BUFFER, this.cap * 32, gl.DYNAMIC_READ);
     }
-    const D = this.inData, hostIdx = new Int32Array(np), pids = new Int32Array(np), xin = new Float64Array(np * 6);
+    if (!this.pidsB || this.pidsB.length < np) { const c = Math.max(np, 1024) * 2; this.pidsB = new Int32Array(c); this.hostB = new Int32Array(c); this.xinB = new Float64Array(c * 6); }
+    const D = this.inData, hostIdx = this.hostB, pids = this.pidsB, xin = this.xinB;
     const px = world.px, py = world.py, pz = world.pz, vx = world.pvx, vy = world.pvy, vz = world.pvz, ptl = world.ptl, phost = world.phost, plag = world.plag;
     for (let i = 0; i < np; i++) {
       let h = ids.get(phost[i]);

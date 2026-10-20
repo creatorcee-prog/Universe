@@ -2794,6 +2794,7 @@ uniform float uSeed;
 uniform float uBright;
 uniform int uBand;       // 0 visible, 1 infrared, 2 ultraviolet, 3 X-ray
 uniform int uRem;        // 0 a nebula; a supernova remnant: 1 core collapse, 2 Type Ia
+uniform vec2 uRows;      // the band of the buffer drawn (render3d.js drawNebulae): first row, height (0..1)
 out vec4 outColor;
 // Cellular noise, inverted (1 at the cells' centres): round cavities.
 float billowR(vec3 x) {
@@ -2872,7 +2873,8 @@ vec4 remnant(vec3 o, vec3 dw, float t0, float t1, vec3 sd) {
   return vec4(col, min(1.0, (1.0 - T) + dot(col, vec3(0.1))));
 }
 void main() {
-  vec3 d = normalize(vec3((vUV.x * 2.0 - 1.0) * uTan.x, (vUV.y * 2.0 - 1.0) * uTan.y, -1.0));
+  float vy = uRows.x + vUV.y * uRows.y;
+  vec3 d = normalize(vec3((vUV.x * 2.0 - 1.0) * uTan.x, (vy * 2.0 - 1.0) * uTan.y, -1.0));
   // Unit-sphere coordinates in the nebula's own (world-aligned) frame.
   mat3 W = transpose(uView);
   vec3 o = W * (-uC) / uR, dw = W * d;
