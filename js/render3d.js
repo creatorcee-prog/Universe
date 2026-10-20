@@ -604,7 +604,9 @@ export class Renderer3D {
     // cirrus, seen by the rovers, ~10-30 km up).
     const wetAir = th && th.liquid > 0.005;
     this.cirrus = optics && !(optics.tauM > 3) ? (cover > 0.001 ? Math.min(1, cover * 1.6) : !wetAir && optics.P > 0.002 ? 0.25 : 0) : 0;
-    const clouds = veil ? this.cloudsNow : (cover > 0.001 || this.cirrus > 0) && this.drawSurfaceClouds(sv, optics, cover, t);
+    // (Under a thick atmosphere the blanket deck: closed, its base in waves; see SURFACE_CLOUD_FS.)
+    const blanket = optics && optics.tauM > 3;
+    const clouds = veil ? this.cloudsNow : (cover > 0.001 || this.cirrus > 0 || blanket) && this.drawSurfaceClouds(sv, optics, blanket ? 1 : cover, t);
     this.cloudsNow = clouds;
     gl.disable(gl.DEPTH_TEST);
     gl.enable(gl.BLEND);
@@ -868,7 +870,9 @@ export class Renderer3D {
   // Base and thickness follow the air's scale height (Earth: 8.5 km, so about 2 to 4.5 km up).
   drawSurfaceClouds(sv, optics, cover, t) {
     const gl = this.gl, p = this.pSurfCloud, u = p.u, b = sv.body;
-    const w = Math.max(16, Math.ceil(this.sceneW / 4)), h = Math.max(16, Math.ceil(this.sceneH / 4));
+    // (Half resolution under a closed blanket: no march there, and its wave edges are sharp.)
+    const div = optics && optics.tauM > 3 ? 2 : 4;
+    const w = Math.max(16, Math.ceil(this.sceneW / div)), h = Math.max(16, Math.ceil(this.sceneH / div));
     // Two buffers in turn: this frame's, and last frame's to blend in.
     if (!this.cloudRTs || this.cloudRTs[0].w !== w || this.cloudRTs[0].h !== h) {
       if (this.cloudRTs) for (const r of this.cloudRTs) { gl.deleteTexture(r.tex); gl.deleteFramebuffer(r.fbo); }
@@ -906,6 +910,12 @@ export class Renderer3D {
     gl.uniform3f(u.uCloudH, (0.24 * Hkm) / Rkm, (0.3 * Hkm) / Rkm, Rkm);
     gl.uniform1f(u.uStorm, this.weather ? this.weather.rain || 0 : 0);
     gl.uniform1f(u.uCirrus, this.cirrus || 0);
+    gl.uniform1f(u.uHs, Hkm / 8.5);
+    gl.uniform1f(u.uBlanket, optics && optics.tauM > 3 ? 1 : 0);
+    // How convective the weather is here: warm, wet air builds cumulus and storm towers; cold or dry air,
+    // flat sheets.
+    const th = b.th, Tloc = sv.localT || (th ? th.Ts : 0), wetC = th && th.liquid > 0.005;
+    gl.uniform1f(u.uConv, wetC ? Math.max(0, Math.min(1, (Tloc - 278) / 22)) * (0.35 + 0.65 * Math.min(1, cover * 1.6)) : 0.1);
     gl.uniform1f(u.uFrame, this.cloudFrame % 1000);
     gl.uniform1f(u.uHist, hist ? 1 : 0);
     gl.uniformMatrix3fv(u.uPrevView, false, hist ? H0.VB : VB);

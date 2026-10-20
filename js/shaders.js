@@ -2920,7 +2920,7 @@ void main() {
 
 // The cloud deck seen from the ground, at a quarter of the screen's resolution (render3d.js drawSurfaceSky):
 // a layer between uCloudH.x and uCloudH.x + uCloudH.y above the ground (radii; on Earth about 2 to 4.5 km),
-// on the curved shell, marched through its thickness (6 steps a frame, accumulated over frames). Its density is a wind-blown fractal coverage field,
+// on the curved shell, marched through its thickness (coarse steps through clear air, fine ones in cloud; accumulated over frames). Its density is a wind-blown fractal coverage field,
 // thresholded by the climate's cloud cover and eroded by finer 3D noise, with flat bases and puffy tops. Each
 // sample is lit by the sunlight that reaches it through the cloud above it toward the Sun (Beer-Lambert, a
 // "powder" darkening of thin edges, and forward scattering that rims clouds near the Sun with light), plus
@@ -2934,6 +2934,9 @@ uniform float uAir, uSunPower, uCloud, uTime;
 uniform vec3 uCloudCol;
 uniform float uStorm;       // 0..1: rain; the deck closes into thick, dark overcast
 uniform float uCirrus;      // cirrus cover 0..1 (thin ice cloud high up; also on dry worlds, such as Mars)
+uniform float uHs;          // the air's scale height / Earth's (8.5 km): cloud heights scale with it
+uniform float uConv;        // 0..1: how convective the climate is here (warm, wet air: cumulus, storm towers)
+uniform float uBlanket;     // 0..1: a closed deck with a wave-churned base (asperitas): thick atmospheres, storms
 uniform vec3 uCloudH;       // base height, thickness (radii), planet radius (km)
 uniform sampler2D uPrev;    // last frame's result, blended in (see the end)
 uniform mat3 uPrevView;     // last frame's rotation from the planet's frame to its view
@@ -2978,24 +2981,83 @@ float billow(vec3 x) {
   return 1.0 - sqrt(d);
 }
 float remap(float v, float a, float b, float c, float d) { return c + (v - a) / (b - a) * (d - c); }
-// Density 0..1 at P (km, planet-centred) with z the height within the layer (0 base .. 1 top). fine: the
-// billows too (they cost 27 hashes; the march toward the Sun does without them).
-float dens(vec3 P, float z, bool fine) {
-  // Cells about 4 km across (cumulus is ~1 km, gathered in fields), in fields and clear spells ~30 km wide.
-  // Wind about 15 m/s (P is in km, uTime in seconds).
-  vec3 w = (P + vec3(uTime * 0.015, 0.0, uTime * 0.006)) * 0.22;
-  float field = tfbm(P * 0.03 + 5.0, 2);
-  float cov = tfbm(w, 4) + 0.12 * (tnoise(w * 4.0 + 3.0) - 0.5) + (field - 0.5) * 0.5;
-  float thr = 0.64 - clamp(uCloud, 0.0, 1.0) * 0.36 - uStorm * 0.3;
-  float base = smoothstep(thr, thr + 0.16, cov);
-  float top = 0.3 + 0.7 * base;                                   // thick where the cover is dense
-  float prof = smoothstep(0.0, 0.07, z) * (1.0 - smoothstep(top * 0.55, top, z));
-  vec3 Pw = P + vec3(uTime * 0.015, 0.0, uTime * 0.006);
-  float det = tnoise(Pw * 1.4 + vec3(0.0, uTime * 0.01, 0.0)) * 0.65 + tnoise(Pw * 3.2) * 0.35;
-  // Billowing edges: the cells (~1 km, and ~0.4 km) eat into the cloud's outskirts, more at its base (wispy
-  // below, cauliflower above), leaving rounded heaps rather than smooth blobs.
-  if (fine) det = mix(det, 1.0 - (0.65 * billow(Pw * 1.1) + 0.35 * billow(Pw * 2.6 + 4.0)), 0.6);
-  return clamp(base * prof * 1.4 - 0.45 * det * (1.0 - 0.6 * base) * (1.2 - 0.4 * z), 0.0, 1.0);
+// The blanket deck's base (Earth km above the ground) at wind-carried position w, and how strongly it is
+// creased there (0..1): strongly warped ridges that hang down as troughs, as in asperitas.
+// far: how much of the waves to keep (far off they are smaller than a pixel: smoothed toward their mean).
+vec2 blanketBase(vec3 w, float far) {
+  vec3 q = w * 0.22 + 1.6 * vec3(tfbm(w * 0.05 + 3.0, 3), 0.0, tfbm(w * 0.05 + 8.0, 3));
+  float r1 = 1.0 - abs(2.0 * tnoise(q) - 1.0), r2 = 1.0 - abs(2.0 * tnoise(q * 2.3 + 5.0) - 1.0);
+  float ridge = mix(0.45, r1 * r1 * 0.75 + r2 * r2 * 0.25 * far, far);
+  return vec2(2.3 - 1.4 * ridge, ridge);
+}
+// Where each kind of cloud forms: broad regions (~100 km) of more convective or more layered weather, about
+// the climate's own tendency (uConv: warm, wet, unstable air) and its cover.
+vec2 regime(vec3 P) {
+  float reg = tfbm(P * 0.009 + 11.0, 2);
+  float conv = clamp(uConv + (reg - 0.5) * 0.9, 0.0, 1.0);
+  float lay = clamp(uCloud * 1.25 - 0.25 - conv * 0.4 + (0.5 - reg) * 0.5 + uStorm * 0.3, 0.0, 1.0);
+  return vec2(conv, lay);
+}
+// Density 0..1 at P (km, planet-centred), hk km above the ground (in Earth's terms: real heights are scaled
+// by the air's scale height, uHs). The kinds, at their real heights and sizes:
+//   stratus        a flat grey sheet, 0.4-1 km, where the sky is nearly covered and the air layered;
+//   stratocumulus  a lumpy sheet of rolls and cells ~1 km across with gaps, 1-1.7 km;
+//   cumulus        separate heaps 1-2 km across on flat bases at ~1.5 km, 1-4 km deep as the air is unstable;
+//   cumulonimbus   storm towers 5-10 km wide up to 10-12 km, spreading into an anvil carried downwind.
+// q: 0 the envelope only, before erosion (a cheap, generous test for whether there is cloud near); 1 eroded
+// by noise; 2 by the billows too (they cost 27 hashes; the march toward the Sun does without them).
+float dens(vec3 P, float hk, int q) {
+  vec3 w = P + vec3(uTime * 0.015, 0.0, uTime * 0.006);   // carried by a ~15 m/s wind (P in km, uTime in s)
+  vec2 rg = regime(P);
+  float conv = rg.x, lay = rg.y, cover = clamp(uCloud, 0.0, 1.0);
+  float d = 0.0;
+  // Blanket: a closed deck 1-5 km up whose base is churned into waves, as in asperitas (WMO Cloud Atlas
+  // 2017): strongly warped ridges hang down as dark troughs with sharp creases; between them the base rises
+  // and thins, brighter. On thick-atmosphere worlds it is the whole sky; on Earth it comes with storms.
+  float wBl = max(uBlanket, uStorm * 0.8 * smoothstep(0.45, 0.65, tfbm(P * 0.006 + 31.0, 2)));
+  if (wBl > 0.0 && hk > 0.6 && hk < 5.2) {
+    float baseH = blanketBase(w, 1.0).x;
+    float n = tnoise(w * 0.7 + 9.0);
+    float bl = wBl * smoothstep(baseH, baseH + 0.2, hk) * (1.0 - smoothstep(4.6, 5.2, hk)) * (0.75 + 0.25 * n);
+    if (uBlanket > 0.5) return clamp(bl * 1.3, 0.0, 1.0);   // (nothing else shows under a closed blanket)
+    d = max(d, bl);
+  }
+  float wSt = smoothstep(0.7, 0.95, cover + uStorm * 0.3) * lay;
+  if (wSt > 0.0 && hk < 1.3) {
+    float n = tnoise(w * 0.35 + 2.0);
+    d = max(d, wSt * smoothstep(0.35, 0.5, hk) * (1.0 - smoothstep(0.75 + 0.25 * n, 1.05 + 0.15 * n, hk)) * (0.6 + 0.4 * n));
+  }
+  float wSc = lay * (1.0 - 0.6 * wSt);
+  if (wSc > 0.0 && hk > 0.8 && hk < 2.0) {
+    float n = tfbm(w * vec3(0.9, 0.9, 1.3) + 3.0, 3);
+    float cell = smoothstep(0.6 - 0.3 * cover, 0.68 - 0.3 * cover, n);
+    float top = 1.25 + 0.45 * n;
+    d = max(d, wSc * cell * smoothstep(0.95, 1.1, hk) * (1.0 - smoothstep(top - 0.15, top, hk)));
+  }
+  float wCu = (1.0 - lay) * (0.35 + 0.65 * conv);
+  if (wCu > 0.0 && hk > 1.3 && hk < 5.8) {
+    float n = tfbm(w * 0.55 + 7.0, 3) + 0.15 * (tnoise(w * 1.7) - 0.5);
+    float thr = 0.66 - 0.3 * cover;
+    float top = 1.5 + (0.6 + 3.4 * conv) * smoothstep(thr, thr + 0.25, n);
+    float s = clamp((hk - 1.5) / max(top - 1.5, 0.1), 0.0, 1.0);
+    // (the heap narrows upward: the threshold rises with height, so the head is rounded and the base flat)
+    float cell = smoothstep(thr + 0.12 * s * s, thr + 0.08 + 0.12 * s * s, n);
+    d = max(d, wCu * cell * smoothstep(1.4, 1.55, hk) * (1.0 - smoothstep(0.85, 1.0, s)));
+  }
+  float wCb = smoothstep(0.55, 0.9, conv) * (0.3 + 0.7 * smoothstep(0.2, 0.7, cover + uStorm));
+  if (wCb > 0.0 && hk > 1.3) {
+    float an = smoothstep(8.0, 10.5, hk);                 // the anvil
+    vec3 wa = w - vec3(an * 4.0, 0.0, an * 1.5);           // pushed downwind as it spreads
+    float n = tfbm(wa * 0.11 + 13.0, 3);
+    float thr = 0.74 - 0.12 * an;                          // wider in the anvil
+    float top = 9.0 + 3.0 * smoothstep(thr, thr + 0.2, n);
+    d = max(d, wCb * smoothstep(thr, thr + 0.06, n) * smoothstep(1.4, 1.6, hk) * (1.0 - smoothstep(top - 1.5, top, hk)));
+  }
+  if (d <= 0.0 || q == 0) return d;
+  // Erosion: finer noise and billows eat the edges into rounded heaps (less in the flat sheets).
+  float det = tnoise(w * 1.4 + vec3(0.0, uTime * 0.01, 0.0)) * 0.65 + tnoise(w * 3.2) * 0.35;
+  if (q == 2) det = mix(det, 1.0 - (0.65 * billow(w * 1.1) + 0.35 * billow(w * 2.6 + 4.0)), 0.6);
+  return clamp(d * 1.4 - 0.45 * (1.0 - 0.6 * wSt) * det * (1.0 - 0.6 * d), 0.0, 1.0);
 }
 void main() {
   vec3 dv = normalize(vec3((vUV.x * 2.0 - 1.0) * uTan.x, (vUV.y * 2.0 - 1.0) * uTan.y, -1.0));
@@ -3008,15 +3070,17 @@ void main() {
   float r0 = 1.0 + z0;
   // Distance to the shell of height z, from below (exact in differences, so float precision holds).
   #define SHELL(z) (-r0 * h + sqrt(r0 * r0 * h * h + ((z) - z0) * (2.0 + (z) + z0)))
-  float tIn = SHELL(zb), tOut = SHELL(zt);
-  float far = tIn * Rkm;                                          // km to the cloud base along the view
+  // The cloud layers span 0.35 to 12.5 km (Earth's terms, scaled by the air): low sheets to storm tops.
+  float zLo = 0.35 * uHs / Rkm, zHi = 12.5 * uHs / Rkm;
+  float tIn = SHELL(zLo), tOut = SHELL(zHi);
+  float far = SHELL(1.5 * uHs / Rkm) * Rkm;                       // km to the usual cloud base along the view
   float fade = exp(-far / 160.0) * smoothstep(0.0, 0.05, h);
   if (fade >= 0.01 && uCloud > 0.001) {
   // Light on the clouds: the sunlight that reaches their height through the air (orange-gold at sunset, and
   // still there after the Sun has set on the ground: tauToSun is blocked only by the planet itself), and the
   // skylight.
   float e = dot(sun, up);
-  vec3 Tsun = uAir > 0.0 ? exp(-tauToSun(1.0 + zb, e)) : vec3(step(-0.05, e));
+  vec3 Tsun = uAir > 0.0 ? exp(-tauToSun(1.0 + 2.0 * uHs / Rkm, e)) : vec3(step(-0.05, e));
   float m = max(Tsun.r, max(Tsun.g, Tsun.b));
   vec3 lightCol = m > 1e-4 ? Tsun / m : vec3(1.0);
   float sunK = uSunPower * pow(max(m, 0.0), 0.35);
@@ -3024,42 +3088,75 @@ void main() {
   vec3 skyL = uCloudCol * mix(vec3(0.5, 0.58, 0.75), lightCol, 0.4) * (0.1 + 0.55 * smoothstep(-0.15, 0.3, e)) * max(uSunPower, 0.15);
   float cs = dot(d, sun);
   float ph = mix(hg(cs, 0.6), hg(cs, -0.15), 0.35) * 0.55;
-  // 6 steps, over at most 16 km of the layer (beyond that it is opaque or lost in haze).
-  const int N = 6;
-  float len = min(tOut - tIn, 16.0 / Rkm), ds = len / float(N);
+  if (uBlanket > 0.5) {
+    // A closed blanket: no march through it. Where the view ray meets the wavy base is refined from the
+    // deck's mean height a few times, each step a smooth function of the direction (a search that decides
+    // hit-or-miss step by step tears the waves into rows). This keeps their depth near the eye and lets them
+    // flatten toward the horizon; the base is soft, so sharp edges never needed exact silhouettes.
+    vec3 wind = vec3(uTime * 0.015, 0.0, uTime * 0.006);
+    float tb = SHELL(1.6 * uHs / Rkm);
+    vec2 bb = vec2(1.6, 0.45);
+    for (int k = 0; k < 7; k++) {
+      bb = blanketBase(Rkm * (up * r0 + d * tb) + wind, 1.0 - smoothstep(15.0, 60.0, tb * Rkm));
+      tb = mix(tb, SHELL(bb.x * uHs / Rkm), 0.35);
+    }
+    bb = blanketBase(Rkm * (up * r0 + d * tb) + wind, 1.0 - smoothstep(15.0, 60.0, tb * Rkm));
+    vec3 Pb = Rkm * (up * r0 + d * tb) + wind;
+    float mott = 1.0 + 0.3 * (tfbm(Pb * 1.3 + 2.0, 3) - 0.5) * exp(-tb * Rkm / 25.0);   // (fading where it would shimmer)
+    // (no blue skylight under a closed deck: only the light through it, coloured by the air above)
+    vec3 Lsrc = uCloudCol * lightCol * (sunK + 0.35 * max(uSunPower, 0.15)) * (1.0 - 0.75 * uStorm) * 9.0 * mott * (0.8 + 0.4 * ph);
+    vec3 Lb = Lsrc * exp(-0.6 * (5.0 - bb.x)) * (1.0 - 0.35 * bb.y * bb.y * bb.y);
+    float fb = exp(-tb * Rkm / 220.0) * smoothstep(0.0, 0.03, h);
+    cur = vec4(Lb * fb, fb);
+  } else {
+  // Over at most 30 km of the path: cheap coarse steps (~len/32) through clear air; where one finds cloud the
+  // march backs up and goes on in steps a quarter as long while it stays in cloud (as in Guerrilla's
+  // Nubis), so even a 1 km cumulus is sampled several times instead of caught or missed by luck (grain).
+  float len = min(tOut - tIn, 30.0 / Rkm), dsC = len / 32.0;
   // Start offset: interleaved gradient noise (Jimenez 2014), fixed per pixel, so the steps band less and
   // nothing shimmers; the sky's read of this buffer (a 3 x 3 blur) smooths it.
   float jit = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))) + uFrame * 0.618034);
   vec3 C = vec3(0.0);
   float Tr = 1.0;
   float SIG = 1.1 * (1.0 + 1.5 * uStorm);                         // extinction per km at full density
-  float lstep = 0.35 / Rkm;                                       // light-march step (radii)
-  for (int i = 0; i < N; i++) {
-    float t = tIn + (float(i) + jit) * ds;
+  float lstep = 0.35 * uHs / Rkm;                                 // light-march step (radii)
+  float t = tIn + jit * dsC, tEnd = tIn + len;
+  int fine = 0;
+  for (int i = 0; i < 96; i++) {
+    if (t > tEnd || Tr < 0.02) break;
     vec3 P = up * r0 + d * t;
-    float z = (length(P) - 1.0 - zb) / uCloudH.y;
-    float rho = dens(P * Rkm, z, true);
+    float hk = (length(P) - 1.0) * Rkm / uHs;
+    if (fine == 0) {
+      if (dens(P * Rkm, hk, 0) <= 0.0) { t += dsC; continue; }
+      t = max(tIn, t - dsC * 0.75); fine = 6;                     // cloud: back up, go fine
+      continue;
+    }
+    float ds = dsC * 0.25;
+    float rho = dens(P * Rkm, hk, 2);
+    fine = rho > 0.002 ? 6 : fine - 1;
+    t += ds;
     if (rho <= 0.002) continue;
     // Toward the Sun through the cloud above this point.
     float od = 0.0;
     for (int k = 1; k <= 3; k++) {
       vec3 Q = P + sun * lstep * float(k * k);
-      float zq = (length(Q) - 1.0 - zb) / uCloudH.y;
-      if (zq > 1.0) break;
-      od += dens(Q * Rkm, zq, false) * SIG * 0.35 * float(2 * k - 1);
+      float hq = (length(Q) - 1.0) * Rkm / uHs;
+      if (hq > 12.5) break;
+      od += dens(Q * Rkm, hq, 1) * SIG * 0.35 * uHs * float(2 * k - 1);
     }
     // Light scattered more than once reaches deep into a cloud: three octaves, each with weaker extinction,
     // phase and strength (Wrenninge et al. 2013; Hillaire, "Physically based sky, atmosphere and cloud
     // rendering in Frostbite", 2016), so thick cloud is bright inside instead of flat grey.
     float powder = 1.0 - exp(-od * 2.0 - 0.15);
     float ms = (exp(-od) * (0.55 + ph) + 0.5 * exp(-od * 0.5) * (0.55 + 0.5 * ph) + 0.25 * exp(-od * 0.25) * 0.55) * 0.8;
-    vec3 L = sunL * ms * mix(1.0, powder, 0.5) + skyL * (0.45 + 0.55 * z);
+    // (skylight: more on tops, less under a thick cloud's base)
+    vec3 L = sunL * ms * mix(1.0, powder, 0.5) + skyL * (0.35 + 0.65 * smoothstep(0.5, 6.0, hk));
     float a = 1.0 - exp(-rho * SIG * ds * Rkm);
     C += Tr * a * L;
     Tr *= 1.0 - a;
-    if (Tr < 0.02) break;
   }
   cur = vec4(C * fade, (1.0 - Tr) * fade);
+  }
   }
   // Cirrus: a thin high layer (~3.6x the deck's base, about 8 km on Earth) of fine streaks drawn out by the
   // wind, behind the deck. Thin ice scatters strongly forward: it glows around the Sun and, lit from below at
@@ -3090,8 +3187,9 @@ void main() {
   }
   // Temporal accumulation: in the planet's frame the camera only turns, so last frame's clouds are found by
   // direction. Each frame starts its steps at a different offset; blended, a dozen frames act as one march
-  // of 60+ steps (no banding or curtains). The wind moves the clouds slowly enough not to smear.
-  if (uHist > 0.5) {
+  // of 60+ steps (no banding or curtains). The wind moves the clouds slowly enough not to smear. (Not under
+  // the blanket: found exactly, it has no noise to average, and blending would smear its sharp edges.)
+  if (uHist > 0.5 && uBlanket < 0.5) {
     vec3 pv = uPrevView * d;
     if (pv.z < 0.0) {
       vec2 puv = (pv.xy / -pv.z) / uTan * 0.5 + 0.5;

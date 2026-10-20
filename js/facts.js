@@ -41,6 +41,7 @@ export const ENTRIES = {
       'The surface pressure equals being about 900 m under Earth\'s ocean.',
       'Its clouds are made of sulfuric acid droplets, and reflect so much sunlight that Venus is the brightest object in our night sky after the Moon.',
       'The Soviet Venera 7 probe made the first soft landing on another planet in 1970, and transmitted for about 20 minutes.',
+      'Its main cloud deck lies 48 to 70 km up; from the ground, the Venera landers saw a bright, nearly featureless orange sky. (Standing on Venus here, the deck is drawn lower and its wavy base visible: an artistic choice.)',
     ],
     sources: [nasaFS('venus'), nasa('venus/', 'NASA: Venus')],
   },

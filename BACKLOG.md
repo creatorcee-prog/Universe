@@ -71,6 +71,11 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 - (Done) Cliffs: rock textured from the side as well as from above (triplanar), fine noise in 3D, detail
   faded by the pixel's footprint up the face as well as across the map (no vertical streaks); mesa cliff
   edges no sharper than the ground mesh can draw there (no comb teeth).
+- (Done) Cloud types by region and climate: stratus, stratocumulus, cumulus (flat bases, rounded heads,
+  deeper in unstable air), cumulonimbus towers with downwind anvils; a closed blanket deck with a wave-churned
+  base (asperitas, WMO 2017) on thick-atmosphere worlds (found per pixel, not marched: smooth) and with
+  storms on Earth. Marching: coarse steps through clear air, fine ones in cloud (Nubis), so small clouds
+  are sampled densely instead of by luck (they were dots of grain). Multiple-scattering light.
 - Next: the jagged edge of hills' shadows (shaded per vertex of the ring mesh); Earth's land up close.
 
 ## New list
