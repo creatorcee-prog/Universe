@@ -83,6 +83,12 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 - (Done) Ocean Moon scenario (from a user's picture, the land made sea): Pelagia, a made-up ocean moon locked
   close to Rhodon, a cream-and-rose giant that spans ~34° of its sky; "Facing <planet>" in the Surface view
   for any locked moon (stands where the planet hangs ~25° up, by daylight); Pelagia in the book.
+- (Done) Wind per world (user: motion should follow wind speed): windOf() gives the wind near the ground and at
+  cloud height (Earth 5/10 m/s, Venus 0.7/60 with its super-rotating deck, Mars 5/15, Titan 0.6/2.5; others
+  from air density). Clouds drift with it (and Titan's heaps change shape at its pace), grass sways and bends
+  with it (push ~ wind²), the FFT sea's spectrum follows it. Venus's deck: waves faded by a pixel's footprint
+  and flattened toward the horizon, where lines of sight grazing them folded into streaks. Storms: mammatus
+  regions beside asperitas, chosen once per pixel (choosing per march sample stalled GPUs).
 - (Done) Nearby objects through air: particles (ring chunks, debris) drawn in the sky layer and veiled like the
   bodies (Saturn's edge-on rings no longer show through Titan's haze); labels, orbit lines and trails hidden
   where the air passes under 3% of the light or under a closed deck. Titan's deck: soft lumpy methane cloud

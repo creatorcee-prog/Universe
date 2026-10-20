@@ -1416,6 +1416,7 @@ layout(location = 1) in vec4 aRock;    // rocks (a second draw with this program
 layout(location = 2) in vec3 aLocal;   // a rock's vertex on a unit icosphere; a blade's: across (-1..1), up (0..1)
 uniform float uRocks;                  // how rocky the ground is here, 0..1 (rocks are hidden as it drops)
 uniform float uLife, uTemp, uLatSpan, uLapse, uTime;   // (grass: where plants grow, as TERRAIN_FS decides it; wind)
+uniform float uWindG;                  // the wind near the ground (m/s): how hard the grass sways
 uniform float uShadowPass;             // 1: drawing the rocks into the Sun's shadow map (see drawTerrain)
 uniform vec3 uShU, uShV, uShL;         // the shadow map's axes, local (east, north, up): across, across, toward the Sun
 uniform vec2 uShSize;                  // its half-width (m), its depth range (m)
@@ -1549,8 +1550,10 @@ void main() {
     float face = aRock.w * 6.2832 * 7.0, lean = aRock.w * 6.2832 * 3.0;
     vec2 fd = vec2(cos(face), sin(face)), ld = vec2(cos(lean), sin(lean));
     float w = 0.006 * (1.0 + r / 2.0) * (1.0 - t * 0.85);
-    float gust = sin(uTime * 1.7 + dot(pw, vec2(0.31, 0.17))) * 0.5 + 0.5;
-    vec2 bend = ld * (0.25 + 0.2 * hash(vec3(aRock.w, 5.0, 1.0))) + vec2(0.7, 0.3) * (0.1 + 0.25 * gust * gust);
+    // (Gusts sweep across at the wind's speed; the push on a blade goes as the wind's square, ~6 m/s bending it
+    // well over.)
+    float gust = sin(uTime * 0.3 * uWindG + dot(pw, vec2(0.31, 0.17))) * 0.5 + 0.5, wk = min(1.6, uWindG * uWindG / 36.0);
+    vec2 bend = ld * (0.25 + 0.2 * hash(vec3(aRock.w, 5.0, 1.0))) + vec2(0.7, 0.3) * wk * (0.1 + 0.25 * gust * gust);
     vec2 xy = vec2(-fd.y, fd.x) * aLocal.x * w + bend * hgt * t * t;
     float z = hgt * t * (1.0 - 0.35 * t * dot(bend, bend));
     grassOff = vec3(xy, z);
@@ -3340,6 +3343,7 @@ uniform float uHs;          // the air's scale height / Earth's (8.5 km): cloud 
 uniform float uConv;        // 0..1: how convective the climate is here (warm, wet air: cumulus, storm towers)
 uniform float uBlanket;     // 0..1: a closed deck with a wave-churned base (asperitas): thick atmospheres, storms
 uniform float uFluff;       // 1: the closed deck is soft lumpy cloud instead (Titan's methane clouds), changing as it drifts
+uniform vec2 uWindV;        // the wind at cloud height (km/s, east and north... in the planet frame's x, z), with uTime its clock (s)
 uniform vec3 uCloudH;       // base height, thickness (radii), planet radius (km)
 uniform sampler2D uPrev;    // last frame's result, blended in (see the end)
 uniform mat3 uPrevView;     // last frame's rotation from the planet's frame to its view
@@ -3391,7 +3395,7 @@ float remap(float v, float a, float b, float c, float d) { return c + (v - a) / 
 // sizes, ~4 and ~2 km, their undersides hanging lowest; they drift with the wind and slowly change shape (the
 // pattern moves through its third axis with time).
 vec2 fluffBase(vec3 w, float far) {
-  vec3 q = w * 0.25 + vec3(0.0, uTime * 4e-4, 0.0) + 0.8 * vec3(tfbm(w * 0.04 + 3.0, 2), 0.0, tfbm(w * 0.04 + 8.0, 2));
+  vec3 q = w * 0.25 + vec3(0.0, uTime * length(uWindV) * 0.2, 0.0) + 0.8 * vec3(tfbm(w * 0.04 + 3.0, 2), 0.0, tfbm(w * 0.04 + 8.0, 2));
   // (the small heaps fade out sooner with distance than the big ones: past ~20 km they would only speckle)
   float f2 = far * far * far;
   float c = billow(q) * (1.0 - 0.35 * f2) + billow(q * 2.1 + 7.0) * 0.35 * f2;
@@ -3405,12 +3409,23 @@ vec2 waveBase(vec3 w, float far) {
   float ridge = mix(0.45, r1 * r1 * 0.75 + r2 * r2 * 0.25 * far, far);
   return vec2(2.3 - 1.4 * ridge, ridge);
 }
-// Titan's deck is all soft heaps, Venus's all waves; under storms, regions (~100 km) of each alternate.
+// The same soft heaps, cheaply (smooth value noise in place of the cells): for storms, whose deck is sampled at
+// every step of the cloud march, where the cells' 27 hashes a sample stalled the GPU.
+vec2 fluffBaseLite(vec3 w, float far) {
+  vec3 q = w * 0.25 + vec3(0.0, uTime * length(uWindV) * 0.2, 0.0);
+  float c = tnoise(q) * 0.7 + tnoise(q * 2.1 + 7.0) * 0.3 * far;
+  float lump = smoothstep(0.35, 0.8, mix(0.55, c, far));
+  return vec2(2.4 - 0.8 * lump, lump);
+}
+// Titan's deck is all soft heaps, Venus's all waves; under storms, regions (~100 km) of each alternate. Which,
+// is decided once per pixel (gFl, set in main from where its line of sight meets the deck), so the march
+// evaluates one shape, not both.
+float gFl = 0.0;
 vec2 blanketBase(vec3 w, float far) {
-  float fl = uFluff > 0.5 ? 1.0 : uBlanket < 0.5 ? smoothstep(0.42, 0.58, tfbm(w * 0.004 + 51.0, 2)) : 0.0;
-  if (fl > 0.999) return fluffBase(w, far);
+  if (uFluff > 0.5) return fluffBase(w, far);
+  if (gFl > 0.999) return fluffBaseLite(w, far);
   vec2 wave = waveBase(w, far);
-  return fl > 0.001 ? mix(wave, fluffBase(w, far), fl) : wave;
+  return gFl > 0.001 ? mix(wave, fluffBaseLite(w, far), gFl) : wave;
 }
 // Where each kind of cloud forms: broad regions (~100 km) of more convective or more layered weather, about
 // the climate's own tendency (uConv: warm, wet, unstable air) and its cover.
@@ -3429,7 +3444,7 @@ vec2 regime(vec3 P) {
 // q: 0 the envelope only, before erosion (a cheap, generous test for whether there is cloud near); 1 eroded
 // by noise; 2 by the billows too (they cost 27 hashes; the march toward the Sun does without them).
 float dens(vec3 P, float hk, int q) {
-  vec3 w = P + vec3(uTime * 0.015, 0.0, uTime * 0.006);   // carried by a ~15 m/s wind (P in km, uTime in s)
+  vec3 w = P + vec3(uWindV.x, 0.0, uWindV.y) * uTime;   // carried by the wind (P in km, uTime in s)
   vec2 rg = regime(P);
   float conv = rg.x, lay = rg.y, cover = clamp(uCloud, 0.0, 1.0);
   float d = 0.0;
@@ -3477,7 +3492,7 @@ float dens(vec3 P, float hk, int q) {
   }
   if (d <= 0.0 || q == 0) return d;
   // Erosion: finer noise and billows eat the edges into rounded heaps (less in the flat sheets).
-  float det = tnoise(w * 1.4 + vec3(0.0, uTime * 0.01, 0.0)) * 0.65 + tnoise(w * 3.2) * 0.35;
+  float det = tnoise(w * 1.4 + vec3(0.0, uTime * length(uWindV) * 0.6, 0.0)) * 0.65 + tnoise(w * 3.2) * 0.35;
   if (q == 2) det = mix(det, 1.0 - (0.65 * billow(w * 1.1) + 0.35 * billow(w * 2.6 + 4.0)), 0.6);
   return clamp(d * 1.4 - 0.45 * (1.0 - 0.6 * wSt) * det * (1.0 - 0.6 * d), 0.0, 1.0);
 }
@@ -3510,19 +3525,30 @@ void main() {
   vec3 skyL = uCloudCol * mix(vec3(0.5, 0.58, 0.75), lightCol, 0.4) * (0.1 + 0.55 * smoothstep(-0.15, 0.3, e)) * max(uSunPower, 0.15);
   float cs = dot(d, sun);
   float ph = mix(hg(cs, 0.6), hg(cs, -0.15), 0.35) * 0.55;
+  if (uBlanket < 0.5 && uFluff < 0.5 && uStorm > 0.0) {
+    vec3 Pd = Rkm * (up * r0 + d * SHELL(1.6 * uHs / Rkm)) + vec3(uWindV.x, 0.0, uWindV.y) * uTime;
+    gFl = smoothstep(0.42, 0.58, tfbm(Pd * 0.004 + 51.0, 2));
+  }
   if (uBlanket > 0.5) {
     // A closed blanket: no march through it. Where the view ray meets the wavy base is refined from the
     // deck's mean height a few times, each step a smooth function of the direction (a search that decides
     // hit-or-miss step by step tears the waves into rows). This keeps their depth near the eye and lets them
     // flatten toward the horizon; the base is soft, so sharp edges never needed exact silhouettes.
-    vec3 wind = vec3(uTime * 0.015, 0.0, uTime * 0.006);
+    vec3 wind = vec3(uWindV.x, 0.0, uWindV.y) * uTime;
     float tb = SHELL(1.6 * uHs / Rkm);
     vec2 bb = vec2(1.6, 0.45);
+    // How much of the waves to keep: by the footprint of a pixel on the deck, which grows as distance² / its
+    // height (seen ever more edge-on); waves a few km long fade before a pixel spans ~1 km, or they alias into
+    // streaks running across the view (Venus's deck, twice as high, is seen edge-on farther out).
+    // Seen at under ~20° the lines of sight graze one wave and land on the next, folding the base into dark
+    // ledges: the waves flatten toward the horizon (as they do to the eye anyway, foreshortened).
+    float graze = smoothstep(0.06, 0.34, dot(d, up));
+    #define BFAR(t) (graze * (1.0 - smoothstep(0.25, 1.0, (t) * (t) * Rkm * Rkm * 0.004 / max(1.6 * uHs, 0.3))))
     for (int k = 0; k < 7; k++) {
-      bb = blanketBase(Rkm * (up * r0 + d * tb) + wind, 1.0 - smoothstep(15.0, 60.0, tb * Rkm));
+      bb = blanketBase(Rkm * (up * r0 + d * tb) + wind, BFAR(tb));
       tb = mix(tb, SHELL(bb.x * uHs / Rkm), uFluff > 0.5 ? 0.25 : 0.35);
     }
-    bb = blanketBase(Rkm * (up * r0 + d * tb) + wind, 1.0 - smoothstep(15.0, 60.0, tb * Rkm));
+    bb = blanketBase(Rkm * (up * r0 + d * tb) + wind, BFAR(tb));
     vec3 Pb = Rkm * (up * r0 + d * tb) + wind;
     float mott = 1.0 + 0.3 * (tfbm(Pb * 1.3 + 2.0, 3) - 0.5) * exp(-tb * Rkm / 25.0);   // (fading where it would shimmer)
     // (no blue skylight under a closed deck: only the light through it, coloured by the air above)
@@ -3592,7 +3618,7 @@ void main() {
     float tc = SHELL(zc);
     vec3 Pc = (up * r0 + d * tc) * Rkm;
     float farC = tc * Rkm;
-    vec3 wc = Pc + vec3(uTime * 0.03, 0.0, uTime * 0.012);
+    vec3 wc = Pc + vec3(uWindV.x, 0.0, uWindV.y) * (uTime * 2.0);   // (cirrus: high up, where the wind is ~twice as fast)
     vec3 warp = vec3(tfbm(wc * 0.01 + 3.0, 3), tfbm(wc * 0.01 + 9.0, 3), 0.0) - 0.5;
     vec3 sq = vec3(wc.x * 0.008, wc.y * 0.11, wc.z * 0.11) + warp * vec3(0.8, 3.0, 3.0);   // stretched along the wind
     float n = tfbm(sq, 5) + 0.25 * (tnoise(sq * vec3(1.0, 4.0, 4.0) + 7.0) - 0.5);           // fine fibres

@@ -1080,6 +1080,8 @@ export class Renderer3D {
     gl.uniform1f(u.uHs, Hkm / 8.5);
     gl.uniform1f(u.uBlanket, optics && optics.tauM > 3 ? 1 : 0);
     gl.uniform1f(u.uFluff, optics && optics.kind === 'tholin' ? 1 : 0);
+    const wnd = this.windOf(b, optics), wdir = this.windDir(b);
+    gl.uniform2f(u.uWindV, (wdir[0] * wnd.cloud) / 1000, (wdir[1] * wnd.cloud) / 1000);
     // How convective the weather is here: warm, wet air builds cumulus and storm towers; cold or dry air,
     // flat sheets.
     const th = b.th, Tloc = sv.localT || (th ? th.Ts : 0), wetC = th && th.liquid > 0.005;
@@ -1276,10 +1278,13 @@ export class Renderer3D {
   }
 
   // The sea's slope texture (OceanFFT), stepped to time t (s) at most once a frame.
-  seaTex(t) {
+  seaTex(t, wind = 9) {
     const gl = this.gl;
+    // (A new sea when the wind changes by over a fifth: the spectrum's scale follows the wind, U²/g.)
+    if (this.sea && Math.abs(this.sea.wind - wind) > 0.2 * this.sea.wind) { this.sea = null; gl.deleteTexture(this.seaT); }
     if (!this.sea) {
-      this.sea = new OceanFFT();
+      this.sea = new OceanFFT(64, 32, wind);
+      this.sea.wind = wind;
       this.seaT = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, this.seaT);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 64, 64, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
@@ -1427,6 +1432,30 @@ export class Renderer3D {
     gl.bindVertexArray(null);
     this.gMesh = { vao, n: idx.length };
     return this.gMesh;
+  }
+
+  // Typical winds on a world (m/s): near the ground (grass, waves) and at cloud height (the clouds' drift).
+  // Measured: Earth ~5 at 10 m over land and sea, ~10 at low cloud; Venus ~0.5-1 at the surface (Venera 9/10
+  // anemometers) but ~60 at the base of its cloud deck, which super-rotates round the planet in ~4 days (100
+  // m/s at the tops); Mars 2-10 (Viking, Perseverance's MEDA), clouds ~15; Titan ~0.3-1 at the surface,
+  // a few m/s through its lower 20 km (Huygens's descent: Bird et al. 2005, Nature 438, 800). Elsewhere from
+  // the air's density: thinner air is moved faster by the same heating (~1/sqrt of the density), and a thick
+  // deck on a slow-turning world super-rotates as Venus's does.
+  windOf(b, optics) {
+    const name = b.name.replace(/ \d+$/, '');
+    const KNOWN = { Earth: [5, 10], Venus: [0.7, 60], Mars: [5, 15], Titan: [0.6, 2.5] };
+    if (KNOWN[name]) return { ground: KNOWN[name][0], cloud: KNOWN[name][1] };
+    if (!optics) return { ground: 0, cloud: 0 };
+    const rho = optics.P * (288 / Math.max(optics.T || 288, 40)) * ((optics.mu || 29) / 29);   // density, Earth = 1
+    const ground = Math.max(0.3, Math.min(15, 5 / Math.sqrt(Math.max(rho, 0.01))));
+    const day = Math.abs(this.look(b).day || 24);
+    const cloud = optics.P > 10 && day > 500 ? 60 : Math.min(40, ground * 2);
+    return { ground, cloud };
+  }
+  // The wind's direction, which turns slowly (a few degrees a minute of simulated time), per world.
+  windDir(b) {
+    const a = seeded(b.id * 7 + 1) * 6.283 + 0.6 * Math.sin((this.windT || 0) / 3000);
+    return [Math.cos(a), Math.sin(a)];
   }
 
   // The ground around the observer in the Surface view. Lit by the sunlight that reaches the ground and
@@ -1612,7 +1641,10 @@ export class Renderer3D {
     gl.uniform1f(u.uGroundOn, gm ? 1 : 0);
     // The sea's waves (OceanFFT), where there is liquid.
     const seaOn = !!liquid && this.settings.view !== 'pixel';
-    this.bindTex(11, seaOn ? this.seaTex(now / 1000) : this.cloudNoise(), u.uSea);
+    // (wind 10 m up, as sea-state models take it: ~1.3x that at eye height over the ground's roughness)
+    const wndG = this.windOf(b, optics).ground;
+    this.bindTex(11, seaOn ? this.seaTex(now / 1000, Math.max(2, Math.min(25, wndG * 1.3))) : this.cloudNoise(), u.uSea);
+    gl.uniform1f(u.uWindG, wndG);
     gl.uniform1f(u.uSeaFFT, seaOn ? 1 : 0);
     const sh = this.shadowTarget();
     // (While drawing into the map, the program's map sampler holds something else: reading the texture being
