@@ -559,6 +559,22 @@ float lightTerm(vec3 N, vec3 L) {
   return smoothstep(-0.03 - uSoft, 0.1 + uSoft, d) * (0.22 + 0.78 * max(d, 0.0));
 }
 
+// Eddies on a giant's bands: a curl-noise swirl field (Bridson, Hourihan & Nordenstam 2007, "Curl-noise for
+// procedural fluid flow"): the rotation of a slowly changing noise potential psi on the sphere, v = n x grad psi,
+// which swirls without converging or spreading (it is divergence-free, as the clouds' flow nearly is). Returns
+// the displacement it gives a point p on the unit sphere (tangent, a few degrees), strongest where a jet's speed
+// changes fastest with latitude (the shear at a belt's edge, where Jupiter's eddies and festoons roll up).
+vec3 eddyCurl(vec3 p, float t, float shear, float seed) {
+  const float F = 7.0, H = 0.03;
+  vec3 q = p * F + seed + vec3(0.0, 0.0, t * 0.015);
+  float c = vnoise(q) + 0.5 * vnoise(q * 2.3 + 4.1);
+  vec3 g = vec3(vnoise(q + vec3(H, 0.0, 0.0)) + 0.5 * vnoise((q + vec3(H, 0.0, 0.0)) * 2.3 + 4.1),
+                vnoise(q + vec3(0.0, H, 0.0)) + 0.5 * vnoise((q + vec3(0.0, H, 0.0)) * 2.3 + 4.1),
+                vnoise(q + vec3(0.0, 0.0, H)) + 0.5 * vnoise((q + vec3(0.0, 0.0, H)) * 2.3 + 4.1)) - c;
+  vec3 v = cross(p, g / H);
+  return v * 0.0045 * (0.35 + 0.65 * shear);
+}
+
 void main() {
   if (uCutOn > 0.5 && dot(vObj, uCutA) > 0.0 && dot(vObj, uCutB) > 0.0) discard;
   if (uShardOn > 0.5) {
@@ -696,6 +712,9 @@ void main() {
     float gsA = gj * gfa * 0.2, gsB = gj * gfb * 0.2;
     vec3 gvA = vec3(vObj.x * cos(gsA) - vObj.z * sin(gsA), vObj.y, vObj.x * sin(gsA) + vObj.z * cos(gsA));
     vec3 gvB = vec3(vObj.x * cos(gsB) - vObj.z * sin(gsB), vObj.y, vObj.x * sin(gsB) + vObj.z * cos(gsB));
+    // (eddies, rolled up where the jets shear: see eddyCurl)
+    vec3 gE = eddyCurl(normalize(gvB), uCloudT, abs(cos(vObj.y * uBands * 3.14159)), uSeed);
+    gvA += gE; gvB += gE;
     float turb = mix(fbm(vec3(gvB.x * 2.0, gvB.y * 7.0, gvB.z * 2.0) + uSeed, 5), fbm(vec3(gvA.x * 2.0, gvA.y * 7.0, gvA.z * 2.0) + uSeed, 5), gwA);
     float b = vObj.y * uBands + turb * 0.9;
     float band = 0.5 + 0.5 * sin(b * 6.2831853);
@@ -711,6 +730,7 @@ void main() {
       float tg = uCloudT;
       vec3 sp0 = vec3(cos(lon), sin(lon), 0.0);
       float lw = latD + (fbm(vec3(sp0.xy * 1.3, latD * 0.05) + uSeed + vec3(tg * 0.01, 0.0, 0.0), 4) - 0.5) * 10.0;
+      lw += eddyCurl(normalize(vObj), tg, abs(cos(radians(latD) * max(uBands, 3.0) * 1.6)), uSeed).y * 57.3 * 1.6;
       float bandS = 0.5 + 0.5 * sin(radians(lw) * max(uBands, 3.0) * 1.6 + 0.6 * fbm(vec3(sp0.xy * 0.8, latD * 0.03) + uSeed + 2.0, 3));
       vec3 polar = mix(uColA, vec3(0.6, 0.68, 0.76), 0.6);
       vec3 base = mix(uColA, uColB, smoothstep(0.2, 0.9, bandS) * 0.6 * uBandK);
@@ -772,6 +792,13 @@ void main() {
       float shA = jet * fa * 0.2, shB = jet * fb * 0.2;       // radians of longitude over a cycle
       vec3 vA = vec3(vObj.x * cos(shA) - vObj.z * sin(shA), vObj.y, vObj.x * sin(shA) + vObj.z * cos(shA));
       vec3 vB = vec3(vObj.x * cos(shB) - vObj.z * sin(shB), vObj.y, vObj.x * sin(shB) + vObj.z * cos(shB));
+      // Eddies (eddyCurl), carried by the jets with the rest, strongest at the jets' flanks; they curl the band
+      // edges, the measured map and the cloud texture alike.
+      vec3 eC = eddyCurl(normalize(mix(vB, vA, wA)), tg, abs(cos(radians(latD) * 26.0)), uSeed) * tq;
+      float cosL = max(sqrt(1.0 - vObj.y * vObj.y), 0.15);
+      float eLat = eC.y / cosL * 57.3, eLon = dot(eC, vec3(-sin(lon), 0.0, cos(lon))) / cosL;
+      lp += eLat;
+      vA += eC; vB += eC;
       if (cmap) col = mix(mapTex(uMap, vB).rgb, mapTex(uMap, vA).rgb, wA);
       else if (uProfile < 2.5) {
         col = bandTable(lp, uProfile);
@@ -792,9 +819,9 @@ void main() {
       }
       // Cloud texture: two-level domain-warped noise in (longitude, latitude), sheared east-west, so it
       // forms streaks, swirls and filaments like the real cloud decks.
-      float lonF = lon + mix(shB, shA, wA);                   // (the noise flows with the bands too)
+      float lonF = lon + mix(shB, shA, wA) + eLon;            // (the noise flows with the bands too)
       sp = vec3(cos(lonF), sin(lonF), 0.0);
-      vec3 fp = vec3(sp.xy * 10.0, latD * 0.55);
+      vec3 fp = vec3(sp.xy * 10.0, (latD + eLat) * 0.55);
       int fo = int(dOct) + 1;
       vec3 w1 = vec3(fbm(fp + uSeed, fo), fbm(fp + uSeed + 5.2, fo), 0.0);
       vec3 w2 = vec3(fbm(fp + w1 * 3.0 + 1.7, fo), fbm(fp + w1 * 3.0 + 9.2, fo), 0.0);
