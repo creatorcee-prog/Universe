@@ -18,7 +18,7 @@ import { atmosphereOptics } from './optics.js';
 const SETTINGS_KEY = 'universe-pocket-settings';
 
 function loadSettings() {
-  const defaults = { trails: true, labels: true, grid: true, stars: true, trailsRelative: true, collisions: true, sound: true, music: true, uiSound: true, soundSilent: false, bassBoost: false, sharp: false, perf: false, gpuRings: false, webgpu: false, v: 4, view: 'realistic', bloom: true, flare: true, brightness: 'enhanced', tone: 'classic', rocks: true, trailColor: 'body', orbits: false, trueSize: false };
+  const defaults = { trails: true, labels: true, grid: true, stars: true, trailsRelative: true, collisions: true, sound: true, music: true, uiSound: true, soundSilent: false, bassBoost: false, sharp: false, perf: false, gpuRings: false, webgpu: false, v: 4, view: 'realistic', bloom: true, flare: true, brightness: 'enhanced', tone: 'classic', rocks: true, trailColor: 'body', orbits: false, trueSize: false, magnetic: false };
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
     // v2: interface sounds were off in v1 while the sound set was being replaced; the new set is on.
@@ -1071,6 +1071,7 @@ class App {
       this.gpu.canvas.hidden = !own;
       if (own) this.gpu.draw(this.r3d, this.world, done, gpuHosts);
     }
+    this.renderer.r3d = this.r3d;
     this.renderer.draw(now, ui);
     if (this.snapPending) { this.snapPending(); this.snapPending = null; }
     this.perfReadout(now, dtReal, performance.now() - tr);

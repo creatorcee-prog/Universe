@@ -5,6 +5,7 @@ import { isLuminous } from './bodies.js';
 import { tempZones } from './thermal.js';
 import { gravZones } from './gravzones.js';
 import { atmosphereOptics } from './optics.js';
+import { fieldOf, fieldLines, parkerSpirals } from './magnetic.js';
 
 const TRAIL_LEN = 360;
 
@@ -143,6 +144,7 @@ export class Renderer {
       this.gridSpacing = Math.pow(10, Math.floor(Math.log10(cam.dist / 1.5)));
       if (this.settings.trails) this.drawTrails();
       this.drawOrbits(ui, !this.settings.orbits);
+      if (this.settings.magnetic) this.drawMagnetic(ui);
       this.drawZones(ui);
       this.drawBodies(now, ui);
       this.drawFlashes(now);
@@ -161,6 +163,7 @@ export class Renderer {
     if (this.settings.grid) this.drawGrid();
     if (this.settings.trails) this.drawTrails();
     this.drawOrbits(ui, !this.settings.orbits);
+    if (this.settings.magnetic) this.drawMagnetic(ui);
     this.drawZones(ui);
     this.drawParticles();
     this.drawBodies(now, ui);
@@ -397,6 +400,52 @@ export class Renderer {
       if (qx * qx + qy * qy + qz * qz < o.r * o.r) return true;
     }
     return false;
+  }
+
+  // Magnetic fields (Settings → Magnetic fields; js/magnetic.js): each magnetised world's field lines, closed
+  // loops in blue, the lines opened into the tail in violet, hidden behind worlds like orbit lines; the stars'
+  // fields wound into Parker spirals by their wind, faint gold.
+  drawMagnetic(ui) {
+    const { ctx, cam, dpr, world } = this;
+    const p = this.tmp, r3d = this.r3d;
+    if (ui.surface) return;
+    const rotOf = (b) => (r3d ? r3d.bodyRotation(b) : [1, 0, 0, 0, 1, 0, 0, 0, 1]);
+    const stroke = (pts, style, w) => {
+      ctx.strokeStyle = style; ctx.lineWidth = w;
+      ctx.beginPath();
+      let pen = false;
+      for (let i = 0; i < pts.length; i += 3) {
+        if (cam.project(pts[i], pts[i + 1], pts[i + 2], p) <= 0 || this.hiddenAt(pts[i], pts[i + 1], pts[i + 2], p.x, p.y)) { pen = false; continue; }
+        if (pen) ctx.lineTo(p.x, p.y); else ctx.moveTo(p.x, p.y);
+        pen = true;
+      }
+      ctx.stroke();
+    };
+    ctx.globalCompositeOperation = 'lighter';
+    let n = 0;
+    const list = world.bodies.filter((b) => b.alive && b.kind !== 'nebula').sort((a, c) => c.m - a.m);
+    for (const b of list) {
+      if (n >= 12) break;
+      const f = fieldOf(b);
+      if (!f) continue;
+      if (cam.project(b.x, b.y, b.z, p) <= 0) continue;
+      const rot = rotOf(b);
+      if (isLuminous(b) && b.kind === 'star') {
+        // (the wind's spirals out to ~6 AU, or as far as the view needs)
+        const reach = Math.min(Math.max(cam.dist * 2, 0.3), 8);
+        if (b.r * p.s < 0.3 * dpr && cam.dist < 0.05) continue;
+        for (const s of parkerSpirals(b, rot, reach)) stroke(s, 'rgba(255,196,120,0.22)', dpr);
+        n++;
+        continue;
+      }
+      const shown = b.r * p.s;
+      if (shown * 3 < 6 * dpr) continue;   // (its magnetosphere would be a few pixels)
+      const fl = fieldLines(b, f, world, rot);
+      if (shown * fl.Rmp < 18 * dpr) continue;
+      for (const l of fl.lines) stroke(l.pts, l.open ? 'rgba(190,130,255,0.32)' : 'rgba(110,200,255,0.42)', dpr * (l.L < 3 ? 1.2 : 1));
+      n++;
+    }
+    ctx.globalCompositeOperation = 'source-over';
   }
 
   // Orbit lines: the Kepler ellipse each body would follow around what it orbits (its osculating orbit),

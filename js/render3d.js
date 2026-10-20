@@ -2431,6 +2431,9 @@ export class Renderer3D {
       const qx = (sb || { x: px }).x - s.x, qy = (sb || { y: py }).y - s.y, qz = (sb || { z: pz }).z - s.z;
       flux += s.lum / Math.max(qx * qx + qy * qy + qz * qz, 1e-18);
     }
+    // (Following a star: the eye is looking at it, from the camera's distance; adapting as if in the dark made
+    // everything it lights up to 10^4 times too bright: a planet near a supergiant bloomed into a white blot.)
+    if (t && t.lum > 0 && !sb) flux += t.lum / Math.max(c.dist * c.dist, 9 * t.r * t.r);
     const target = Math.log(Math.min(1e4, Math.max(1e-3, Math.pow(Math.max(flux, 1e-12), -0.7))));
     const k = 1 - Math.exp(-Math.min(dtReal || 0.016, 0.25) / 0.6);
     this.eyeLog = this.eyeLog === undefined ? target : this.eyeLog + (target - this.eyeLog) * k;

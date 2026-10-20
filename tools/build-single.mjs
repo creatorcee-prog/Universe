@@ -18,7 +18,7 @@ const out = args.find((a) => !a.startsWith('--')) || join(root, 'dist', 'pocket-
   const stale = PROGRAMS.filter(([, vs, fs]) => !WGSL[programKey(vs, fs)]).map(([n]) => n);
   if (stale.length) { console.error(`js/wgsl.js is out of date for: ${stale.join(', ')}. Run node tools/make_wgsl.mjs first.`); process.exit(1); }
 }
-const ORDER = ['units', 'bodies', 'stellar', 'thermal', 'gravzones', 'geography', 'ias15', 'tree', 'coagulate', 'minors', 'physics', 'moons', 'presets', 'camera', 'stars', 'optics', 'render', 'shaders', 'render3d', 'wgsl', 'glgpu', 'gpu', 'input', 'facts', 'book', 'thumbs', 'audio', 'challenges', 'ui', 'main'];
+const ORDER = ['units', 'bodies', 'stellar', 'thermal', 'gravzones', 'geography', 'ias15', 'tree', 'coagulate', 'minors', 'physics', 'moons', 'presets', 'camera', 'stars', 'optics', 'magnetic', 'render', 'shaders', 'render3d', 'wgsl', 'glgpu', 'gpu', 'input', 'facts', 'book', 'thumbs', 'audio', 'challenges', 'ui', 'main'];
 
 // Each ES module becomes a function scope; imports read from a shared registry.
 // Build stamp (month-day hour:minute, UTC), shown in the performance readout and Settings.

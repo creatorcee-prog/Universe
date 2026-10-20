@@ -227,7 +227,7 @@ export class UI {
       r.addEventListener('change', () => { if (r.checked) { app.setView(r.value); this.toast({ realistic: 'Realistic view', classic: 'Classic view', pixel: 'Pixel view' }[r.value]); } });
     }
     this.onView(app.settings.view);
-    for (const key of ['bloom', 'flare', 'rocks', 'trails', 'labels', 'grid', 'stars', 'trailsRelative', 'collisions', 'orbits', 'trueSize', 'sound', 'music', 'uiSound', 'soundSilent', 'bassBoost', 'sharp', 'perf', 'gpuRings', 'webgpu']) {
+    for (const key of ['bloom', 'flare', 'rocks', 'trails', 'labels', 'grid', 'stars', 'trailsRelative', 'collisions', 'orbits', 'magnetic', 'trueSize', 'sound', 'music', 'uiSound', 'soundSilent', 'bassBoost', 'sharp', 'perf', 'gpuRings', 'webgpu']) {
       const el = $('set-' + key);
       el.checked = !!app.settings[key];
       el.addEventListener('change', () => this.toggleSetting(key, el.checked));
