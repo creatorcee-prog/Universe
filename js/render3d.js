@@ -255,7 +255,7 @@ const LOOKS = {
   Pluto: { colA: c3(214, 190, 160), colB: c3(140, 100, 76), craters: 0.3, tilt: 122.5, day: 153.3 },
   Io: { colA: c3(232, 214, 110), colB: c3(190, 140, 60), volc: 1, day: 42.5, locked: 1 },
   // The Ocean Moon scenario (made up): a warm giant banded cream and rose, and its ocean moon, locked to it.
-  Rhodon: { kind: 1, profile: 1, tintBands: 1, colA: c3(252, 214, 192), colB: c3(234, 80, 118), bands: 8, storm: [0.85, 0.3, 0.2, 0.05], colC: c3(214, 96, 122), atmo: c3(250, 214, 200), atmoK: 0.25, tilt: 2, day: 10.6 },
+  Rhodon: { kind: 1, colA: c3(236, 222, 210), colB: c3(196, 136, 140), bands: 8, colC: c3(214, 96, 122), atmo: c3(250, 214, 200), atmoK: 0.25, tilt: 2, day: 10.6 },
   Pelagia: { colA: c3(70, 110, 180), colB: c3(52, 84, 140), cloud: 0.55, ocean: 1, atmo: c3(140, 190, 255), atmoK: 0.8, day: 14.9, locked: 1 },
   Europa: { colA: c3(226, 218, 204), colB: c3(170, 130, 100), lineae: 1, day: 85.2, locked: 1 },
   Ganymede: { colA: c3(150, 140, 126), colB: c3(98, 88, 78), craters: 0.6, day: 171.7, locked: 1 },
@@ -2397,7 +2397,7 @@ export class Renderer3D {
     gl.uniform1f(u.uVolc, l.volc || 0);
     gl.uniform1f(u.uLineae, imgMap ? 0 : l.lineae || 0);
     gl.uniform1f(u.uSpots, l.spots || 0);
-    gl.uniform1f(u.uProfile, l.profile || 0);
+    gl.uniform1f(u.uProfile, l.profile || (l.kind === 1 ? 5 : 0));   // (giants without a measured layout: the layered style)
     gl.uniform1f(u.uTintBands, l.tintBands ? 1 : 0);
     gl.uniform1f(u.uAurora, l.aurora || 0);
     gl.uniform1f(u.uPx, shownPx);

@@ -669,7 +669,53 @@ void main() {
     float b = vObj.y * uBands + turb * 0.9;
     float band = 0.5 + 0.5 * sin(b * 6.2831853);
     float edgeW = 1.0 - abs(sin(b * 6.2831853));
-    if (uProfile > 0.5) {
+    if (uProfile > 4.5) {
+      // Layered giants (worlds without a measured map, and those asked for it): broad soft bands of muted
+      // colour (the planet's zone and belt colours), wavy edges; over them three cloud decks at rising
+      // heights, each turning at its own rate so they slide past one another, their edges crisp, the higher
+      // ones whiter, each casting a soft shadow on the deck below away from the Sun; fine frosty grain;
+      // a polar vortex in stepped terraces; haze toward the limb.
+      float latD = degrees(asin(clamp(vObj.y, -1.0, 1.0)));
+      float lon = atan(vObj.z, vObj.x);
+      float tg = uCloudT;
+      vec3 sp0 = vec3(cos(lon), sin(lon), 0.0);
+      float lw = latD + (fbm(vec3(sp0.xy * 1.3, latD * 0.05) + uSeed + vec3(tg * 0.01, 0.0, 0.0), 4) - 0.5) * 10.0;
+      float bandS = 0.5 + 0.5 * sin(radians(lw) * max(uBands, 3.0) * 1.6 + 0.6 * fbm(vec3(sp0.xy * 0.8, latD * 0.03) + uSeed + 2.0, 3));
+      vec3 polar = mix(uColA, vec3(0.6, 0.68, 0.76), 0.6);
+      vec3 base = mix(uColA, uColB, smoothstep(0.2, 0.9, bandS) * 0.6 * uBandK);
+      base *= 0.94 + 0.12 * fbm(vec3(sp0.xy * 2.5, lw * 0.18) + uSeed + 4.0, 4);
+      base = mix(base, polar, smoothstep(48.0, 70.0, abs(lw)));
+      col = base;
+      mat3 toObjL = transpose(uRot) * transpose(uView);
+      vec3 LoL = normalize(toObjL * uL0);
+      for (int i = 0; i < 3; i++) {
+        float fi = float(i);
+        float a = tg * (0.015 + 0.025 * fi) * (i == 1 ? -1.0 : 1.0);
+        float ca = cos(a), sa = sin(a);
+        vec3 v = vec3(vObj.x * ca - vObj.z * sa, vObj.y, vObj.x * sa + vObj.z * ca);
+        float lonL = atan(v.z, v.x);
+        vec3 q = vec3(cos(lonL) * (2.2 + 1.2 * fi), sin(lonL) * (2.2 + 1.2 * fi), lw * (0.42 + 0.14 * fi)) + uSeed + fi * 13.0;   // (stretched east-west: streaks)
+        float n = fbm(q + vec3(fbm(q * 1.7, 3) * 1.6, fbm(q * 1.3 + 7.0, 3) * 0.8, 0.0), 5);
+        float thr = 0.57 + 0.035 * fi, edge = 0.018;
+        float cov = smoothstep(thr, thr + edge, n);
+        // (its shadow: the same deck, looked up a little toward the Sun from here, on what lies below it)
+        vec3 vs = normalize(v + vec3(LoL.x * ca - LoL.z * sa, LoL.y, LoL.x * sa + LoL.z * ca) * 0.006 * (1.0 + fi));
+        float lonS = atan(vs.z, vs.x);
+        vec3 qs = vec3(cos(lonS) * (2.2 + 1.2 * fi), sin(lonS) * (2.2 + 1.2 * fi), lw * (0.42 + 0.14 * fi)) + uSeed + fi * 13.0;
+        float shd = smoothstep(thr, thr + edge * 3.0, fbm(qs + vec3(fbm(qs * 1.7, 3) * 1.6, fbm(qs * 1.3 + 7.0, 3) * 0.8, 0.0), 5));
+        col *= 1.0 - 0.16 * shd * (1.0 - cov);
+        vec3 lc = mix(base * 1.1, vec3(0.94, 0.94, 0.92), 0.3 + 0.22 * fi) * (0.92 + 0.12 * fbm(q * 5.0, 3));
+        col = mix(col, lc, cov * (0.5 + 0.15 * fi));
+      }
+      col *= 0.975 + 0.05 * vnoise(vObj * 260.0 + uSeed);                         // frosty grain
+      float pz = smoothstep(56.0, 66.0, abs(latD));
+      if (pz > 0.0) {
+        float tt = (90.0 - abs(lw)) * 0.32 + 1.4 * fbm(vec3(sp0.xy * 2.2, latD * 0.08) + uSeed + vec3(tg * 0.02, 0.0, 0.0), 3);
+        float st = smoothstep(0.78, 0.96, fract(tt));
+        col *= mix(1.0, 0.95 + 0.11 * st, pz);
+      }
+      col = mix(col, polar * 0.92, pow(1.0 - mu, 3.0) * 0.45);                    // limb haze
+    } else if (uProfile > 0.5) {
       // Real giants: latitude profile, displaced by turbulence that is stretched east-west by the jets.
       float latD = degrees(asin(clamp(vObj.y, -1.0, 1.0)));
       float lon = atan(vObj.z, vObj.x);
@@ -793,11 +839,11 @@ void main() {
       col = mix(col, mix(uColA * 1.06, uColB * 0.78, step(0.52, eddy)), edgeW * 0.45 * smoothstep(0.38, 0.68, eddy) * uBandK);
     }
     // Layered decks (as on Jupiter: a high thin haze, the main ammonia-ice deck, and deeper, darker water
-    // clouds), each turning at its own rate. The deep layer shows through where the main deck thins (it lags,
+    // clouds), each turning at its own rate. (The layered style above has its own.) The deep layer shows through where the main deck thins (it lags,
     // so the gaps open onto a pattern that slides beneath); the haze above runs ahead in thin east-west
     // streaks, offset by parallax (it is higher, so it shifts against the deck as the view tilts), and shades
     // the deck where the Sun is low.
-    {
+    if (uProfile < 4.5) {
       mat3 toObj = transpose(uRot) * transpose(uView);
       vec3 Vo = normalize(toObj * V), Lo = normalize(toObj * uL0);
       float latY = vObj.y, calm = uProfile > 2.5 ? 0.45 : 1.0;
