@@ -256,6 +256,8 @@ const LOOKS = {
   Io: { colA: c3(232, 214, 110), colB: c3(190, 140, 60), volc: 1, day: 42.5, locked: 1 },
   // The Ocean Moon scenario (made up): a warm giant banded cream and rose, and its ocean moon, locked to it.
   Rhodon: { kind: 1, colA: c3(236, 222, 210), colB: c3(196, 136, 140), bands: 8, colC: c3(214, 96, 122), atmo: c3(250, 214, 200), atmoK: 0.25, tilt: 2, day: 10.6 },
+  Kyklos: { kind: 1, colA: c3(236, 228, 210), colB: c3(204, 188, 160), bands: 10, colC: c3(190, 170, 140), atmo: c3(236, 226, 206), atmoK: 0.22, tilt: 30, day: 10.2 },
+  Elysia: { colA: c3(150, 128, 90), colB: c3(120, 104, 76), cloud: 0.4, ocean: 0.5, life: 1, atmo: c3(130, 180, 255), atmoK: 0.9, day: 166, locked: 1 },
   Pelagia: { colA: c3(70, 110, 180), colB: c3(52, 84, 140), cloud: 0.55, ocean: 1, atmo: c3(140, 190, 255), atmoK: 0.8, day: 14.9, locked: 1 },
   Europa: { colA: c3(226, 218, 204), colB: c3(170, 130, 100), lineae: 1, day: 85.2, locked: 1 },
   Ganymede: { colA: c3(150, 140, 126), colB: c3(98, 88, 78), craters: 0.6, day: 171.7, locked: 1 },
@@ -482,7 +484,7 @@ export class Renderer3D {
     this.gen = ++contextGen;
     canvas.addEventListener('webglcontextrestored', () => {
       this.gen = ++contextGen;
-      this.mapTex = new Map(); this.dTex = null; this.nightTex = null; this.tMesh = null; this.rMesh = null; this.shTarget = null; this.gMats = null; this.sea = null; this.seaT = null; this.post = null; this.genMaps = null; this.noiseTex = null; this.cloudRTs = null; this.skyLayer = null; this.nebRT = null; this.galRT = null; this.galSet = null;
+      this.mapTex = new Map(); this.dTex = null; this.nightTex = null; this.tMesh = null; this.rMesh = null; this.gMesh = null; this.shTarget = null; this.gMats = null; this.sea = null; this.seaT = null; this.post = null; this.genMaps = null; this.noiseTex = null; this.cloudRTs = null; this.skyLayer = null; this.nebRT = null; this.galRT = null; this.galSet = null;
       this.init(); this.lost = false;
     });
     this.init();
@@ -1381,6 +1383,43 @@ export class Renderer3D {
     return this.rMesh;
   }
 
+  // Grass around the observer, drawn by the terrain program like the rocks (TERRAIN_VS plants each blade on the
+  // ground and decides, from the same rules as the ground's vegetation, whether it grows there). Each blade is a
+  // strap of two segments tapering to a point (5 corners). Denser near the observer (out to 20 m); farther
+  // blades are drawn wider, each standing for a tuft, and the ground's own grass colour fills in between.
+  grassMesh() {
+    if (this.gMesh) return this.gMesh;
+    const gl = this.gl, N = 48000, corner = [[-1, 0], [1, 0], [-1, 0.55], [1, 0.55], [0, 1]], tri = [0, 1, 2, 1, 3, 2, 2, 3, 4];
+    const z = new Float32Array(N * 5 * 2), blade = new Float32Array(N * 5 * 4), local = new Float32Array(N * 5 * 3), idx = new Uint32Array(N * 9);
+    let seed = 777;
+    const rnd = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+    for (let k = 0; k < N; k++) {
+      const r = 0.25 + 20 * Math.pow(rnd(), 2.2), a = rnd() * Math.PI * 2;
+      const h = 0.25 + 0.55 * rnd() * rnd() + 0.25 * rnd(), s = rnd() * 0.999 + 0.0005;
+      for (let i = 0; i < 5; i++) {
+        const o = k * 5 + i;
+        blade.set([Math.cos(a) * r, Math.sin(a) * r, -h, s], o * 4);
+        local.set([corner[i][0], corner[i][1], 0], o * 3);
+      }
+      for (let i = 0; i < 9; i++) idx[k * 9 + i] = k * 5 + tri[i];
+    }
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    [[z, 2], [blade, 4], [local, 3]].forEach(([data, n], loc) => {
+      const buf = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc, n, gl.FLOAT, false, 0, 0);
+    });
+    const ib = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+    gl.bindVertexArray(null);
+    this.gMesh = { vao, n: idx.length };
+    return this.gMesh;
+  }
+
   // The ground around the observer in the Surface view. Lit by the sunlight that reaches the ground and
   // the sky's own light, and hazed with distance, all from the same atmosphere model as the sky.
   // How arid the ground where the observer stands is, 0..1, for mesas (TERRAIN mesaH): none without air (they
@@ -1622,6 +1661,12 @@ export class Renderer3D {
       gl.drawElements(gl.TRIANGLES, rm.n, gl.UNSIGNED_INT, 0);
       gl.uniform1f(u.uRocks, 0);
     }
+    // Grass, on any world with plant life (the vertex shader keeps the blades where plants grow).
+    if (b.life && !(this.settings.rocks === false) && this.settings.view !== 'pixel') {
+      const gm2 = this.grassMesh();
+      gl.bindVertexArray(gm2.vao);
+      gl.drawElements(gl.TRIANGLES, gm2.n, gl.UNSIGNED_INT, 0);
+    }
     // Water mirrors the frame: copy it out (resolved), then draw the water again reading its reflection there,
     // over the same pixels (depth EQUAL).
     const post = this.post;
@@ -1795,6 +1840,13 @@ export class Renderer3D {
     gl.uniform1f(u.uGenK, k);
   }
 
+  // The generated map's coarse copy for world b, with its sea level (as bigTerrain sets it), or null.
+  genLand(b) {
+    const m = this.genMaps && this.genMaps.get(b);
+    if (!m || !m.cpu) return null;
+    return { ...m.cpu, sea: 0.3 + 0.36 * (b.th ? b.th.ocean : 0) };
+  }
+
   genStep() {
     this.frameNo = (this.frameNo || 0) + 1;
     if (!this.genMaps || !this.genMaps.size) return;
@@ -1842,6 +1894,21 @@ export class Renderer3D {
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
       m.done = true;
+      // A coarse copy for the CPU (512 × 256: elevation, mountains), so the Surface view can choose dry land
+      // to stand on (main.js nearestLand).
+      try {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, m.fbo);
+        const f = this.hdr, px = f ? new Float32Array(W * H * 4) : new Uint8Array(W * H * 4);
+        gl.readPixels(0, 0, W, H, gl.RGBA, f ? gl.FLOAT : gl.UNSIGNED_BYTE, px);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        const w = 512, h = 256, e = new Float32Array(w * h * 2), k = f ? 1 : 1 / 255;
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+          const o = ((y * 4) * W + x * 4) * 4;
+          e[(y * w + x) * 2] = px[o] * k; e[(y * w + x) * 2 + 1] = px[o + 1] * k;
+        }
+        m.cpu = { W: w, H: h, e };
+        if (gl.getError() !== gl.NO_ERROR) m.cpu = null;
+      } catch { m.cpu = null; gl.bindFramebuffer(gl.FRAMEBUFFER, null); }
     }
   }
 

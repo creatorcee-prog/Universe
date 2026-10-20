@@ -296,7 +296,17 @@ class App {
         // Face the Sun's side of the sky on the day side, away from it at night.
         sv.yaw = 0;
       }
-      if (!par) this.nearestLand(b, sv);
+      // (Facing a planet: only where it stays at least 15° up in the sky.)
+      let keep = null;
+      if (par) {
+        const pd = Math.hypot(par.x - b.x, par.y - b.y, par.z - b.z);
+        const po = toO([(par.x - b.x) / pd, (par.y - b.y) / pd, (par.z - b.z) / pd]);
+        // (and, where the Sun can be up at the same time, with it well up too: arriving in daylight)
+        const up = (d, lat, lon) => Math.cos(lat) * Math.cos(lon) * d[0] + Math.sin(lat) * d[1] + Math.cos(lat) * Math.sin(lon) * d[2];
+        const sunToo = po[0] * so[0] + po[1] * so[1] + po[2] * so[2] > -0.3;
+        keep = (lat, lon) => up(po, lat, lon) > 0.26 && (!sunToo || up(so, lat, lon) > 0.4);
+      }
+      this.nearestLand(b, sv, 35, keep);
     }
     const no = [Math.cos(sv.lat) * Math.cos(sv.lon), Math.sin(sv.lat), Math.cos(sv.lat) * Math.sin(sv.lon)];
     const n = toW(no);
@@ -781,23 +791,33 @@ class App {
 
   // On a world with a land map (Earth), move to the nearest land within ~35° so you stand on the ground,
   // not in open ocean. Uses the same map and longitude convention as the shaders.
-  nearestLand(b, sv) {
-    const sm = b.surfaceMap;
-    if (!sm || sm.mode !== 1) return;
+  nearestLand(b, sv, reach = 35, keep = null) {
+    const sm = b.surfaceMap && b.surfaceMap.mode === 1 ? b.surfaceMap : null;
+    const gm = !sm && this.r3d && this.r3d.genLand ? this.r3d.genLand(b) : null;
+    if (!sm && !gm) return;
     const land = (lat, lon) => {
       const u = (((-lon / (2 * Math.PI) + 0.5) % 1) + 1) % 1, v = 0.5 - lat / Math.PI;
+      if (gm) {
+        // A generated world: lowland a little above its sea level, away from the high ranges and the deserts of
+        // the subtropics (where the ground shader grows plants, so on a living world, among them).
+        const x = Math.min(gm.W - 1, Math.floor(u * gm.W)), y = Math.max(0, Math.min(gm.H - 1, Math.floor(v * gm.H)));
+        const e = gm.e[(y * gm.W + x) * 2] - gm.sea, mtn = gm.e[(y * gm.W + x) * 2 + 1];
+        const desert = Math.exp(-((Math.abs(Math.sin(lat)) - 0.45) ** 2) / 0.012);
+        return e > 0.02 && e < 0.12 && mtn < 0.35 && (b.th && b.th.ocean > 0 ? desert < 0.3 : true);
+      }
       const x = Math.min(sm.W - 1, Math.floor(u * sm.W)), y = Math.max(0, Math.min(sm.H - 1, Math.floor(v * sm.H)));
       const o = (y * sm.W + x) * 4;
       return sm.data[o + 3] > 127 && sm.data[o] > 175 && sm.data[o + 2] < 128; // land, a little inland, not ice sheet
     };
-    if (land(sv.lat, sv.lon)) return;
+    const good = (lat, lon) => land(lat, lon) && (!keep || keep(lat, lon));
+    if (good(sv.lat, sv.lon)) return;
     const D = Math.PI / 180;
-    for (let r = 1; r <= 35; r++) {
+    for (let r = 1; r <= reach; r++) {
       let best = null;
       for (let k = 0; k < 8 * r; k++) {
         const a = (k / (8 * r)) * 2 * Math.PI;
         const lat = sv.lat + r * D * Math.sin(a), lon = sv.lon + (r * D * Math.cos(a)) / Math.max(0.2, Math.cos(sv.lat));
-        if (Math.abs(lat) < 1.4 && land(lat, lon)) { best = [lat, lon]; break; }
+        if (Math.abs(lat) < 1.4 && good(lat, lon)) { best = [lat, lon]; break; }
       }
       if (best) { sv.lat = best[0]; sv.lon = best[1]; return; }
     }

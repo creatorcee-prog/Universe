@@ -257,6 +257,19 @@ export const ENTRIES = {
     ],
     sources: [['Heller & Barnes 2013, Astrobiology 13, 18 (exomoon habitability)', 'https://doi.org/10.1089/ast.2012.0859'], ['Teachey & Kipping 2018, Sci. Adv. 4, eaav1784', 'https://doi.org/10.1126/sciadv.aav1784'], ['Kipping et al. 2022, Nat. Astron. 6, 367', 'https://doi.org/10.1038/s41550-021-01539-1'], wiki('Roche_limit')],
   },
+  Elysia: {
+    kicker: 'Imagined grassland moon',
+    where: 'This object is not in the current scenario. Load the Ringed Sky scenario to visit it.',
+    summary: 'A made-up moon, built within physics: a world with grassland and a few seas, circling a giant planet whose rings arc open across its sky because the moon\'s orbit is tilted to them.',
+    stats: [['Radius', '5,300 km (0.83 Earths)'], ['Mass', '0.45 Earths'], ['Orbit', '832,000 km from Kyklos (13 of its radii)'], ['Month and day', 'about 6.9 Earth days (locked)'], ['Kyklos in its sky', 'about 9° wide, its rings about 20°'], ['Air', 'about 1 bar of nitrogen and oxygen, as on Earth']],
+    facts: [
+      'Rings lie over a planet\'s equator. Moons close in orbit in that plane too and see the rings edge-on, as a thin line; Saturn\'s outer moon Iapetus, on an orbit tilted 15° to them, sees them open.',
+      'In daylight the giant is lit by the same Sun as the sky in front of it: its disc is only a few times brighter than the blue sky, so it shows faintly, as our Moon does by day. The icy rings, reflecting about half the sunlight, stand out more.',
+      'Dry grass is pale gold whatever colour the living plant was: the leaves\' pigments break down, leaving cellulose and lignin.',
+      'The rings sit inside the giant\'s Roche limit, where tides stop the ice from gathering into a moon.',
+    ],
+    sources: [wiki('Iapetus_(moon)'), wiki('Roche_limit'), ['Tremaine, Touma & Namouni 2009, AJ 137, 3706 (the Laplace surface)', 'https://doi.org/10.1088/0004-6256/137/3/3706'], ['Kokaly et al. 2017, USGS Spectral Library v7', 'https://doi.org/10.3133/ds1035'], ['Heller & Barnes 2013, Astrobiology 13, 18', 'https://doi.org/10.1089/ast.2012.0859']],
+  },
   'Orion Nebula': {
     kicker: 'Emission nebula · M42',
     where: 'This object is not in the current scenario. The Stellar Nursery scenario has a nebula like it.',
@@ -548,7 +561,7 @@ export const CONTENTS = [
   ['Planets', ['Mercury', 'Venus', 'Earth', 'Mars', 'Jupiter', 'Saturn', 'Uranus', 'Neptune']],
   ['Moons', ['Moon', 'Io', 'Europa', 'Ganymede', 'Callisto']],
   ['Dwarf planets and small bodies', ['Ceres', 'Pluto', 'Bennu', 'Ryugu', 'Arrokoth', "Halley's Comet"]],
-  ['Beyond the Solar System', ['TRAPPIST-1', 'Pelagia', 'Orion Nebula']],
+  ['Beyond the Solar System', ['TRAPPIST-1', 'Pelagia', 'Elysia', 'Orion Nebula']],
   ['Deep history', ['Theia', 'Proto-Earth']],
   ['Kinds of object', ['comet', 'asteroid', 'planetesimal', 'terrestrial', 'superearth', 'icegiant', 'gasgiant', 'browndwarf', 'M', 'K', 'G', 'F', 'A', 'B', 'O', 'wd', 'ns', 'bh', 'smbh', 'nebula', 'galaxy']],
 ];

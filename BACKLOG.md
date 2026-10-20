@@ -83,6 +83,13 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 - (Done) Ocean Moon scenario (from a user's picture, the land made sea): Pelagia, a made-up ocean moon locked
   close to Rhodon, a cream-and-rose giant that spans ~34° of its sky; "Facing <planet>" in the Surface view
   for any locked moon (stands where the planet hangs ~25° up, by daylight); Pelagia in the book.
+- (Done) Ringed Sky scenario (from a user's photo: a ringed giant in a daytime sky over golden grass): Elysia, a
+  grassland moon of Kyklos, on an orbit tilted 30° to the rings so they show open (an equatorial moon sees them
+  edge-on). For every world with life: 3D grass blades in the Surface view (48k, out to 20 m, swaying in gusts,
+  sunlight through them from behind; with the Rocks setting) and dry grass curing to straw where it is drier.
+  "Facing <planet>" and arrival on generated worlds now look for dry land (a CPU copy of the generated map),
+  keeping the planet 15° up and the Sun up too.
+- Not done from that photo: the Sun's horizontal lens streak (rays were removed at the user's request).
 - (Done) FFT ocean (Tessendorf 2001; the user pointed to Xavier Bourry's WebGL ocean): 64 x 64 Phillips-
   spectrum waves of a 9 m/s wind on a 32 m tile, inverse-FFT'd to slopes each frame on the CPU (~1 ms),
   mipmapped; sampled at two scales, turned, with the long swell trains on top (no visible repeat).

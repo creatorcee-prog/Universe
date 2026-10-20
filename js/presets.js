@@ -385,6 +385,34 @@ export const PRESETS = [
     },
   },
   {
+    id: 'ringmoon', name: 'Ringed Sky',
+    blurb: 'A grassland moon of a ringed giant. Its orbit is tilted to the rings, so from its hills they arc open across the sky, bright in sunlight, while the giant behind them fades into the blue by day. Stand on Elysia and choose "Facing Kyklos".',
+    speed: DAY_YR / 24,
+    camera: { follow: 'Elysia', dist: km(5300 * 9), pitch: 0.15, yaw: 2.2 },
+    build(w) {
+      // Made up, within physics: a giant of half Jupiter's mass with Saturn-like icy rings (out to 2.3 of its
+      // radii, inside its Roche limit for ice), at 1 AU from a Sun-like star; its moon, a little under half
+      // Earth's mass, with less water than Earth (continents, a few seas) under Earth-like air and with life.
+      // The moon orbits at 13 giant radii (832,000 km; a seventh of the giant's Hill sphere, ~8 million km, so
+      // stable), about 6.9 days round; from there the giant spans ~9° and the rings ~20°. The rings lie over the
+      // giant's equator, tilted 30° to its orbit; the moon orbits near the plane of that orbit, so it sees
+      // the rings open by up to 30°. (A moon in the ring plane, as Saturn's inner moons are, sees them edge-on as
+      // a line. Far enough out, a moon's orbit follows the planet's orbital plane rather than its equator,
+      // like Saturn's Iapetus; for a giant at 1 AU that changeover, the Laplace radius, falls near 13 radii:
+      // Tremaine, Touma & Namouni 2009, AJ 137, 3706.)
+      const s = w.addBody(sun());
+      const g = makeBody({ name: 'Kyklos', kind: 'gas', m: 0.5 * massFromGM(126686531.9), r: km(64000), color: [236, 226, 204], band: [196, 178, 150] });
+      // (Started where the rings' sunlit face points between the Sun and the moon: seen from the giant, the Sun
+      // and the moon 90° apart, each ~21° above the ring plane, so the moon sees the lit face open.)
+      orbit(w, s, g, 1.0, 0, 0, 0, 0, 135).host = s;
+      const m = makeBody({ name: 'Elysia', kind: 'rocky', m: 0.45 * EARTH_MASS, r: km(5300), color: [150, 140, 96], atmo: [130, 180, 255],
+        comp: { iron: 0.3, rock: 0.7, water: 1.6e-4, life: true, atm: { gases: { n2: 0.78, o2: 0.21, co2: 0.0004 } } } });
+      orbit(w, g, m, km(64000 * 13), 0, 0, 0, 0, 225, true).host = g;
+      ring(w, g, km(77000), km(147000), 24000, 30, PK.ICE);
+      toBarycenter(w.bodies);
+    },
+  },
+  {
     id: 'saturn', name: 'Saturn\'s Rings',
     blurb: 'Saturn, its 63 named moons and its rings. With WebGPU on (Settings), the rings are 250,000 orbiting chunks, and up close a field of individual rocks. Zoom in to skim the ring plane.',
     speed: DAY_YR / 24,

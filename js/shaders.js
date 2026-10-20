@@ -1411,9 +1411,11 @@ float smallHeight(vec2 p, float rough, float res) {
 export const TERRAIN_VS = HEAD + NOISE + MAPTEX_VS + TERRAIN_COMMON + `
 layout(location = 0) in vec2 aPolar;   // distance from the observer (m), azimuth
 layout(location = 1) in vec4 aRock;    // rocks (a second draw with this program): centre (m east, north), size (m), seed;
+                                       // grass (a third): root (m east, north), minus the blade's height (m), seed;
                                        // all zero for the ground itself
-layout(location = 2) in vec3 aLocal;   // a rock's vertex on a unit icosphere
+layout(location = 2) in vec3 aLocal;   // a rock's vertex on a unit icosphere; a blade's: across (-1..1), up (0..1)
 uniform float uRocks;                  // how rocky the ground is here, 0..1 (rocks are hidden as it drops)
+uniform float uLife, uTemp, uLatSpan, uLapse, uTime;   // (grass: where plants grow, as TERRAIN_FS decides it; wind)
 uniform float uShadowPass;             // 1: drawing the rocks into the Sun's shadow map (see drawTerrain)
 uniform vec3 uShU, uShV, uShL;         // the shadow map's axes, local (east, north, up): across, across, toward the Sun
 uniform vec2 uShSize;                  // its half-width (m), its depth range (m)
@@ -1446,9 +1448,9 @@ float mapHeight(vec3 d) { return uHMapK > 0.5 ? mapTex(uHMap, uHRot * d).r * uHS
 void main() {
   // A rock: placed at its centre, on the ground as drawn there (the same heights, at the mesh's spacing).
   float rk = aRock.z;
-  vec2 p = rk > 0.0 ? aRock.xy : vec2(cos(aPolar.y), sin(aPolar.y)) * aPolar.x;
-  float r = rk > 0.0 ? length(p) : aPolar.x;
-  vRock = rk > 0.0 ? 1.0 : 0.0;
+  vec2 p = rk != 0.0 ? aRock.xy : vec2(cos(aPolar.y), sin(aPolar.y)) * aPolar.x;
+  float r = rk != 0.0 ? length(p) : aPolar.x;
+  vRock = rk > 0.0 ? 1.0 : rk < 0.0 ? 2.0 : 0.0;
   vRockL = aLocal;
   vec3 d = normalize(uObs + (uEast * p.x + uNorth * p.y) / uRm);
   float res = 0.1 * r + 0.05;            // the mesh's spacing here (rings ~10% apart)
@@ -1511,9 +1513,44 @@ void main() {
     vViewPos = uView * world;
     vNrm = uView * (uRot * normalize(uEast * rockN.x + uNorth * rockN.y + uObs * rockN.z));
   }
+  vec3 grassOff = vec3(0.0);
+  if (rk < 0.0) {
+    // A blade of grass, where TERRAIN_FS grows vegetation (the same warmth, moisture and slope; dry grass
+    // included), thinner in patches; none in the sea or on bare worlds.
+    float lat = abs(d.y);
+    float T = uTemp + uLatSpan * (0.33 - lat * lat) - uLapse * max(H, 0.0) * 0.001;
+    vec3 q3 = d * 1.7 + uSeed;
+    float desert = exp(-pow(lat - 0.45, 2.0) / 0.012);
+    float moist = fbm(q3 * 1.3 + 31.0, 4) + 0.18 * exp(-lat * lat / 0.02) - 0.3 * desert;
+    float slope = 1.0 - inversesqrt(1.0 + gx * gx + gy * gy);
+    float veg = uLife * smoothstep(255.0, 280.0, T) * smoothstep(335.0, 305.0, T) * smoothstep(0.2, 0.4, moist) * (1.0 - smoothstep(0.35, 0.6, slope));
+    vec2 pw = p + uLocal;
+    float dens = sqrt(veg) * (0.6 + 0.4 * smoothstep(0.25, 0.75, vnoise(vec3(pw / 5.0, 71.0))));
+    if (uShadowPass > 0.5 || hash(vec3(aRock.w * 17.3, 9.0, 5.0)) > dens || H < sea + 0.05) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); vFragDepth = 1.0; return; }
+    // Shape: a strap tapering to a point, facing a random way, arching over under its own weight, and swaying
+    // in the wind (gusts travelling across the field). Far blades are drawn wider: each stands for a tuft.
+    // (Shorter toward the edge of the field drawn, so it sinks into the ground's own grass colour there.)
+    float hgt = -rk * (0.7 + 0.3 * smoothstep(0.2, 0.6, moist)) * (0.6 + 0.4 * dens) * smoothstep(20.0, 11.0, r), t = aLocal.y;
+    float face = aRock.w * 6.2832 * 7.0, lean = aRock.w * 6.2832 * 3.0;
+    vec2 fd = vec2(cos(face), sin(face)), ld = vec2(cos(lean), sin(lean));
+    float w = 0.006 * (1.0 + r / 2.0) * (1.0 - t * 0.85);
+    float gust = sin(uTime * 1.7 + dot(pw, vec2(0.31, 0.17))) * 0.5 + 0.5;
+    vec2 bend = ld * (0.25 + 0.2 * hash(vec3(aRock.w, 5.0, 1.0))) + vec2(0.7, 0.3) * (0.1 + 0.25 * gust * gust);
+    vec2 xy = vec2(-fd.y, fd.x) * aLocal.x * w + bend * hgt * t * t;
+    float z = hgt * t * (1.0 - 0.35 * t * dot(bend, bend));
+    grassOff = vec3(xy, z);
+    rel += uEast * xy.x + uNorth * xy.y + uObs * (z + gx * xy.x + gy * xy.y);
+    world = uRot * rel / uAU;
+    vViewPos = uView * world;
+    // Its normal: across the blade's face, tipped back toward the sky as it arches.
+    vec3 bn = normalize(vec3(fd * (1.0 - 0.5 * t), 0.35 + 0.6 * t));
+    vNrm = uView * (uRot * normalize(uEast * bn.x + uNorth * bn.y + uObs * bn.z));
+    vRockL = vec3(aLocal.x, t, aRock.w);
+  }
   // Where this point is in the observer's own frame (m east, north, up), for the rocks' shadow map.
   vec3 Q = vec3(p, Hs - Href - drop - uEyeH);
   if (rk > 0.0) Q += vec3(rockOff.xy, rockOff.z + gx * rockOff.x + gy * rockOff.y);
+  if (rk < 0.0) Q += vec3(grassOff.xy, grassOff.z + gx * grassOff.x + gy * grassOff.y);
   vLocalQ = Q;
   if (uShadowPass > 0.5) {
     // Seen from the Sun (orthographic): across, across, and distance toward it (0 nearest the Sun). The depth
@@ -1533,7 +1570,7 @@ void main() {
   if (sU > -0.035 && sU < 0.45 && shl > 1e-4) {
     vec2 hd = sh2 / shl;
     float tE = sU / shl, x = max(res, 20.0), sunA = max(uSunAngT, 0.002);
-    int steps = rk > 0.0 ? 5 : 14;   // (rocks: fewer, coarser steps; there are many of their vertices)
+    int steps = rk > 0.0 ? 5 : rk < 0.0 ? 4 : 14;   // (rocks and grass: fewer, coarser steps; there are many of their vertices)
     for (int i = 0; i < 14; i++) {
       if (i >= steps) break;
       vec2 q = p + hd * x;
@@ -1542,7 +1579,7 @@ void main() {
       float hq = max(terrainH(dq, q, max(res, x * 0.08), emq) + mapHeight(dq), sea);
       float ray = Hs + x * tE + x * x / (2.0 * uRm);
       vShadow = min(vShadow, clamp(0.5 + (ray - hq) / (2.0 * x * sunA), 0.0, 1.0));
-      x *= rk > 0.0 ? 2.6 : 1.75;
+      x *= rk != 0.0 ? 2.6 : 1.75;
     }
   }
   vDir = d; vPlanar = p; vInfo = vec3(H, em.y, r);
@@ -1835,9 +1872,14 @@ void main() {
     if (uDonorK > 0.0) { float t = donorT(vDir); soil *= mix(1.0, clamp(t, 0.2, 2.0), uDonorK * 0.8); rock *= mix(1.0, clamp(t, 0.4, 1.6), uDonorK * 0.5); col = soil; }
     if (uMapMode > 4.5 && uMapMode < 8.5) { vec3 mc = mapTex(uMap, vDir).rgb; if (uMapMode > 6.5) { float t = 2.0 * mc.r; mc = mix(uColB, uColA, clamp(t, 0.0, 1.0)) * t; } soil = mc * (soil / max(dot(mix(uColA, uColB, 0.5), vec3(0.333)), 0.05)) * 0.5 + mc * 0.5; rock = mix(rock, mc * 0.75, 0.6); col = soil; }
     float vegW = 0.0;
+    vec3 vegC = uVeg;                      // the plants' own colour here (for the grass blades)
     if (uLife > 0.0) {
       float warm = smoothstep(255.0, 280.0, T) * smoothstep(335.0, 305.0, T);
-      float veg = uLife * warm * smoothstep(0.36, 0.56, moist) * (1.0 - smoothstep(0.35, 0.6, slope));
+      float veg = uLife * warm * smoothstep(0.2, 0.4, moist) * (1.0 - smoothstep(0.35, 0.6, slope));
+      // Where it is drier, grass cures to straw (savanna, steppe, a dry summer's hills): dead leaves are
+      // tan whatever colour the living ones were (cellulose and lignin; dry grass reflects ~30-40% of visible
+      // light, rising toward red: USGS spectral library, Kokaly et al. 2017).
+      float dryG = 1.0 - smoothstep(0.38, 0.56, moist);
       // Patchy: meadows, shrubs and darker woods.
       float clump = smoothstep(0.35, 0.65, vnoise(vec3(pp / 140.0, 8.0)) * 0.7 + n1 * 0.3);
       // Real vegetation is darker and less saturated than it looks in memory: olive grasses, darker
@@ -1845,8 +1887,12 @@ void main() {
       vec3 vg = mix(uVeg, vec3(dot(uVeg, vec3(0.33))) * vec3(1.05, 1.0, 0.7), 0.35);
       vec3 vc = mix(vg * 0.95, vg * 0.45, clump) * (0.75 + 0.45 * n2);
       vc = mix(vc, vec3(0.5, 0.45, 0.3), smoothstep(0.6, 0.85, vnoise(vec3(pp / 60.0, 12.0))) * 0.35);
-      col = mix(col, vc, veg);
-      vegW = veg;
+      vec3 straw = vec3(0.6, 0.48, 0.27) * (0.8 + 0.35 * n2) * mix(1.0, 0.8, clump);
+      vc = mix(vc, straw, dryG * 0.9);
+      vegC = vc;
+      // (Cover rises quickly where plants grow at all: sparse growth still hides most of the soil.)
+      vegW = sqrt(veg);
+      col = mix(col, vc, vegW);
     }
     // Sedimentary strata: on steep rock, level bands of lighter, darker and ochre layers by height (seen from
     // kilometres away on cliffs and ranges), slightly wavy, finer bands within thicker ones.
@@ -1978,7 +2024,21 @@ void main() {
       col = mix(rockBase, col, 0.35) * (0.7 + 0.3 * m1) * (0.85 + 0.3 * m2);
       col *= 0.55 + 0.45 * smoothstep(-0.45, 0.25, vRockL.z);
     }
-    col = col * (sunC * ndl + uAmb * (0.55 + 0.45 * dot(N, uUpV)));
+    float trans = 0.0;
+    if (vRock > 1.5) {
+      // A blade of grass: the ground's vegetation colour here (green, or straw where dry), varied blade by blade,
+      // darker toward the root (the blades around shade it from the sky), seen from either side; sunlight
+      // shining through it from behind (a leaf transmits ~10-20% of the light, yellowed).
+      N = normalize(vNrm);
+      if (dot(N, V) < 0.0) N = -N;
+      ndl = max(dot(N, uL0), 0.0);
+      float bh = hash(vec3(vRockL.z * 91.0, 2.0, 7.0));
+      col = vegC * (0.75 + 0.5 * bh) * mix(vec3(1.0), vec3(1.08, 1.0, 0.85), step(0.7, bh));
+      col *= 0.55 + 0.45 * smoothstep(0.0, 0.7, vRockL.y);
+      trans = max(dot(-N, uL0), 0.0) * 0.35;
+      col *= 1.0 + 0.2 * smoothstep(0.85, 1.0, vRockL.y);
+    }
+    col = col * (sunC * (ndl + trans * vec3(1.1, 1.0, 0.6)) + uAmb * (0.55 + 0.45 * dot(N, uUpV)));
     float hot = smoothstep(800.0, 1500.0, T);
     if (hot > 0.0) {
       float flow = fbm(vec3(pp / 60.0, uTime * 0.02), 4);
