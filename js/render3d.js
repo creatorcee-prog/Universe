@@ -650,6 +650,7 @@ export class Renderer3D {
       gl.uniform1f(px.u.uScale, this.pixelScale);
       gl.uniform1f(px.u.uBloomK, bloom ? 0.4 : 0);
       gl.uniform3fv(px.u.uWB, this.whiteBalance());
+      this.toneUniforms(px.u);
       this.setFlare(px.u);
       gl.uniform1f(px.u.uLevels, 5);
       this.fullscreen(px, null, this.canvas.width, this.canvas.height);
@@ -659,6 +660,7 @@ export class Renderer3D {
       this.bindTex(1, p.up[0].tex, this.pComp.u.uBloom);
       gl.uniform1f(this.pComp.u.uBloomK, bloom ? (this.hdr ? 0.32 : 0.22) : 0);
       gl.uniform3fv(this.pComp.u.uWB, this.whiteBalance());
+      this.toneUniforms(this.pComp.u);
       this.setFlare(this.pComp.u);
       this.fullscreen(this.pComp, null, p.W, p.H);
     }
@@ -1888,6 +1890,7 @@ export class Renderer3D {
   draw(now, ui, dtReal, simDt) {
     if (this.lost) return;
     this.adaptQuality(dtReal, now);
+    this.adaptEye(dtReal);
     this.genStep();
     const gl = this.gl, cam = this.cam, world = this.world;
     // The Pixel view renders at a fraction of the resolution and is upscaled with hard edges.
@@ -2132,11 +2135,40 @@ export class Renderer3D {
       const l = L[i];
       if (!l) { out.push([0, 1, 0], [0, 0, 0]); continue; }
       const rgb = tempToRGB(l.s.temp || 5800).map((v) => 0.5 + 0.5 * (v / 255));
-      // Light falls off as 1/d² in reality; a softer curve keeps the outer planets visible.
-      const I = 1.2 * Math.min(1.3, Math.max(0.55, Math.pow(l.f, 0.08)));
+      // Light falls off as 1/d². Enhanced brightness: a much softer curve keeps the outer planets visible.
+      // Realistic: the true falloff, times the eye's adaptation (eyeK, see adaptEye).
+      const I = this.settings.brightness === 'realistic' ? 1.2 * l.f * (this.eyeK || 1)
+        : 1.2 * Math.min(1.3, Math.max(0.55, Math.pow(l.f, 0.08)));
       out.push(this.viewOf(l.dx / l.d, l.dy / l.d, l.dz / l.d), rgb.map((v) => v * I));
     }
     return { dirs: out, flux, primary: L[0] };
+  }
+
+  // The tone curve (Settings): classic, or AgX with the scene's mid-tones placed where AgX expects mid-grey.
+  toneUniforms(u) {
+    const gl = this.gl;
+    gl.uniform1f(u.uAgX, this.settings.tone === 'agx' ? 1 : 0);
+    gl.uniform1f(u.uAgXExp, window.__agxExp || 0.8);
+  }
+
+  // Realistic brightness: the eye adapts to the starlight falling where the camera looks (on the body it
+  // follows, else at the camera), partway (exposure ∝ flux^-0.7: a world far out still looks dimmer, ∝ flux^0.3,
+  // Neptune ~13% of Earth), easing over about half a second as eyes and cameras do.
+  adaptEye(dtReal) {
+    if (this.settings.brightness !== 'realistic') { this.eyeK = 1; return; }
+    const c = this.cam, t = c.follow && !this.surface ? c.follow : null;
+    const px = t ? t.x : c.tx + c.ox, py = t ? t.y : c.ty + c.oy, pz = t ? t.z : c.tz + c.oz;
+    const sb = this.surface ? this.surface.body : null;
+    let flux = 0;
+    for (const s of this.lumList || this.world.bodies) {
+      if (!(s.lum > 0) || s === t) continue;
+      const qx = (sb || { x: px }).x - s.x, qy = (sb || { y: py }).y - s.y, qz = (sb || { z: pz }).z - s.z;
+      flux += s.lum / Math.max(qx * qx + qy * qy + qz * qz, 1e-18);
+    }
+    const target = Math.log(Math.min(1e4, Math.max(1e-3, Math.pow(Math.max(flux, 1e-12), -0.7))));
+    const k = 1 - Math.exp(-Math.min(dtReal || 0.016, 0.25) / 0.6);
+    this.eyeLog = this.eyeLog === undefined ? target : this.eyeLog + (target - this.eyeLog) * k;
+    this.eyeK = Math.exp(this.eyeLog);
   }
 
   // Strongest tidal pull on b, as (Roche radius / distance)^3.
@@ -2620,6 +2652,8 @@ export class Renderer3D {
     gl.useProgram(s.p);
     gl.uniformMatrix4fv(u.uProj, false, this.P);
     gl.uniformMatrix3fv(u.uView, false, this.V);
+    // (realistic brightness: the dark-adapted eye sees the stars a little brighter far from any sun)
+    gl.uniform1f(u.uStarK, Math.min(3, Math.max(1, Math.pow(this.eyeK || 1, 0.2))));
     this.setLensUniforms(u);
     gl.bindVertexArray(this.sky.vao);
     gl.uniform1i(u.uImage, 0);

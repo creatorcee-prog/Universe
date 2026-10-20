@@ -198,7 +198,8 @@ on the phone.
    the Milky Way panorama now in the true galactic frame) Real star sky: a real catalogue (~9,000 naked-eye stars; the full Hipparcos ~118,000 costs more) as a data
    file beside the maps; magnitude to HDR brightness (bloom handles the bright ones), colour from B-V through
    the black-body function; lensing bends them for free.
-2. Realistic and enhanced brightness modes: the surface view's eye adaptation in space, with a toggle like
+2. (Done: Settings → Brightness (Enhanced / Realistic: true 1/d² light, the eye adapting partway to the light
+   where you look; stars brighter when dark-adapted) and Tone curve (Classic default / AgX to compare)) Realistic and enhanced brightness modes: the surface view's eye adaptation in space, with a toggle like
    Universe Sandbox's Space Goggles; test an AgX curve against the current one side by side before switching.
 3. Depth in orbit clouds: a few ray-march steps through the cloud shell at quarter resolution when a planet
    fills the screen, reusing the surface-cloud density and lighting.

@@ -238,6 +238,16 @@ export class UI {
     const sp = (v) => { app.settings.spectrum = v; app.saveSettings(); document.querySelectorAll('[data-spectrum]').forEach((x) => x.classList.toggle('on', x.dataset.spectrum === v)); };
     document.querySelectorAll('[data-spectrum]').forEach((b) => b.addEventListener('click', () => { sp(b.dataset.spectrum); this.app.audio.ui('click'); if (b.dataset.spectrum !== 'visible') this.toast(SPECTRUM_NOTE[b.dataset.spectrum]); }));
     sp(app.settings.spectrum || 'visible');
+    // Brightness: enhanced (every world lit about as brightly, as Universe Sandbox's Space Goggles), or
+    // realistic (light falling off with distance from the star, the eye adapting partway). Tone curve: the
+    // classic shoulder, or AgX (render3d.js, COMPOSITE_FS).
+    const seg = (key, attr, note) => {
+      const set = (v) => { app.settings[key] = v; app.saveSettings(); document.querySelectorAll(`[data-${attr}]`).forEach((x) => x.classList.toggle('on', x.dataset[attr] === v)); };
+      document.querySelectorAll(`[data-${attr}]`).forEach((b) => b.addEventListener('click', () => { set(b.dataset[attr]); this.app.audio.ui('click'); if (note[b.dataset[attr]]) this.toast(note[b.dataset[attr]]); }));
+      return set;
+    };
+    seg('brightness', 'brightness', { realistic: 'Realistic brightness: light falls off with distance from the star; the eye adapts partway, so far worlds look dim.', enhanced: 'Enhanced brightness: every world lit about as brightly, so the far ones are easy to see.' })(app.settings.brightness || 'enhanced');
+    seg('tone', 'tone', { agx: 'AgX tone curve: saturated highlights roll off toward white more gently.' })(app.settings.tone || 'classic');
     const dockH = () => document.getElementById('app').style.setProperty('--dock-h', document.querySelector('.bar-main').getBoundingClientRect().height + 20 + 'px');
     dockH(); window.addEventListener('resize', dockH);
     $('map-bar').style.background = gradientCss(TEMP_STOPS);

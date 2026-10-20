@@ -2372,12 +2372,13 @@ void main() {
 
 export const SKY_FS = HEAD + `
 in vec3 vCol;
+uniform float uStarK;   // brightness of the star field (1; more for a dark-adapted eye)
 out vec4 outColor;
 void main() {
   vec2 pc = gl_PointCoord * 2.0 - 1.0;
   float r2 = dot(pc, pc);
   if (r2 > 1.0) discard;
-  outColor = vec4(vCol * (1.0 - r2), 1.0);
+  outColor = vec4(vCol * (1.0 - r2) * uStarK, 1.0);
 }
 `;
 
@@ -2633,6 +2634,24 @@ vec3 tonemap(vec3 c) {
   }
   return c;
 }
+// AgX (T. Sobotka 2023), in the compact fitted form Blender and three.js use: into a slightly desaturated
+// working space (inset), log-encoded over -12.5 to +4 stops around mid-grey, an S-curve, back out (outset).
+// Saturated highlights roll off toward white with their hue kept better than a per-channel curve. The result
+// is display-encoded, as this pipeline writes. uAgX > 0.5 selects it (Settings, Tone curve); uAgXExp sets
+// where the scene's values fall on it (~1: display mid-grey 0.5 is linear ~0.22, near AgX's 0.18).
+uniform float uAgX, uAgXExp;
+vec3 agxContrast(vec3 x) {
+  vec3 x2 = x * x, x4 = x2 * x2;
+  return 15.5 * x4 * x2 - 40.14 * x4 * x + 31.96 * x4 - 6.868 * x2 * x + 0.4298 * x2 + 0.1191 * x - 0.00232;
+}
+vec3 agx(vec3 c) {
+  const mat3 inset = mat3(0.856627153315983, 0.137318972929847, 0.11189821299995, 0.0951212405381588, 0.761241990602591, 0.0767994186031903, 0.0482516061458583, 0.101439036467562, 0.811302368396859);
+  const mat3 outset = mat3(1.1271005818144368, -0.1413297634984383, -0.14132976349843826, -0.11060664309660323, 1.157823702216272, -0.11060664309660294, -0.016493938717834573, -0.016493938717834257, 1.2519364065950405);
+  c = inset * (pow(max(c, 0.0), vec3(2.2)) * uAgXExp);   // (this pipeline's values are display-like: to linear first)
+  c = clamp((log2(max(c, vec3(1e-10))) + 12.47393) / 16.500659, 0.0, 1.0);
+  return clamp(outset * agxContrast(c), 0.0, 1.0);
+}
+vec3 toneCurve(vec3 c) { return uAgX > 0.5 ? agx(c) : tonemap(c); }
 `;
 
 const FLARE = `
@@ -2689,7 +2708,7 @@ out vec4 outColor;
 void main() {
   vec3 c = finite(texture(uScene, vUV).rgb) + finite(texture(uBloom, vUV).rgb) * uBloomK;
   if (uFlare.z > 0.0) c += lensFlare(vUV);
-  outColor = vec4(tonemap(c * uWB), 1.0);
+  outColor = vec4(toneCurve(c * uWB), 1.0);
 }
 `;
 
@@ -2709,7 +2728,7 @@ void main() {
   vec2 uv = (p + 0.5) / uLow;
   vec3 c = finite(texelFetch(uScene, ivec2(min(p, uLow - 1.0)), 0).rgb) + finite(texture(uBloom, uv).rgb) * uBloomK;
   if (uFlare.z > 0.0) c += lensFlare(uv);
-  c = tonemap(c * uWB);
+  c = toneCurve(c * uWB);
   int i = int(mod(p.y, 4.0)) * 4 + int(mod(p.x, 4.0));
   float d = BAYER[i] / 16.0; // 0..0.94: near-black stays black, so the sky has no dot grid
   c = pow(max(c, 0.0), vec3(0.85));
