@@ -68,6 +68,9 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
   are round glows.
 - (Done) Updates arrive on one reload (code network-first, the offline cache as fallback); the readout shows
   the build (date and commit) on the website.
+- (Done) Cliffs: rock textured from the side as well as from above (triplanar), fine noise in 3D, detail
+  faded by the pixel's footprint up the face as well as across the map (no vertical streaks); mesa cliff
+  edges no sharper than the ground mesh can draw there (no comb teeth).
 - Next: the jagged edge of hills' shadows (shaded per vertex of the ring mesh); Earth's land up close.
 
 ## New list

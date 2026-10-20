@@ -1159,13 +1159,15 @@ uniform float uArid;    // 0..1: how arid the ground around the observer is (mes
 // Mesas and buttes: in arid country, flat-topped remnants of a resistant cap rock, left standing as softer
 // layers around them wear away (Monument Valley; Mars's fretted terrain). Where a broad noise field passes a
 // level the ground steps up ~150-250 m in a near-vertical cliff, over a talus slope at its foot; some carry a
-// second, smaller tier. (Not right where the observer stands, so the view is of them.)
-float mesaH(vec2 p) {
+// second, smaller tier. (Not right where the observer stands, so the view is of them.) res: the mesh spacing
+// there; the cliffs are never steeper than ~2 spacings can draw (a step finer than the mesh broke into teeth).
+float mesaH(vec2 p, float res) {
   if (uArid <= 0.0) return 0.0;
   vec2 pp = p + uLocal;
   float n = vnoise(vec3(pp / 2200.0, 51.0)) * 0.72 + vnoise(vec3(pp / 650.0, 52.0)) * 0.22 + vnoise(vec3(pp / 140.0, 53.0)) * 0.06;
   float hgt = 150.0 + 100.0 * vnoise(vec3(pp / 9000.0, 54.0));
-  float cap = smoothstep(0.615, 0.632, n), talus = smoothstep(0.5, 0.62, n), tier = smoothstep(0.695, 0.708, n);
+  float e = res * 2.2e-4;   // (n changes ~3e-4 per metre)
+  float cap = smoothstep(0.615 - e, 0.632 + e, n), talus = smoothstep(0.5, 0.62, n), tier = smoothstep(0.695 - e, 0.708 + e, n);
   return uArid * hgt * (0.62 * cap + 0.22 * talus * talus + 0.3 * tier) * smoothstep(250.0, 700.0, length(p));
 }
 float smallHeight(vec2 p, float rough, float res) {
@@ -1239,8 +1241,8 @@ uniform float uSunAngT;                // the Sun's angular radius (rad)
 // Generated relief: continents and ranges, or with a real height map only the hills below its resolution.
 float terrainH(vec3 d, vec2 p, float res, out vec2 em) {
   em = bigTerrain(d);
-  if (uHMapK > 0.5) return smallHeight(p, uOcean > 0.0 ? clamp(em.y * 1.5 + 0.15, 0.0, 1.0) : 0.45, res) + mesaH(p);
-  return bigHeight(em) + rangeHeight(p, clamp(em.y * 1.6, 0.0, 1.0), res) + smallHeight(p, clamp(em.y * 1.5 + 0.15, 0.0, 1.0), res) + mesaH(p);
+  if (uHMapK > 0.5) return smallHeight(p, uOcean > 0.0 ? clamp(em.y * 1.5 + 0.15, 0.0, 1.0) : 0.45, res) + mesaH(p, res);
+  return bigHeight(em) + rangeHeight(p, clamp(em.y * 1.6, 0.0, 1.0), res) + smallHeight(p, clamp(em.y * 1.5 + 0.15, 0.0, 1.0), res) + mesaH(p, res);
 }
 float mapHeight(vec3 d) { return uHMapK > 0.5 ? mapTex(uHMap, uHRot * d).r * uHScale : 0.0; }
 void main() {
@@ -1494,8 +1496,9 @@ void main() {
   vec3 V = normalize(-vViewPos);
   float res = max(0.002, dist * uPxAng);            // metres per pixel here
   // ...along the ground's longer axis: seen at a slant a pixel covers far more ground lengthwise, and detail
-  // finer than that would alias into streaks running away from the eye.
-  res = max(res, max(length(dFdx(vPlanar)), length(dFdy(vPlanar))));
+  // finer than that would alias into streaks running away from the eye. (Height counted too: on a cliff a
+  // pixel spans metres of rock up the face while hardly moving across the map.)
+  res = max(res, max(length(vec3(dFdx(vPlanar), dFdx(H))), length(vec3(dFdy(vPlanar), dFdy(H)))));
   bool water = uSeaOK > 0.5 && H < 0.0;
   float lat = abs(vDir.y);
   // Temperature here: latitude, then air cooling with height (lapse rate).
@@ -1564,7 +1567,9 @@ void main() {
     float meshRes = 0.1 * dist + 0.05, pr = max(res * 1.5, 0.02);
     float h0 = fineDetail(vPlanar, rough, res, meshRes);
     float hx = fineDetail(vPlanar + vec2(pr, 0.0), rough, res, meshRes), hy = fineDetail(vPlanar + vec2(0.0, pr), rough, res, meshRes);
-    N = normalize(Ng - (uEastV * (hx - h0) + uNorthV * (hy - h0)) / pr);
+    // (Relief laid out on the map's plane: only on ground that faces up; on a cliff it would run in streaks.)
+    float flatG = smoothstep(0.35, 0.75, dot(Ng, uUpV));
+    N = normalize(Ng - flatG * (uEastV * (hx - h0) + uNorthV * (hy - h0)) / pr);
     float slope = 1.0 - clamp(dot(N, uUpV), 0.0, 1.0);
     // Ground cover, by the same rules as the globe: deserts in the subtropics, vegetation where it is
     // warm and wet, bare rock on steep slopes, snow where it is cold.
@@ -1572,7 +1577,7 @@ void main() {
     float desert = exp(-pow(lat - 0.45, 2.0) / 0.012);
     float moist = fbm(q3 * 1.3 + 31.0, 4) + 0.18 * exp(-lat * lat / 0.02) - 0.3 * desert;
     vec2 pp = vPlanar + uLocal;
-    float n1 = vnoise(vec3(pp / 37.0, 4.0)), n2 = vnoise(vec3(pp / 4.1, 5.0)), n3 = vnoise(vec3(pp / 0.45, 6.0));
+    float n1 = vnoise(vec3(pp / 37.0, 4.0)), n2 = vnoise(vec3(pp, H) / 4.1 + 5.0), n3 = vnoise(vec3(pp, H) / 0.45 + 6.0);   // (3D: no streaks on cliffs)
     float nf2 = smoothstep(res * 3.0, res * 8.0, 4.1), nf3 = smoothstep(res * 3.0, res * 8.0, 0.45);
     float tex = 0.75 + 0.3 * n1 + 0.22 * (n2 - 0.5) * nf2 + 0.18 * (n3 - 0.5) * nf3;
     vec3 soil = mix(uColA, uColB, smoothstep(0.3, 0.7, fbm(q3 * 2.4 + 7.0, 4) * 0.6 + n1 * 0.4));
@@ -1636,8 +1641,8 @@ void main() {
       // (Strata are level bands: by height alone, varied a little along the ground; rings only where the
       // slope is gentle, and rock lies only on steep ground.)
       float strata = 0.5 + 0.35 * sin(H * 2.1 + 2.0 * vnoise(vec3(pp / 25.0, 21.0))) * smoothstep(res * 3.0, res * 9.0, 1.5)
-                   + 0.15 * (vnoise(vec3(pp * 1.3, 22.0)) - 0.5);
-      float frac = 1.0 - smoothstep(0.0, 0.05, abs(vnoise(vec3(pp / 3.0, 23.0)) - 0.5)) * smoothstep(res * 3.0, res * 9.0, 3.0);
+                   + 0.15 * (vnoise(vec3(pp, H) * 1.3 + 22.0) - 0.5);
+      float frac = 1.0 - smoothstep(0.0, 0.05, abs(vnoise(vec3(pp, H) / 3.0 + 23.0) - 0.5)) * smoothstep(res * 3.0, res * 9.0, 3.0);
       float rockD = (0.82 + 0.36 * strata) * (1.0 - 0.45 * (1.0 - frac));
       // Soil: grit, and pebbles where a cell's random stone is close.
       vec2 cp = pp / 0.35, ci = floor(cp), cf2 = fract(cp) - 0.5;
@@ -1658,7 +1663,17 @@ void main() {
           float wSoil = isSoil * (1.0 - vegW), wGr = isSoil * vegW, airless = uMicro.x;
           vec4 m = vec4(0.0);
           float ws = 0.0, amp = 0.0;
-          if (isRock > 0.01) { m += isRock * gMat(uGRock, pp, 2.7); ws += isRock; amp += isRock * 0.3; }
+          if (isRock > 0.01) {
+            // Rock is mostly steep: projected from the side as well as from above (triplanar), each by how
+            // much the face looks that way, so a cliff carries the texture rather than streaks of it.
+            vec3 nl = vec3(dot(Ng, uEastV), dot(Ng, uNorthV), dot(Ng, uUpV)), tw = nl * nl * nl * nl;
+            tw /= tw.x + tw.y + tw.z;
+            vec4 rk = vec4(0.0);
+            if (tw.z > 0.02) rk += tw.z * gMat(uGRock, pp, 2.7);
+            if (tw.x > 0.02) rk += tw.x * gMat(uGRock, vec2(pp.y, H), 2.7);
+            if (tw.y > 0.02) rk += tw.y * gMat(uGRock, vec2(pp.x, H), 2.7);
+            m += isRock * rk; ws += isRock; amp += isRock * 0.3;
+          }
           if (isSand > 0.01) { m += isSand * gMat(uGSand, pp, 2.0); ws += isSand; amp += isSand * 0.1; }
           if (wSoil * airless > 0.01) { m += wSoil * airless * gMat(uGRegolith, pp, 3.1); ws += wSoil * airless; amp += wSoil * airless * 0.15; }
           if (wSoil * (1.0 - airless) > 0.01) { m += wSoil * (1.0 - airless) * gMat(uGSoil, pp, 4.0); ws += wSoil * (1.0 - airless); amp += wSoil * (1.0 - airless) * 0.2; }
@@ -1691,8 +1706,8 @@ void main() {
       float stone = gStone;
       float mx = microH(pp + vec2(ms, 0.0), res, wR, wS), my = microH(pp + vec2(0.0, ms), res, wR, wS);
       vec3 Nm = normalize(N - (uEastV * (mx - m0) + uNorthV * (my - m0)) / ms);
-      N = normalize(mix(N, Nm, near));
-      col = mix(col, mix(rockBase, col, 0.6) * (0.85 + 0.4 * stone), step(0.001, stone) * near * (1.0 - snow) * 0.45);
+      N = normalize(mix(N, Nm, near * flatG));
+      col = mix(col, mix(rockBase, col, 0.6) * (0.85 + 0.4 * stone), step(0.001, stone) * near * flatG * (1.0 - snow) * 0.45);
       vec2 ls = vec2(dot(uL0, uEastV), dot(uL0, uNorthV));
       float lz = dot(uL0, uUpV), lh = length(ls);
       if (lz > 0.0 && lh > 1e-3) {
@@ -1704,7 +1719,7 @@ void main() {
           sh = min(sh, 1.0 - f * smoothstep(0.0, 0.02 + 0.1 * dd, rise));
           dd *= 4.0;
         }
-        sunC *= mix(1.0, sh, near);
+        sunC *= mix(1.0, sh, near * flatG);
       }
       }
     }
