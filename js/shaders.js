@@ -164,40 +164,60 @@ uniform float uSeed;
 uniform vec4 uImp[16];   // impact direction (body frame) and strength
 uniform vec4 uImpB[16];  // x: angular size
 uniform int uImpN;
+// Close up, the focused mesh (render3d.js focusGrid, focusOn): rings round the point under the eye, aPos = (ring, turn
+// fraction). Ring i lies uFocus.y * sinh(uFocus.z * i) radians out (uFocus.y: the eye's height over the radius),
+// so the rings step in proportion to their distance from the eye and look about equally fine on screen at any
+// height, out past the horizon (the rest of the world is out of sight). uFocusAx: toward the eye, body frame.
+uniform vec4 uFocus;
+uniform vec3 uFocusAx;
+// Real elevation as geometry (uHGlobe: twice the metres-to-radius factor; set for the globe only), so relief
+// stands on the limb; the seas stay level.
+uniform float uHGlobe, uOcean;
+` + MAPTEX_VS + `
 out vec3 vObj;
 out vec3 vViewPos;
 out vec3 vN;
 ` + LOGDEPTH_V + `
 void main() {
-  vec3 p = aPos;
+  vec3 p0 = aPos;
+  if (uFocus.x > 0.5) {
+    float th = uFocus.y * sinh(uFocus.z * aPos.x), ph = aPos.y * 6.2831853;
+    vec3 c = uFocusAx, t1 = normalize(cross(abs(c.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), c)), t2 = cross(t1, c);
+    p0 = (t1 * cos(ph) + t2 * sin(ph)) * sin(th) + c * cos(th);
+  }
+  vec3 p = p0;
   float h = 0.0;
+  if (uHMapK > 0.5 && uHGlobe > 0.0) {
+    float e = mapTex(uHMap, uHRot * p0).r;
+    h += (uOcean > 0.0 ? max(e, 0.0) : e) * 0.5 * uHGlobe;
+  }
   if (uLumpy > 0.0) h += uLumpy * (fbm(p * 1.3 + uSeed, 4) - 0.5) * 2.2;
   // Impact craters dent the surface: a bowl with a raised rim.
   for (int i = 0; i < 16; i++) {
     if (i >= uImpN) break;
-    float a = acos(clamp(dot(p, uImp[i].xyz), -1.0, 1.0));
+    float a = acos(clamp(dot(p0, uImp[i].xyz), -1.0, 1.0));
     float w = uImpB[i].x;
     float depth = 0.05 * uImp[i].w * min(w * 3.0, 1.0);
     h -= depth * exp(-a * a / (w * w * 0.5));
     h += depth * 0.45 * exp(-pow((a - w) / (w * 0.35), 2.0));
   }
   p *= 1.0 + h;
-  vec3 nObj = aPos;
+  vec3 nObj = p0;
   if (uShapeK > 0.5) {
     // Real shape: each direction out to the measured surface; the normal from the neighbouring surface
     // points (so it stays smooth across the sphere's triangles).
-    p *= shapeR(aPos);
-    vec3 t1 = normalize(cross(abs(aPos.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), aPos)), t2 = cross(aPos, t1);
+    p *= shapeR(p0);
+    vec3 t1 = normalize(cross(abs(p0.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), p0)), t2 = cross(p0, t1);
     float e = 0.012;
-    vec3 a1 = normalize(aPos + t1 * e), a2 = normalize(aPos + t2 * e), b1 = normalize(aPos - t1 * e), b2 = normalize(aPos - t2 * e);
+    vec3 a1 = normalize(p0 + t1 * e), a2 = normalize(p0 + t2 * e), b1 = normalize(p0 - t1 * e), b2 = normalize(p0 - t2 * e);
     nObj = normalize(cross(a1 * shapeR(a1) - b1 * shapeR(b1), a2 * shapeR(a2) - b2 * shapeR(b2)));
-    if (dot(nObj, aPos) < 0.0) nObj = -nObj;
+    if (dot(nObj, p0) < 0.0) nObj = -nObj;
   }
   vec3 wp = uRot * p;
   float s = dot(wp, uTideDir);
   wp = (wp - s * uTideDir) / sqrt(1.0 + uTide) + s * uTideDir * (1.0 + uTide);
   vec3 world = uCenter + wp * uRadius;
-  vObj = aPos;
+  vObj = p0;
   vViewPos = uView * world;
   vN = uView * (uRot * nObj);
   gl_Position = uProj * vec4(vViewPos, 1.0);

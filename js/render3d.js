@@ -467,6 +467,19 @@ function sphere(seg, rings) {
   return { pos: new Float32Array(pos), idx: big ? new Uint32Array(idx) : new Uint16Array(idx), big };
 }
 
+// The focused mesh for close views (BODY_VS uFocus): FOCUS_RINGS rings of FOCUS_SEG points round the point under
+// the eye, placed by the vertex shader; aPos = (ring, turn fraction, 0). Wound as sphere() is.
+const FOCUS_RINGS = 200, FOCUS_SEG = 256;
+function focusGrid() {
+  const pos = [], idx = [];
+  for (let j = 0; j <= FOCUS_RINGS; j++) for (let i = 0; i <= FOCUS_SEG; i++) pos.push(j, i / FOCUS_SEG, 0);
+  for (let j = 0; j < FOCUS_RINGS; j++) for (let i = 0; i < FOCUS_SEG; i++) {
+    const a = j * (FOCUS_SEG + 1) + i, b = a + FOCUS_SEG + 1;
+    idx.push(a, a + 1, b, b, a + 1, b + 1);
+  }
+  return { pos: new Float32Array(pos), idx: new Uint32Array(idx), big: true };
+}
+
 const PARTICLE_RGB = {
   [PK.DEBRIS]: c3(150, 120, 96), [PK.HOT]: c3(255, 170, 90), [PK.STAR_BLUE]: c3(150, 180, 255), [PK.STAR_GOLD]: c3(255, 214, 160),
   [PK.ICE]: c3(214, 206, 190), [PK.DUST]: c3(150, 126, 100), [PK.GAS]: c3(214, 184, 146), [PK.ROCK]: c3(120, 112, 104),
@@ -530,7 +543,8 @@ export class Renderer3D {
     this.pGalGlow = this.program(GALGLOW_VS, GALGLOW_FS);
     this.pGalComp = this.program(FULL_VS, GALCOMP_FS);
     // Level-of-detail spheres; the last (very fine) one is only used for the ground in the surface view.
-    this.spheres = [sphere(16, 12), sphere(40, 28), sphere(96, 64), sphere(400, 260)].map((g) => {
+    // (the fifth is the focused mesh: focusOn)
+    this.spheres = [sphere(16, 12), sphere(40, 28), sphere(96, 64), sphere(400, 260), focusGrid()].map((g) => {
       const vao = gl.createVertexArray();
       gl.bindVertexArray(vao);
       const vb = gl.createBuffer();
@@ -2605,6 +2619,20 @@ export class Renderer3D {
     return { tau: best, dir };
   }
 
+  // Close up, a shell of radius Rd (the world, its cloud deck, its air) centred at (x, y, z) from the eye is drawn
+  // with the focused mesh (BODY_VS uFocus): returns that mesh, or null (then the caller's sphere, uFocus off),
+  // when not wanted (on false), or from inside the shell. rot: the body's orientation.
+  focusOn(u, on, x, y, z, Rd, rot) {
+    const gl = this.gl, D = Math.hypot(x, y, z), d = D / Rd;
+    if (!on || d < 1.00001) { gl.uniform4f(u.uFocus, 0, 0, 0, 0); return null; }
+    // (out past the horizon by enough for mountains beyond it: 0.05 rad sees over 8 km on Earth)
+    const a = d - 1, thMax = Math.min(Math.PI, Math.acos(1 / d) + 0.05);
+    gl.uniform4f(u.uFocus, 1, a, Math.asinh(thMax / a) / FOCUS_RINGS, 0);
+    const w = [-x / D, -y / D, -z / D];
+    gl.uniform3f(u.uFocusAx, rot[0] * w[0] + rot[1] * w[1] + rot[2] * w[2], rot[3] * w[0] + rot[4] * w[1] + rot[5] * w[2], rot[6] * w[0] + rot[7] * w[1] + rot[8] * w[2]);
+    return this.spheres[4];
+  }
+
   // The world's surface map on the GPU (texture unit 5), uploaded when it changes (a photo replacing its
   // stand-in, a close-up map swapped in or out, painted rows).
   syncMapTex(b) {
@@ -2923,8 +2951,11 @@ export class Renderer3D {
       gl.uniform1f(u.uShardGlow, SC.glow);
       gl.disable(gl.CULL_FACE);   // (the inside of the shell shows through the gaps)
     }
-    gl.bindVertexArray(g.vao);
-    gl.drawElements(gl.TRIANGLES, g.n, g.type, 0);
+    // Close up (or coming down to it), the focused mesh: as fine on screen from orbit as from 300 m up.
+    const focusOK = (shownPx > 200 || lod === 3) && !(l.lumpy > 0) && !b.shape && !SC && !cutInt && tide.tau < 0.05;
+    const gB = this.focusOn(u, focusOK, x, y, z, R, rot) || g;
+    gl.bindVertexArray(gB.vao);
+    gl.drawElements(gl.TRIANGLES, gB.n, gB.type, 0);
     if (SC) { gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK); }
     if (cutInt) {
       const cp = this.pCut, cu = cp.u, t = Math.tan(this.cam.fov / 2);
@@ -2973,8 +3004,9 @@ export class Renderer3D {
         gl.uniform1f(cu.uTime, performance.now() / 1000); gl.uniform1f(cu.uEcl, 0);
         gl.uniform1f(cu.uCloudT, this.cloudT || 0); gl.uniform1f(cu.uWind, wind); gl.uniform1f(cu.uDeck, deck);
         this.bindCloudTex(cu, b, deck);
-        gl.bindVertexArray(g.vao);
-        gl.drawElements(gl.TRIANGLES, g.n, g.type, 0);
+        const gc = this.focusOn(cu, focusOK, x, y, z, R * (1 + deckH), rot) || g;
+        gl.bindVertexArray(gc.vao);
+        gl.drawElements(gl.TRIANGLES, gc.n, gc.type, 0);
         gl.blendFunc(gl.ONE, gl.ONE);
         gl.disable(gl.CULL_FACE);
       });
@@ -3025,8 +3057,9 @@ export class Renderer3D {
           gl.uniform3fv(au.uAtmo, atmo);
           gl.uniform1f(au.uAtmoK, atmoK);
         }
-        gl.bindVertexArray(g.vao);
-        gl.drawElements(gl.TRIANGLES, g.n, g.type, 0);
+        const ga = this.focusOn(au, focusOK && !inside, x, y, z, R * top, rot) || g;
+        gl.bindVertexArray(ga.vao);
+        gl.drawElements(gl.TRIANGLES, ga.n, ga.type, 0);
         gl.blendFunc(gl.ONE, gl.ONE);
         gl.enable(gl.DEPTH_TEST);
         gl.cullFace(gl.BACK);

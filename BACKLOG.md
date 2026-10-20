@@ -5,7 +5,15 @@ Done items move to the README. (October 2026: the user cleared everything else; 
 - [x] Supernova remnants baked into a 3D volume: 144^3 in a 12 x 12 slice atlas (1728², RGBA8, 12 MB; light as sqrt(e/8)), baked 72 rows a frame (~24 frames) with the live march meanwhile, per remnant and spectral band; then 96 samples of two texture reads each instead of 56 of ~30 noise samples, at half resolution. Same remField code for both.
 - [x] Gas giant bands: swirling eddies (shaders.js eddyCurl: curl noise on the sphere, Bridson et al. 2007, divergence-free), carried by the jets, strongest at the jets' flanks where the shear is; they curl the band edges, the measured maps and the cloud texture of real giants, and the bands of made-up and layered giants.
 - [x] Sharper planet maps without running out of memory: 8192 x 4096 Moon, Mars, Mercury and Earth as KTX2/Basis ETC1S (4 x 2 tiles, the wasm encoder's 12.6 Mpix cap), transcoded in a worker to ETC2/BC7/ASTC/BC1, swapped in above ~700 device px of radius and on the ground (js/ktx.js). Jupiter and Saturn sources are only 4k, so not done.
-- [ ] Seamless descent, stage B: a globe whose detail sharpens continuously from orbit to the ground (quadtree level of detail).
+- [x] Seamless descent, stage B: a globe whose detail sharpens continuously from orbit to the ground. Done as a view-focused mesh instead of a quadtree (BODY_VS uFocus: rings at a·sinh(k·i) round the point under the eye, placed on the GPU; same goal with no cracks or patch updates), raised by the real elevation so relief stands on the limb; also the cloud deck and the air's shell.
+- [ ] UI restyle from the user's Universe Sandbox screenshots: black, rectangular, futuristic, professional. Bottom bar (play/pause, time, rate, rewind/forward, add, Sim / View / Tools tabs with icons), flat near-black panels with square corners and thin dividers, right-hand property panel (label left, boxed value + unit right, sliders, toggles), tab strip with icons (Overview, Motion, Surface, Composition, Visuals), top toolbar of square icon buttons, toast bar ("Low Memory Detected  LEARN MORE  ×").
+- [ ] Galaxy collision preset matching what Milky Way vs Andromeda will be like (first pass ~4-5 Gyr, merger to an elliptical "Milkdromeda" ~10 Gyr: van der Marel et al. 2012, 2019; Sawala et al. 2025 put the merger chance near 50%).
+- [ ] Solar System starts where the real one is now (today's date: planet positions from JPL ephemerides / Standish elements).
+- [ ] Show the map in the Surface tab.
+- [ ] Realistic comet tails (dust tail curved along the orbit, straight blue ion tail pointing away from the Sun, growing inside ~3 AU).
+- [ ] Rename objects.
+- [ ] Artificial satellites in their proper places (ISS, GPS, geostationary belt, Hubble, JWST at L2).
+- [ ] Real-time events: e.g. tonight's meteor shower (annual showers by date, radiant, ZHR; maybe eclipses).
 
 ## Done (history)
 

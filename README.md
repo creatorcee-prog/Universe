@@ -193,6 +193,12 @@ Switch in the **View** panel.
     renders), so craters, basins and volcanoes show along the terminator; in the surface view the ground
     follows it, with generated hills below its resolution. Created worlds borrow the heights of a real
     world of their type, scaled for gravity (relief ~ 1/g).
+    Close up (over ~200 px of radius, and as the globe beyond the ground when coming down) the globe is a
+    focused mesh: 200 rings of 256 points round the point under the eye, ring i at a·sinh(k·i) radians
+    (a: the eye's height over the radius), so each ring is about as fine on screen from orbit as from
+    300 m up, out just past the horizon. The vertex shader places it each frame (no cracks, no patches to
+    update) and raises it by the real elevation at true scale (seas level), so mountains and crater rims
+    stand on the limb. The fixed 96×64 sphere it replaces sagged up to ~3 km between points on Earth.
   - *Real shapes* (`tools/make_shapes.py`): Phobos (NAIF DSK, Ernst et al. 2014), Deimos (Mars Express,
     Thomas), Vesta (Gaskell), and as a pool for other small bodies Eros (NEAR), Itokawa (Hayabusa),
     Bennu, Kleopatra, Geographos, Toutatis, Mithra, Golevka and 1996 HW1 (NASA 3D Resources); comets
