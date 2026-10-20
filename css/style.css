@@ -506,3 +506,180 @@ body:has(.sheet.open) .dock .readout, body:has(.sheet.open) .addbar { visibility
 .tracks li button:hover { background: rgba(255,255,255,.06); }
 .tracks li.now button { color: var(--accent, #6cf); }
 .tracks li.now button::after { content: 'playing'; font-size: 11px; opacity: .8; }
+
+/* =====================================================================================================
+   Black console (October 2026, from the user's Universe Sandbox screenshots): flat near-black surfaces,
+   square corners, thin dividers, a full-width bottom bar, property rows with boxed values, icon tabs,
+   a violet hairline accent. This layer overrides the shapes and colours above; layout logic is unchanged.
+   ===================================================================================================== */
+:root {
+  --void: #000;
+  --panel: rgba(18, 19, 21, 0.94);
+  --panel-solid: #121315;
+  --panel-raise: #1b1c1f;     /* buttons, hovered rows */
+  --field: #0a0a0b;           /* boxed values */
+  --line: #26282c;
+  --line-strong: #383b41;
+  --ink: #eceef1;
+  --muted: #8e939b;
+  --accent: #9b7bff;          /* violet hairlines, focus, selection */
+  --accent-ink: #0d0a18;
+  --amber: #ffb85c;           /* kept for warnings and the habitable-zone "mid" state */
+  --cool: #9db8ff;
+  --font-ui: "Barlow", "Saira Semi Condensed", "Segoe UI", system-ui, sans-serif;
+  --radius: 0px;
+}
+body { font: 15px/1.35 var(--font-ui); }
+svg { stroke-width: 1.6; }
+:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+
+/* No glass, no rounding: every control is a flat cell. */
+.pill, .icon-btn, .tool, .toggle, .chip, .info-actions button, .settings-actions button {
+  border-radius: 0; background: var(--panel); border-color: var(--line);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+.pill:active, .icon-btn:active, .tool:active, .toggle:active, .chip:active, .card:active { transform: none; background: var(--panel-raise); }
+.icon-btn:hover, .info-actions button:hover, .settings-actions button:hover { background: var(--panel-raise); border-color: var(--line-strong); }
+
+/* Top bar: bare icons in square cells; the lock chips become a toolbar strip. */
+.topbar { padding-top: calc(env(safe-area-inset-top, 0px) + 8px); }
+.topbar .icon-btn { width: 40px; height: 40px; background: rgba(12, 13, 15, .72); border-color: transparent; }
+.top-right { gap: 2px; }
+.clock-name { font-weight: 600; font-size: 15px; letter-spacing: .14em; }
+.clock-year { font-size: 12px; }
+.limit { border-radius: 0; color: var(--amber); background: rgba(255,184,92,.08); border-color: rgba(255,184,92,.3); }
+.chips { gap: 0; background: rgba(12, 13, 15, .86); border: 1px solid var(--line); margin-top: 6px; justify-self: center; width: max-content; max-width: 100%; }
+.chips:not(:has(> :not([hidden]))) { display: none; }
+.lock-chip, .lock-chip.surf { margin: 0; height: 34px; border-radius: 0; border: 0; border-right: 1px solid var(--line); background: none; color: var(--ink); padding: 0 12px 0 10px; font-size: 13px; }
+.lock-chip:last-child { border-right: 0; }
+.lock-chip:hover { background: var(--panel-raise); }
+.lock-chip b { color: var(--accent); font-weight: 600; }
+.lock-chip.surf { color: var(--muted); }
+.lock-chip.surf.on { background: rgba(155,123,255,.16); color: var(--ink); box-shadow: inset 0 -2px 0 var(--accent); }
+
+/* Bottom bar: full width, flush to the bottom edge, a violet hairline on top. */
+.dock { padding-bottom: 0; gap: 6px; }
+.dock > .bar-main { margin: 0; }
+.bar-main { width: 100% !important; border-radius: 0; border: 0; border-top: 1px solid var(--line); box-shadow: inset 0 1px 0 rgba(155,123,255,.55);
+  background: var(--panel-solid); -webkit-backdrop-filter: none; backdrop-filter: none; gap: 4px;
+  padding: 6px max(10px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 6px) max(10px, env(safe-area-inset-left, 0px)); }
+.bar-main .play { width: 42px; height: 42px; border-radius: 50%; background: #2a2c31; color: var(--ink); border: 0; }
+.bar-main .play:hover { background: #34363c; }
+.step { border-radius: 0; color: var(--ink); width: 34px; }
+.step:hover { background: var(--panel-raise); }
+.timebox { text-align: left; min-width: 82px; padding: 0 6px; }
+.timebox .clock-time { font-size: 13px; }
+#speed-label { text-align: left; }
+.create { border-radius: 0; width: 52px; height: 48px; border: 0; border-left: 1px solid var(--line); border-right: 1px solid var(--line); background: #1d1e22; color: var(--ink); }
+.create:hover { background: #26282d; }
+.create svg { width: 24px; height: 24px; }
+.create.on { background: rgba(155,123,255,.22); color: var(--ink); box-shadow: inset 0 -2px 0 var(--accent); }
+.panel-btn { border-radius: 0; color: var(--ink); width: 56px; height: 48px; font-size: 11px; font-weight: 500; letter-spacing: .02em; }
+.panel-btn svg { width: 21px; height: 21px; }
+.panel-btn:hover { background: var(--panel-raise); }
+.panel-btn.on { background: rgba(155,123,255,.14); box-shadow: inset 0 -2px 0 var(--accent); }
+.readout { padding: 0 max(12px, env(safe-area-inset-right, 0px)) 0 max(12px, env(safe-area-inset-left, 0px)); }
+@media (max-width: 430px) { .panel-btn { width: 44px; } .create { width: 44px; } .timebox { min-width: 66px; } .step { width: 26px; } }
+.addbar { border-radius: 0; background: var(--panel-solid); border-color: var(--line-strong); -webkit-backdrop-filter: none; backdrop-filter: none; }
+.addbar-text b { color: var(--accent); }
+.addbar.paint, .addbar.laser { border-color: var(--line-strong); }
+
+/* Object panel: docked full height on the right on wide screens; a flat card on phones. */
+.info { border-radius: 0; background: var(--panel-solid); border-color: var(--line); box-shadow: none;
+  -webkit-backdrop-filter: none; backdrop-filter: none; padding: 0; gap: 0; }
+.info-head { padding: 12px 12px 10px 14px; border-bottom: 1px solid var(--line); box-shadow: inset 0 1px 0 rgba(155,123,255,.55); }
+.info h2 { font-size: 19px; font-weight: 600; letter-spacing: .01em; }
+.info-head p { color: var(--muted); font-weight: 500; letter-spacing: .02em; text-transform: none; font-size: 13px; }
+.hab.mid { color: var(--amber); }
+.book-btn { border-radius: 0; height: 34px; border: 1px solid var(--line-strong); background: var(--panel-raise); color: var(--ink); font-weight: 500; }
+.book-btn:hover { border-color: var(--accent); }
+.info .icon-btn.small { background: none; border-color: transparent; }
+.info-tabs { margin: 0; gap: 0; border-bottom: 1px solid var(--line); padding: 0 4px; }
+.info-tabs button { display: grid; justify-items: center; gap: 3px; padding: 9px 6px 7px; font-size: 11.5px; font-weight: 500; letter-spacing: .02em; border-bottom: 2px solid transparent; min-width: 64px; }
+.info-tabs button svg { width: 20px; height: 20px; }
+.info-tabs button:hover { color: var(--ink); background: var(--panel-raise); }
+.info-tabs button.on { color: var(--ink); border-bottom-color: var(--ink); }
+.info-body { padding: 10px 14px 14px; margin: 0; }
+/* Property rows: label left, boxed value right. */
+.stats { grid-template-columns: 1fr; gap: 0; }
+.stats div { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 0; padding: 4px 0; }
+.stats dt { font-size: 13.5px; letter-spacing: .01em; text-transform: none; color: #c4c8ce; flex: 1; min-width: 0; }
+.stats dd { flex: 0 1 56%; text-align: right; background: var(--field); border: 1px solid var(--line); padding: 5px 9px; font-size: 13px; color: var(--ink); }
+.pane-label, .sheet-sub, .views legend { font-size: 11px; letter-spacing: .14em; color: var(--muted); font-weight: 600; text-transform: uppercase; }
+.info-actions { gap: 4px; }
+.info-actions button { border-radius: 0; height: 36px; font-weight: 500; background: var(--panel-raise); }
+.info-actions button.on { color: var(--ink); border-color: var(--accent); background: rgba(155,123,255,.14); }
+.info-more { border-top-color: var(--line); }
+.more-kicker { color: var(--accent); }
+.more-pages button { border-radius: 0; border-color: var(--line-strong); background: var(--panel-raise); color: var(--ink); font-weight: 500; }
+.info-extra, .info-extra.zones, .info-extra.grav, .info-extra.stand { border-radius: 0; font-weight: 500; }
+.map, .bar, .legend i { border-radius: 0; }
+.seg { border-radius: 0; background: var(--field); }
+.seg button { border-radius: 0; }
+.seg button.on { background: var(--ink); color: #000; }
+@media (min-width: 900px) {
+  .info { left: auto; right: 0; top: 0; width: 380px; height: auto; max-height: none;
+    bottom: calc(var(--dock-h, 90px) - 20px); border-width: 0 0 0 1px; }
+  .info-head { padding-top: calc(env(safe-area-inset-top, 0px) + 12px); }
+  /* Panels open on the left then, so the two sit side by side like the screenshots. */
+  .sheet { right: auto !important; left: 0 !important; top: 0 !important; bottom: calc(var(--dock-h, 90px) - 20px) !important; border-width: 0 1px 0 0 !important; transform: translateX(-16px) !important; }
+  .sheet.open { transform: none !important; }
+  body:has(#info:not([hidden])) .top-right { margin-right: 380px; }
+}
+
+/* Panels (scenarios, create, sim, view, tools, settings, find). */
+.sheet { border-radius: 0 !important; background: var(--panel-solid); border-color: var(--line); box-shadow: inset 0 1px 0 rgba(155,123,255,.55); }
+.sheet-head { background: var(--panel-solid); border-bottom: 1px solid var(--line); margin: 0 calc(-1 * var(--gut-r)) 8px calc(-1 * var(--gut-l)); padding: 12px var(--gut-r) 10px var(--gut-l); }
+.sheet h2 { font-size: 17px; font-weight: 600; letter-spacing: .1em; }
+.sheet .icon-btn.small, .sheet-head .icon-btn { background: none; border-color: transparent; }
+.scenario, .tool-card, .card, .search-item, .view-opt, .chal { border-radius: 0; background: var(--panel-raise); border-color: var(--line); -webkit-backdrop-filter: none; backdrop-filter: none; }
+.scenario:hover, .tool-card:hover, .card:hover, .search-item:hover, .view-opt:hover { border-color: var(--line-strong); background: #212226; }
+.scenario.current, .tool-card.on, .card.active, .view-opt:has(input:checked) { border-color: var(--accent); background: rgba(155,123,255,.1); }
+.scenario.current .scn-title, .tool-card.on b { color: var(--ink); }
+.scn-title { font-weight: 600; }
+.challenge .scn-meta, .chal-tag { color: var(--accent); }
+.chal { border-color: var(--line-strong); }
+.chal-answer input { border-radius: 0; background: var(--field); }
+.chal-answer button, .chal-btns button, .sb-use, .cat-tabs button, .sb-types button, .surface-head button, .surface-where button, .photo-bar button { border-radius: 0; }
+.chal-answer button, .chal-btns button { border-color: var(--line-strong); background: var(--panel-raise); color: var(--ink); }
+.cat-tabs { gap: 0; border-bottom: 1px solid var(--line); padding-bottom: 0; margin-bottom: 10px; }
+.cat-tabs button { border: 0; border-bottom: 2px solid transparent; background: none; height: 36px; }
+.cat-tabs button.on { color: var(--ink); background: none; border-bottom-color: var(--ink); }
+.sb-types button { background: var(--panel-raise); }
+.sb-types button.on { border-color: var(--accent); background: rgba(155,123,255,.12); }
+.sb-use { border-color: var(--accent); background: rgba(155,123,255,.14); color: var(--ink); font-weight: 600; }
+.field-label output { color: var(--ink); background: var(--field); border: 1px solid var(--line); padding: 2px 8px; }
+.search-input { border-radius: 0; background: var(--field); border-color: var(--line-strong); }
+.settings-actions button { border-radius: 0; background: var(--panel-raise); font-weight: 500; }
+.settings-actions button[aria-pressed=true] { color: var(--ink); border-color: var(--accent); }
+/* Switches: a slim track, as in the screenshots. */
+.switch { min-height: 44px; }
+.switch span { font-size: 15px; color: #d3d6db; }
+.switch input { width: 38px; height: 20px; background: #2d2f34; }
+.switch input::after { top: 3px; left: 3px; width: 14px; height: 14px; background: #9aa0a8; }
+.switch input:checked { background: var(--accent); }
+.switch input:checked::after { transform: translateX(18px); background: #fff; }
+.view-opt input { accent-color: var(--accent); }
+/* Sliders: thin track, small square-ish thumb. */
+input[type=range]::-webkit-slider-runnable-track { height: 3px; border-radius: 0; background: #3a3d43; }
+input[type=range]::-webkit-slider-thumb { width: 14px; height: 14px; margin-top: -5.5px; border-radius: 50%; background: #d8dbe0; border: 0; box-shadow: none; }
+input[type=range]::-moz-range-track { height: 3px; border-radius: 0; background: #3a3d43; }
+input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: #d8dbe0; border: 0; }
+
+/* Notices: a dark bar at the lower right, like "Low Memory Detected". */
+.toast { border-radius: 0; background: var(--panel-solid); border-color: var(--line-strong); -webkit-backdrop-filter: none; backdrop-filter: none; text-align: left; padding: 11px 16px; box-shadow: inset 2px 0 0 var(--accent); }
+.toast.big { border-color: var(--line-strong); color: var(--ink); box-shadow: inset 2px 0 0 var(--amber); }
+@media (min-width: 900px) {
+  .toast { left: auto; right: max(16px, env(safe-area-inset-right, 0px)); transform: translate(0, -8px); }
+  .toast.show { transform: none; }
+  body:has(#info:not([hidden])) .toast { right: 396px; }
+}
+.hint { border-radius: 0; background: rgba(10, 10, 12, .7); }
+.surface-bar { border-radius: 0; background: var(--panel-solid); -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: inset 0 1px 0 rgba(155,123,255,.55); }
+.surface-where button.on { border-color: var(--accent); color: var(--ink); background: rgba(155,123,255,.14); }
+.photo-bar { border-radius: 0; }
+.tracks li button:hover { background: var(--panel-raise); }
+.tracks li.now button { color: var(--accent); }
+/* The book keeps its reading look, squared off to match. */
+.book-tabs, .book-tabs button { border-radius: 0; }
+@media (max-width: 759px) { .sheet { bottom: calc(var(--dock-h, 70px) - 20px) !important; border-width: 1px 0 0 !important; } }
