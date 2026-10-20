@@ -447,13 +447,28 @@ export class UI {
     $('chal-answer').addEventListener('submit', (e) => { e.preventDefault(); ch.answer(parseFloat($('chal-in').value.replace(/,/g, ''))); });
     const list = $('scenario-list');
     for (const p of PRESETS) {
+      if (p.hidden) continue;
       const b = document.createElement('button');
       b.className = 'scenario';
       b.id = 'scn-' + p.id;
+      b.dataset.cat = p.cat || 'general';
+      b.hidden = b.dataset.cat !== 'general';
       b.innerHTML = `<span class="scn-title">${p.name}</span><span class="scn-blurb">${p.blurb}</span><span class="scn-meta">Starts at ${formatRate(p.speed)}</span>`;
       b.addEventListener('click', () => { this.app.loadPreset(p.id); this.closeSheets(); });
       list.appendChild(b);
     }
+    // Tabs: scenarios or challenges; scenarios by kind (general, black holes, historic events).
+    document.querySelectorAll('[data-scn-tab]').forEach((t) => t.addEventListener('click', () => {
+      document.querySelectorAll('[data-scn-tab]').forEach((x) => x.classList.toggle('on', x === t));
+      $('scn-pane-scenarios').hidden = t.dataset.scnTab !== 'scenarios';
+      $('scn-pane-challenges').hidden = t.dataset.scnTab !== 'challenges';
+      this.app.audio.ui('tab');
+    }));
+    document.querySelectorAll('[data-scn-cat]').forEach((t) => t.addEventListener('click', () => {
+      document.querySelectorAll('[data-scn-cat]').forEach((x) => x.classList.toggle('on', x === t));
+      list.querySelectorAll('.scenario').forEach((el) => { el.hidden = el.dataset.cat !== t.dataset.scnCat; });
+      this.app.audio.ui('tab');
+    }));
   }
 
   onPreset(p) {

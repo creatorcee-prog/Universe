@@ -1,5 +1,6 @@
 import { G, EARTH_MASS, MOON_MASS, KPC_AU, DAY_YR, SUN_RADIUS, km, kms, massFromGM } from './units.js';
-import { makeBody, tiltSpin, spinFacing, subsolarLon } from './bodies.js';
+import { makeBody, tiltSpin, spinFacing, subsolarLon, CATALOG } from './bodies.js';
+const CATALOG_JUPITER = () => { const { id, label, ...c } = CATALOG.find((x) => x.id === 'jupiter'); return c; };
 import { PK, circularSpeed } from './physics.js';
 import { MOONS } from './moons.js';
 import { LIVE_DATA } from './livedata.js';
@@ -496,7 +497,57 @@ function haloGalaxy(world, name, pos, vel, m, a, rd, rmax, n, tiltX, tiltZ, spin
 // app's frame (y up = Galactic north).
 const gc = ([x, y, z], k) => [x * k, z * k, -y * k];
 
+// Earth (with the Moon and the Sun) for the historic scenarios: the Sun-Earth geometry of a given date (Earth turned
+// to that date's time of day, as in the dated Solar System), life as old as asked (city lights only when the age is
+// over 3.7 billion years, so not 66 million years ago).
+function earthSystem(w, epochMs, lifeAge = 3.8e9) {
+  const s = w.addBody(sun());
+  const dt = (epochMs - Date.UTC(2000, 0, 1, 12)) / (365.25 * 86400e3), T = dt / 100;
+  const el = [1.00000261, 0.01671123, -0.00001531, 100.46457166, 102.93768193, 0].map((v, k) => v + RATES.Earth[k] * T);
+  const e = makeBody({ name: 'Earth', kind: 'rocky', m: EARTH_MASS + MOON_MASS, r: km(6371), color: [64, 118, 214], atmo: [120, 180, 255] });
+  orbitLW(w, s, e, ...el);
+  e.m = EARTH_MASS; e.life = true; e.lifeAge = lifeAge;
+  const m = makeBody({ name: 'Moon', kind: 'rocky', m: MOON_MASS, r: km(1737.4), color: [184, 182, 176] });
+  orbitLW(w, e, m, km(LUNAR_A), 0.0549, 5.145, 218.3165 + 481267.88123421 * T, 83.3532 + 4069.0137287 * T, 125.0445 - 1934.1362891 * T, true);
+  // (the Moon in the full integrator, not riding on Earth: riding, Earth would be moved to the pair's barycentre,
+  // 4,700 km off its centre, during each step, and an asteroid coming in would be aimed at that point instead)
+  m.host = e;
+  w.epoch = epochMs;
+  return { s, e, m };
+}
+// A body's state t years before it reaches (r, v) relative to a planet of gravitational parameter mu: integrated
+// backward (RK4) under the planet's pull alone.
+function backInt(mu, r, v, t, n = 400) {
+  let x = [...r, ...v];
+  const f = (q) => { const d = Math.hypot(q[0], q[1], q[2]), k = -mu / (d * d * d); return [q[3], q[4], q[5], k * q[0], k * q[1], k * q[2]]; };
+  const h = -t / n, add = (a, b, c) => a.map((v, i) => v + b[i] * c);
+  for (let i = 0; i < n; i++) {
+    const k1 = f(x), k2 = f(add(x, k1, h / 2)), k3 = f(add(x, k2, h / 2)), k4 = f(add(x, k3, h));
+    x = x.map((v, j) => v + (h / 6) * (k1[j] + 2 * k2[j] + 2 * k3[j] + k4[j]));
+  }
+  return x;
+}
+// Where a place on Earth (lat, lon in degrees) points in the world `secs` seconds after the start, with the local
+// north and east there: Earth's spin as the renderer starts it (bodies.js spinFacing, from the date's time of day).
+function placeOnEarth(e, s, epochMs, lat, lon, secs) {
+  const R = Math.PI / 180, tilt = 23.44 * R, u = [s.x - e.x, s.y - e.y, s.z - e.z], ul = Math.hypot(...u);
+  const a = spinFacing(tilt, u.map((v) => v / ul), subsolarLon(epochMs)) + (2 * Math.PI * secs) / 86164.1;
+  const M = tiltSpin(tilt, a), w = (d) => [0, 1, 2].map((i) => M[i] * d[0] + M[3 + i] * d[1] + M[6 + i] * d[2]);
+  const up = w([Math.cos(lat * R) * Math.cos(lon * R), Math.sin(lat * R), -Math.cos(lat * R) * Math.sin(lon * R)]);
+  const pole = w([0, 1, 0]), k = pole[0] * up[0] + pole[1] * up[1] + pole[2] * up[2];
+  let north = pole.map((v, i) => v - k * up[i]); const nl = Math.hypot(...north); north = north.map((v) => v / nl);
+  const east = [north[1] * up[2] - north[2] * up[1], north[2] * up[0] - north[0] * up[2], north[0] * up[1] - north[1] * up[0]];
+  return { up, north, east };
+}
+
 export const PRESETS = [
+  {
+    id: 'empty', name: 'Empty Space',
+    blurb: 'Nothing at all: a blank piece of space. Add stars, planets and black holes from Create.',
+    speed: 0.1,
+    camera: { follow: null, dist: 4, pitch: 0.5, yaw: 0.3 },
+    build() {},
+  },
   {
     id: 'solar', name: 'Solar System',
     blurb: 'The Sun, eight planets, nine dwarf planets, all 175 named moons, eight famous comets, Saturn\'s rings and both asteroid belts.',
@@ -623,32 +674,7 @@ export const PRESETS = [
     },
   },
   {
-    id: 'jupiter', name: 'Jupiter\'s Moons',
-    blurb: 'Io, Europa and Ganymede lock into a 1 : 2 : 4 orbital resonance. Callisto drifts outside it.',
-    speed: DAY_YR,
-    camera: { follow: 'Jupiter', dist: 0.03, pitch: 0.6, yaw: 0.3 },
-    build(w) {
-      const s = w.addBody(sun());
-      // Jupiter alone (GM 126,686,531.9 km³/s²) on its J2000 orbit; moon GMs from JPL's JUP365 solution.
-      const j = makeBody({ name: 'Jupiter', kind: 'gas', m: massFromGM(126712764.1), r: km(69911), color: [216, 182, 136], band: [170, 112, 74] });
-      orbitLW(w, s, j, 5.20288700, 0.04838624, 1.30439695, 34.39644051, 14.72847983, 100.47390909);
-      j.m = massFromGM(126686531.9);
-      const moons = [
-        ['Io', 421700, massFromGM(5959.916), 1821, [226, 204, 110]],
-        ['Europa', 671034, massFromGM(3202.739), 1560, [210, 196, 176]],
-        ['Ganymede', 1070412, massFromGM(9887.834), 2634, [160, 150, 138]],
-        ['Callisto', 1882709, massFromGM(7179.289), 2410, [110, 100, 92]],
-      ];
-      // Phases chosen to respect the Laplace relation λIo − 3λEuropa + 2λGanymede = 180°.
-      const phase = [0, 180, 0, 90];
-      moons.forEach(([name, akm, m, r, color], k) => {
-        orbit(w, j, makeBody({ name, kind: 'rocky', m, r: km(r), color }), km(akm), 0.002, 0.2, 0, 0, phase[k], true).host = j;
-      });
-      toBarycenter(w.bodies);
-    },
-  },
-  {
-    id: 'impact', name: 'Moon-Forming Impact',
+    id: 'impact', cat: 'historic', name: 'Moon-Forming Impact (4.5 billion years ago)',
     blurb: 'A Mars-sized protoplanet, Theia, strikes the young Earth at 45°. Debris forms a disk, and over about a month it clumps into the Moon. Speed up with » after the impact.',
     speed: 0.5 / 8766,
     camera: { follow: 'Proto-Earth', dist: 0.0011, pitch: 0.7, yaw: 0.6 },
@@ -662,6 +688,81 @@ export const PRESETS = [
       t.vx = e.vx - kms(10.5); t.vy = e.vy; t.vz = e.vz - kms(0.8);
       t.noRoche = true;
       w.addBody(t);
+    },
+  },
+  {
+    id: 'chicxulub', cat: 'historic', name: 'The Dinosaur Killer (66 million years ago)',
+    blurb: 'A ~12 km asteroid comes in from the northeast at 20 km/s, 60° above the horizon, and strikes the Yucatán: the 180 km Chicxulub crater, and the end of three quarters of all species, the non-bird dinosaurs among them. Impact in 10 minutes. (The continents shown are today\'s.)',
+    speed: 30 / 3.15576e7,
+    camera: { follow: 'Chicxulub impactor', dist: km(9000), pitch: 0.25, yaw: 2.4 },
+    build(w) {
+      // Collins et al. 2020 (Nature Communications 11, 2600): a steep impact (45-60°) from the northeast, ~20 km/s;
+      // Schulte et al. 2010 (Science 327, 1214): the extinction. Size ~10-15 km; 12 km at 2.6 g/cm³ here.
+      const ep = Date.UTC(2026, 5, 1, 16, 0);   // (a date only for the lighting: the Sun over the Atlantic)
+      const { s, e } = earthSystem(w, ep, 3.6e9);
+      const T = 600, hit = placeOnEarth(e, s, ep, 21.4, -89.5, T);
+      const v = 20 * kms(1), R = e.r, c = Math.cos(60 * Math.PI / 180), sn = Math.sin(60 * Math.PI / 180);
+      const ne = hit.north.map((x, i) => (x + hit.east[i]) / Math.SQRT2);
+      const vel = [0, 1, 2].map((i) => -(sn * hit.up[i] + c * ne[i]) * v);
+      const st = backInt(G * e.m, hit.up.map((x) => x * R * 1.001), vel, T / 3.15576e7);
+      const a = makeBody({ name: 'Chicxulub impactor', kind: 'rocky', m: ((4 / 3) * Math.PI * 6000 ** 3 * 2600) / 1.98847e30, r: km(6), color: [120, 110, 100], compKey: 'asteroid' });
+      a.x = e.x + st[0]; a.y = e.y + st[1]; a.z = e.z + st[2]; a.vx = e.vx + st[3]; a.vy = e.vy + st[4]; a.vz = e.vz + st[5];
+      a.noRoche = true;
+      w.addBody(a);
+    },
+  },
+  {
+    id: 'sl9', cat: 'historic', name: 'Comet Shoemaker–Levy 9 hits Jupiter (July 1994)',
+    blurb: 'Torn into a train of ~20 pieces by Jupiter\'s tides in 1992, the comet falls back two years later: the fragments strike the southern hemisphere at 60 km/s, one after another for five and a half days, each leaving a dark scar larger than Earth. The first strikes in about an hour.',
+    speed: 0.25 / 365.25,
+    camera: { follow: 'Jupiter', dist: km(260000), pitch: -0.35, yaw: 1.2 },
+    build(w) {
+      // Impacts 1994 July 16 20:13 UTC (A) to July 22 08:12 (W), at ~44°S; fragments up to ~1-2 km (G the largest).
+      const s = w.addBody(sun());
+      const j = orbit(w, s, makeBody({ ...CATALOG_JUPITER(), name: 'Jupiter' }), 5.2, 0.048, 1.3, 100.5, 273.9, 20);
+      const mu = G * j.m, Rj = j.r, R = Math.PI / 180;
+      // (aimed near the dawn side, 44° south: the ground under Jupiter's tilt about x, as tiltSpin)
+      const toSun = [s.x - j.x, s.y - j.y, s.z - j.z], sl = Math.hypot(...toSun), su = toSun.map((v) => v / sl);
+      const pole = [0, Math.cos(3.1 * R), -Math.sin(3.1 * R)];
+      let side = [pole[1] * su[2] - pole[2] * su[1], pole[2] * su[0] - pole[0] * su[2], pole[0] * su[1] - pole[1] * su[0]];
+      const sdl = Math.hypot(...side); side = side.map((v) => v / sdl);
+      const names = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'K', 'L', 'N', 'P2', 'Q2', 'Q1', 'R', 'S', 'T', 'U', 'V', 'W'];
+      names.forEach((n, k) => {
+        const t = (1 + k * 6.6) / 8766;   // (one about every 6.6 hours, the first after an hour)
+        const lonOff = (k * 9 - 20) * R;   // (Jupiter turns under the train: scars strung along the same latitude)
+        const dir = [0, 1, 2].map((i) => (Math.cos(44 * R) * (Math.cos(lonOff) * side[i] + Math.sin(lonOff) * su[i] * 0.3) - Math.sin(44 * R) * pole[i]));
+        const dl = Math.hypot(...dir), u = dir.map((v) => v / dl);
+        // Radial parabolic infall: from r it takes t = (2/3)(r^1.5 - R^1.5)/sqrt(2 mu) to fall to R.
+        const r = Math.pow((1.5 * t) * Math.sqrt(2 * mu) + Math.pow(Rj, 1.5), 2 / 3), v = Math.sqrt((2 * mu) / r);
+        const km_ = n === 'G' ? 1.5 : n === 'K' || n === 'L' ? 1 : 0.4 + 0.4 * ((k * 37) % 10) / 10;
+        const f = makeBody({ name: 'SL9 fragment ' + n, kind: 'rocky', comet: true, compKey: 'comet', m: ((4 / 3) * Math.PI * (km_ * 500) ** 3 * 600) / 1.98847e30, r: km(km_ / 2), color: [196, 204, 214] });
+        f.x = j.x + u[0] * r; f.y = j.y + u[1] * r; f.z = j.z + u[2] * r;
+        f.vx = j.vx - u[0] * v; f.vy = j.vy - u[1] * v; f.vz = j.vz - u[2] * v;
+        f.noRoche = true;
+        w.addBody(f);
+      });
+    },
+  },
+  {
+    id: 'apophis', cat: 'historic', name: 'Apophis skims Earth (13 April 2029)',
+    blurb: 'The 340-metre asteroid Apophis passes 31,600 km above Earth, inside the ring of geostationary satellites, bright enough to see without a telescope from Europe and Africa. Earth\'s pull bends its path and changes its orbit. Closest approach in one day.',
+    speed: 1 / 8766,
+    camera: { follow: 'Earth', dist: km(160000), pitch: 0.6, yaw: 0.5 },
+    build(w) {
+      // NASA/JPL: closest approach 2029 April 13 21:46 UTC, 38,000 km from Earth's centre, ~7.4 km/s; 4e10-6e10 kg.
+      const ep = Date.UTC(2029, 3, 12, 21, 46);
+      const { s, e } = earthSystem(w, ep);
+      const rp = km(38012), vinf = kms(5.84), vp = Math.sqrt(vinf * vinf + (2 * G * e.m) / rp);
+      // (perigee over the Atlantic side at night: opposite the Sun, a little north)
+      const toS = [s.x - e.x, s.y - e.y, s.z - e.z], tl = Math.hypot(...toS), anti = toS.map((v) => -v / tl);
+      const up = [0, 1, 0], k = anti[1], pdir0 = [anti[0], anti[1] + 0.35, anti[2]], pl = Math.hypot(...pdir0), pdir = pdir0.map((v) => v / pl);
+      let t = [up[1] * pdir[2] - up[2] * pdir[1], up[2] * pdir[0] - up[0] * pdir[2], up[0] * pdir[1] - up[1] * pdir[0]];
+      const tn = Math.hypot(...t); t = t.map((v) => v / tn);
+      const st = backInt(G * e.m, pdir.map((v) => v * rp), t.map((v) => v * vp), 1 / 365.25, 800);
+      const a = makeBody({ name: 'Apophis', kind: 'rocky', m: 6.1e10 / 1.98847e30, r: km(0.17), color: [150, 140, 128], compKey: 'asteroid' });
+      a.x = e.x + st[0]; a.y = e.y + st[1]; a.z = e.z + st[2]; a.vx = e.vx + st[3]; a.vy = e.vy + st[4]; a.vz = e.vz + st[5];
+      w.addBody(a);
+      addSatellites(w, e, s, ep);
     },
   },
   {
@@ -700,7 +801,7 @@ export const PRESETS = [
     },
   },
   {
-    id: 'bhmerger', name: 'Black Hole Merger',
+    id: 'bhmerger', cat: 'blackhole', name: 'Black Hole Merger',
     blurb: 'Two black holes like those LIGO first heard in 2015 (36 and 29 M☉), 22,000 km apart, losing orbital energy to gravitational waves. They spiral together and merge within a day.',
     speed: 1 / 8766, // an hour per second
     camera: { follow: null, dist: 0.0006, pitch: 0.9, yaw: 0 },
@@ -714,7 +815,7 @@ export const PRESETS = [
     },
   },
   {
-    id: 'rogue', name: 'Rogue Black Hole',
+    id: 'rogue', cat: 'blackhole', name: 'Rogue Black Hole',
     blurb: 'A 5 M☉ black hole wanders through the Solar System at 20 km/s.',
     speed: 1,
     camera: { follow: 'Sun', dist: 58, pitch: 0.8, yaw: 0.9 },
@@ -730,7 +831,7 @@ export const PRESETS = [
     },
   },
   {
-    id: 'tde', name: 'Tidal Disruption',
+    id: 'tde', cat: 'blackhole', name: 'Tidal Disruption',
     blurb: 'A Sun-like star dives toward a million-solar-mass black hole and is shredded by its tides. Half the debris escapes; speed up time to watch the rest fall back.',
     speed: 6 / 8766,
     camera: { follow: 'Black hole', dist: 30, pitch: 0.95, yaw: 1.75 },
@@ -748,7 +849,7 @@ export const PRESETS = [
     },
   },
   {
-    id: 'jtde', name: 'Jetted Tidal Disruption',
+    id: 'jtde', cat: 'blackhole', name: 'Jetted Tidal Disruption',
     blurb: 'The rare kind: a fast-spinning black hole shreds a star and launches a pair of jets at nearly light speed, as Swift J1644+57 did in 2011 (only about 1 in 100 tidal disruptions does this). The jets switch on when the debris falls back, about 40 days after the star is torn apart.',
     speed: 2 / 365.25,
     camera: { follow: 'Black hole', dist: 40, pitch: 0.3, yaw: 1.75 },
@@ -766,7 +867,7 @@ export const PRESETS = [
     },
   },
   {
-    id: 'ptde', name: 'Repeating Tidal Disruption',
+    id: 'ptde', cat: 'blackhole', name: 'Repeating Tidal Disruption',
     blurb: 'A Sun-like star on a tight 20-day orbit grazes a million-solar-mass black hole. Each pass tears off part of it in a stream that wraps around the hole and lights its disk, piece by piece, as for the star in ASASSN-14ko, which flares every 114 days.',
     speed: 2 / 365.25,
     camera: { follow: 'Black hole', dist: 22, pitch: 1.05, yaw: 1.75 },
@@ -798,22 +899,6 @@ export const PRESETS = [
       w.addBody(s);
       orbit(w, s, makeBody({ name: 'Cinder', kind: 'gas', m: 2 * 317.8 * EARTH_MASS, r: km(80000), color: [200, 140, 110], band: [150, 90, 70] }), 120, 0.05, 2);
       for (let k = 0; k < 600; k++) particleOrbit(w, s, between(300, 500), rand() * 0.1, rand() * 20, PK.ICE);
-    },
-  },
-  {
-    id: 'galaxies', name: 'Galaxy Collision',
-    blurb: 'Two spiral galaxies of 100 billion suns each pass through one another and throw out tidal tails.',
-    speed: 2e7,
-    camera: { follow: null, dist: 85 * KPC_AU, pitch: 0.95, yaw: 0.3 },
-    build(w) {
-      const r0 = 50 * KPC_AU;
-      const mu = G * 2e11;
-      const qd = 9 * KPC_AU;
-      const vtot = 0.92 * Math.sqrt((2 * mu) / r0);
-      const vt = Math.sqrt(2 * mu * qd) / r0;
-      const vr = Math.sqrt(Math.max(0, vtot * vtot - vt * vt));
-      galaxy(w, 'Galaxy A', -r0 / 2, 0, 0, vr / 2, 0, -vt / 2, 0.15, 0, 4200, 1, [255, 226, 180]);
-      galaxy(w, 'Galaxy B', r0 / 2, 0, 0, -vr / 2, 0, vt / 2, 1.0, 0.5, 4200, 1, [200, 220, 255]);
     },
   },
   {
@@ -850,7 +935,7 @@ export const PRESETS = [
     },
   },
   {
-    id: 'empty', name: 'Empty Star',
+    id: 'lonestar', name: 'Lone Star', hidden: true,   // (a blank stage for the test tools: tools/surface.mjs)
     blurb: 'A lone Sun-like star. Add planets, moons, stars or black holes and see what happens.',
     speed: 0.1,
     camera: { follow: 'Sun', dist: 3, pitch: 0.6, yaw: 0 },

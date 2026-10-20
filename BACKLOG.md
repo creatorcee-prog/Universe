@@ -18,14 +18,15 @@ Done items move to the README. (October 2026: the user cleared everything else; 
 
 - [x] Meteors not visible in the Surface view (user, 21 Oct): they started up to 70° from the radiant with the view aimed below it, so most were off-screen, and few, thin and faint. Now 8-40° out, the view just under the radiant, brighter with a glowing head, time at 4 min/s while watching (about one a second).
 - [ ] Seasons visible on every object that has them (axial tilt: ice caps and climate shifting with the year, on Mars, Earth, Titan, made-up worlds).
-- [ ] Delete the Galaxy Collision scenario (Milky Way vs Andromeda replaces it).
-- [ ] Scenarios panel: tabs for Scenarios and Challenges, and a sub-tab for black hole scenarios.
-- [ ] Delete the Jupiter's moons scenario.
+- [x] Delete the Galaxy Collision scenario (Milky Way vs Andromeda replaces it).
+- [x] Scenarios panel: tabs for Scenarios and Challenges, and a sub-tab for black hole scenarios.
+- [x] Delete the Jupiter's moons scenario.
 - [ ] Planet Formation doesn't form planets: check the time scale and the growth physics.
-- [ ] Empty scenario first in the list; delete Empty Star.
-- [ ] Historic events tab in Scenarios: the Chicxulub impact that killed the dinosaurs, etc.
+- [x] Empty scenario first in the list (Empty Space: nothing at all); Empty Star deleted (kept hidden as 'lonestar' for the test tools).
+- [x] Historic events tab in Scenarios: Chicxulub (hits the Yucatán at 21.4°N 89.5°W), Shoemaker-Levy 9, Apophis 2029, the Moon-forming impact.
 - [ ] Discord bot that notifies of events (user asked whether it's possible and what it could notify about).
 - [ ] "Allow for automation clicks" (to clarify with the user).
+- [ ] Bug: in the Solar System, a body in the full integrator near Earth (an asteroid you aim at it) is pulled toward the Earth-Moon barycentre, 4,700 km off Earth's centre (minors.js moves the planet there during the step when it has a big moon). Fix: keep the planet at its own centre for bodies outside the group, or integrate the Moon fully.
 
 ## Done (history)
 

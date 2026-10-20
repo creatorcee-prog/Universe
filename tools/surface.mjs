@@ -27,7 +27,7 @@ await page.evaluate(async ([terra, cloud, body, giant]) => {
   let b;
   if (terra) {
     const B = await import('./js/bodies.js');
-    app.loadPreset('empty');
+    app.loadPreset('lonestar');
     const s = app.world.bodies.find((x) => x.kind === 'star');
     b = B.makeBody({ ...B.CATALOG.find((c) => c.id === 'earth'), name: 'Terra', compKey: terra });
     b.x = s.x + 1; b.y = s.y; b.z = s.z; b.vz = 6.28; b.life = true; app.world.addBody(b);

@@ -11,7 +11,7 @@ page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') 
 page.on('pageerror', (e) => errors.push('PAGEERROR ' + e.message));
 await page.goto(url);
 await page.waitForTimeout(2500);
-const ids = process.argv[4] ? process.argv[4].split(',') : ['solar', 'earthmoon', 'jupiter', 'impact', 'formation', 'binary', 'rogue', 'tde', 'galaxies', 'empty'];
+const ids = process.argv[4] ? process.argv[4].split(',') : ['solar', 'earthmoon', 'impact', 'chicxulub', 'sl9', 'apophis', 'formation', 'binary', 'rogue', 'tde', 'andromeda', 'empty'];
 for (const id of ids) {
   await page.evaluate((id) => window.app.loadPreset(id), id);
   await page.waitForTimeout(id === 'impact' || id === 'tde' ? 9000 : 3000);

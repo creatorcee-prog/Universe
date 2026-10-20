@@ -318,10 +318,21 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
     </div>
-    <h3 class="sheet-sub">Challenges</h3>
-    <div id="challenge-list" class="scenario-list"></div>
-    <h3 class="sheet-sub">Scenarios</h3>
-    <div id="scenario-list" class="scenario-list"></div>
+    <nav class="cat-tabs scn-tabs" role="tablist" aria-label="Scenarios or challenges">
+      <button type="button" role="tab" data-scn-tab="scenarios" class="on">Scenarios</button>
+      <button type="button" role="tab" data-scn-tab="challenges">Challenges</button>
+    </nav>
+    <div id="scn-pane-scenarios">
+      <nav class="sub-tabs" role="tablist" aria-label="Kind of scenario">
+        <button type="button" role="tab" data-scn-cat="general" class="on">General</button>
+        <button type="button" role="tab" data-scn-cat="blackhole">Black holes</button>
+        <button type="button" role="tab" data-scn-cat="historic">Historic events</button>
+      </nav>
+      <div id="scenario-list" class="scenario-list"></div>
+    </div>
+    <div id="scn-pane-challenges" hidden>
+      <div id="challenge-list" class="scenario-list"></div>
+    </div>
   </section>
 
   <section id="sheet-create" class="sheet" hidden aria-label="Create">

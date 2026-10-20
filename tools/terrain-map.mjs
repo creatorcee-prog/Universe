@@ -9,7 +9,7 @@ await page.goto('http://localhost:8080/');
 await page.waitForTimeout(3000);
 const png = await page.evaluate(async () => {
   const B = await import('./js/bodies.js');
-  app.loadPreset('empty'); app.ui.setSpeed(0);
+  app.loadPreset('lonestar'); app.ui.setSpeed(0);
   const s = app.world.bodies.find((x) => x.kind === 'star');
   const b = B.makeBody({ ...B.CATALOG.find((c) => c.id === 'earth'), name: 'Terra', compKey: 'Earth' });
   b.x = s.x + 1; b.y = s.y; b.z = s.z; app.world.addBody(b);
