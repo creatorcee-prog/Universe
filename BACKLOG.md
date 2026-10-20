@@ -83,7 +83,9 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 - (Done) Ocean Moon scenario (from a user's picture, the land made sea): Pelagia, a made-up ocean moon locked
   close to Rhodon, a cream-and-rose giant that spans ~34° of its sky; "Facing <planet>" in the Surface view
   for any locked moon (stands where the planet hangs ~25° up, by daylight); Pelagia in the book.
-- Next: FFT ocean (Tessendorf 2001), as in Xavier Bourry's WebGL ocean the user pointed to.
+- (Done) FFT ocean (Tessendorf 2001; the user pointed to Xavier Bourry's WebGL ocean): 64 x 64 Phillips-
+  spectrum waves of a 9 m/s wind on a 32 m tile, inverse-FFT'd to slopes each frame on the CPU (~1 ms),
+  mipmapped; sampled at two scales, turned, with the long swell trains on top (no visible repeat).
 - Next: the jagged edge of hills' shadows (shaded per vertex of the ring mesh); Earth's land up close.
 
 ## New list

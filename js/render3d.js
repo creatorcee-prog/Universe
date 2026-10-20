@@ -258,6 +258,83 @@ const LOOKS = {
   Theia: { colA: c3(140, 115, 96), colB: c3(100, 82, 70), craters: 0.5, day: 12 },
 };
 
+// The sea's waves by Fourier synthesis (J. Tessendorf, "Simulating Ocean Water", SIGGRAPH course notes
+// 2001): a 32 m patch, 64 x 64 wave components drawn from the Phillips spectrum of a 9 m/s wind, each moving
+// at the deep-water speed (ω = √(g k)); every frame an inverse FFT turns them into the slopes of the
+// surface, which repeat seamlessly across the sea. (Thousands of waves instead of a few dozen trains.)
+class OceanFFT {
+  constructor(N = 64, L = 32, wind = 9, dir = [0.9, 0.436]) {
+    this.N = N; this.L = L;
+    const g = 9.81, Lw = wind * wind / g, n = N * N;
+    this.kx = new Float32Array(n); this.kz = new Float32Array(n); this.w = new Float32Array(n);
+    this.h0r = new Float32Array(n); this.h0i = new Float32Array(n);
+    let s = 0x5eed1234;
+    const rnd = () => { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; return ((s >>> 0) + 0.5) / 4294967296; };
+    const gauss = () => Math.sqrt(-2 * Math.log(rnd())) * Math.cos(2 * Math.PI * rnd());
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const o = j * N + i, fx = i < N / 2 ? i : i - N, fz = j < N / 2 ? j : j - N;
+      const kx = (2 * Math.PI * fx) / L, kz = (2 * Math.PI * fz) / L, k = Math.hypot(kx, kz);
+      this.kx[o] = kx; this.kz[o] = kz; this.w[o] = Math.sqrt(g * k);
+      if (k < 1e-6) continue;
+      const c = (kx * dir[0] + kz * dir[1]) / k;
+      // Phillips: k⁻⁴ e^(-1/(k Lw)²), mostly along the wind (cos²), the shortest waves damped.
+      const P = Math.exp(-1 / (k * Lw) ** 2) / k ** 4 * c * c * (c < 0 ? 0.25 : 1) * Math.exp(-((k * 0.05) ** 2));
+      const a = Math.sqrt(P / 2);
+      this.h0r[o] = gauss() * a; this.h0i[o] = gauss() * a;
+    }
+    this.re = new Float32Array(n); this.im = new Float32Array(n);
+    this.px = new Uint8Array(n * 4);
+    this.scale = 0;   // normalises the slopes (set on the first step: RMS slope ~0.13, a fresh breeze)
+  }
+  fft(re, im, off, stride) {   // in-place inverse FFT of N values (radix 2)
+    const N = this.N;
+    for (let i = 1, j = 0; i < N; i++) {
+      let bit = N >> 1;
+      for (; j & bit; bit >>= 1) j ^= bit;
+      j ^= bit;
+      if (i < j) { const a = off + i * stride, b = off + j * stride; let t = re[a]; re[a] = re[b]; re[b] = t; t = im[a]; im[a] = im[b]; im[b] = t; }
+    }
+    for (let len = 2; len <= N; len <<= 1) {
+      const ang = (2 * Math.PI) / len, wr = Math.cos(ang), wi = Math.sin(ang);
+      for (let i = 0; i < N; i += len) {
+        let cr = 1, ci = 0;
+        for (let k = 0; k < len / 2; k++) {
+          const a = off + (i + k) * stride, b = off + (i + k + len / 2) * stride;
+          const xr = re[b] * cr - im[b] * ci, xi = re[b] * ci + im[b] * cr;
+          re[b] = re[a] - xr; im[b] = im[a] - xi; re[a] += xr; im[a] += xi;
+          const t = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = t;
+        }
+      }
+    }
+  }
+  step(t) {
+    const N = this.N, { re, im, kx, kz, w, h0r, h0i } = this;
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const o = j * N + i, m = ((N - j) % N) * N + ((N - i) % N);
+      const c = Math.cos(w[o] * t), s = Math.sin(w[o] * t);
+      // H = h0(k) e^(iωt) + conj(h0(-k)) e^(-iωt): real heights.
+      const Hr = h0r[o] * c - h0i[o] * s + h0r[m] * c - h0i[m] * s;
+      const Hi = h0r[o] * s + h0i[o] * c - h0r[m] * s - h0i[m] * c;
+      // Both slopes at once: i kx H + i (i kz H) transforms to sx + i sz.
+      re[o] = -kx[o] * Hi - kz[o] * Hr; im[o] = kx[o] * Hr - kz[o] * Hi;
+    }
+    for (let j = 0; j < N; j++) this.fft(re, im, j * N, 1);
+    for (let i = 0; i < N; i++) this.fft(re, im, i, N);
+    if (!this.scale) {
+      let s2 = 0;
+      for (let o = 0; o < N * N; o++) s2 += re[o] * re[o] + im[o] * im[o];
+      this.scale = 0.13 / Math.sqrt(s2 / (N * N) / 2 || 1);
+    }
+    // (stored as 0.5 + slope, slopes within ±0.5)
+    for (let o = 0; o < N * N; o++) {
+      this.px[o * 4] = Math.max(0, Math.min(255, Math.round((0.5 + re[o] * this.scale) * 255)));
+      this.px[o * 4 + 1] = Math.max(0, Math.min(255, Math.round((0.5 + im[o] * this.scale) * 255)));
+      this.px[o * 4 + 3] = 255;
+    }
+    return this.px;
+  }
+}
+
 function seeded(id) {
   let x = Math.sin(id * 12.9898 + 78.233) * 43758.5453;
   return x - Math.floor(x);
@@ -390,7 +467,7 @@ export class Renderer3D {
     this.gen = ++contextGen;
     canvas.addEventListener('webglcontextrestored', () => {
       this.gen = ++contextGen;
-      this.mapTex = new Map(); this.dTex = null; this.nightTex = null; this.tMesh = null; this.rMesh = null; this.shTarget = null; this.gMats = null; this.post = null; this.genMaps = null; this.noiseTex = null; this.cloudRTs = null; this.skyLayer = null; this.nebRT = null;
+      this.mapTex = new Map(); this.dTex = null; this.nightTex = null; this.tMesh = null; this.rMesh = null; this.shTarget = null; this.gMats = null; this.sea = null; this.seaT = null; this.post = null; this.genMaps = null; this.noiseTex = null; this.cloudRTs = null; this.skyLayer = null; this.nebRT = null;
       this.init(); this.lost = false;
     });
     this.init();
@@ -1110,6 +1187,30 @@ export class Renderer3D {
     return this.tMesh;
   }
 
+  // The sea's slope texture (OceanFFT), stepped to time t (s) at most once a frame.
+  seaTex(t) {
+    const gl = this.gl;
+    if (!this.sea) {
+      this.sea = new OceanFFT();
+      this.seaT = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, this.seaT);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 64, 64, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+      this.seaFrame = -1;
+    }
+    if (this.seaFrame !== this.frameNo) {
+      this.seaFrame = this.frameNo;
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, this.seaT);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 64, 64, gl.RGBA, gl.UNSIGNED_BYTE, this.sea.step(t));
+      gl.generateMipmap(gl.TEXTURE_2D);
+    }
+    return this.seaT;
+  }
+
   // The rocks' shadow map: 1024² (about 8 cm per texel over 80 m), distance packed into the colour channels
   // (TERRAIN_FS shDecode), so read without filtering; with its own depth buffer.
   // Photographed ground materials for the Surface view (Poly Haven, CC0): colour, with the scan's height in
@@ -1382,6 +1483,10 @@ export class Renderer3D {
     const gm = this.groundMats();
     GROUND_MATS.forEach((k, i) => this.bindTex(GROUND_UNITS[i], gm ? gm[i] : this.cloudNoise(), u['uG' + k[0].toUpperCase() + k.slice(1)]));
     gl.uniform1f(u.uGroundOn, gm ? 1 : 0);
+    // The sea's waves (OceanFFT), where there is liquid.
+    const seaOn = !!liquid && this.settings.view !== 'pixel';
+    this.bindTex(11, seaOn ? this.seaTex(now / 1000) : this.cloudNoise(), u.uSea);
+    gl.uniform1f(u.uSeaFFT, seaOn ? 1 : 0);
     const sh = this.shadowTarget();
     // (While drawing into the map, the program's map sampler holds something else: reading the texture being
     // drawn is a feedback loop WebGL refuses.)

@@ -1394,6 +1394,8 @@ uniform vec3 uMicro;                   // airless (1: regolith), share of soil c
 uniform sampler2D uGSoil, uGSand, uGRock, uGRegolith, uGGrass;   // photographed ground: colour, height in alpha
 uniform float uGroundOn;
 uniform float uAU;                     // metres per AU (view space is in AU)
+uniform sampler2D uSea;                // the sea's slopes from OceanFFT (render3d.js): RG = 0.5 + slope, a 32 m tile
+uniform float uSeaFFT;                 // 1 when uSea holds them
 uniform sampler2D uShTex;
 uniform vec3 uShU, uShV, uShL;
 uniform vec2 uShSize;
@@ -1532,10 +1534,21 @@ void main() {
       float ph = dot(k, q) - length(k) * c * t + hj * 6.2832 + 2.4 * vnoise(vec3(q / (lam * 2.5), float(i) * 1.9 + 40.0));
       // (a crest a little sharper than a sine: the gradient of A·(sin + 0.25 sin 2θ))
       vec2 g = A * k * (cos(ph) + 0.5 * cos(2.0 * ph));
-      float f = smoothstep(res * 3.0, res * 10.0, lam);
+      // (with the Fourier sea on, only the swell longer than its tile is left to these trains)
+      float f = smoothstep(res * 3.0, res * 10.0, lam) * (1.0 - uSeaFFT * smoothstep(40.0, 25.0, lam));
       slope += g * f;
       lostVar += dot(A * k, A * k) * 0.5 * (1.0 - f);
       lam *= 0.74;
+    }
+    // The Fourier sea: its 32 m tile, and again a fifth the size, turned (short chop; the two together hide the
+    // tile's repeat); the texture's mipmaps average what a pixel cannot show, and that lost slope roughens the
+    // glitter as above.
+    if (uSeaFFT > 0.5) {
+      vec2 s1 = (texture(uSea, q / 32.0).rg - 0.5);
+      vec2 qr = mat2(0.8, 0.6, -0.6, 0.8) * q;
+      vec2 s2 = transpose(mat2(0.8, 0.6, -0.6, 0.8)) * (texture(uSea, qr / 6.1 + 0.37).rg - 0.5) * 0.45;
+      slope += s1 + s2;
+      lostVar += 0.017 * smoothstep(0.5, 4.0, res) + 0.003 * smoothstep(0.1, 0.8, res);
     }
     // Capillary ripples (centimetres): fine noise, where resolvable; two lattices turned to different angles
     // (one square lattice shows as a grid).
