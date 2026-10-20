@@ -612,7 +612,18 @@ class App {
   addBegin(sx, sy) {
     const d = this.renderer.dpr;
     const P = this.cam.pick(sx * d, sy * d);
-    this.adding = { P, sx, sy, cx: sx, cy: sy, dirty: true };
+    // Held relative to what it will orbit (or to the camera's target): with time running that moves on, and a
+    // point fixed in space would end up far from it, with an orbital speed for the wrong distance (flung off).
+    const item = catalogItem(this.state.addItem);
+    const anchor = this.world.parentAt(P[0], P[1], P[2], item.m || 0, null, this.world.hierarchy()) || null;
+    const o = anchor ? [anchor.x, anchor.y, anchor.z] : [this.cam.tx, this.cam.ty, this.cam.tz];
+    this.adding = { P, rel: [P[0] - o[0], P[1] - o[1], P[2] - o[2]], anchor, sx, sy, cx: sx, cy: sy, dirty: true };
+  }
+
+  // The held point now, moved along with its anchor.
+  addPoint(a) {
+    const o = a.anchor && a.anchor.alive ? [a.anchor.x, a.anchor.y, a.anchor.z] : a.anchor ? null : [this.cam.tx, this.cam.ty, this.cam.tz];
+    if (o) a.P = [o[0] + a.rel[0], o[1] + a.rel[1], o[2] + a.rel[2]];
   }
 
   addMove(sx, sy) {
@@ -691,8 +702,11 @@ class App {
   // Velocity from the drag gesture plus a predicted path, integrated against the current (frozen) bodies.
   updateAddPreview() {
     const a = this.adding;
-    if (!a || !a.dirty) return;
+    if (!a) return;
+    // (With time running, recomputed every frame: the anchor and the bodies move.)
+    if (!a.dirty && this.state.paused) return;
     a.dirty = false;
+    this.addPoint(a);
     const item = catalogItem(this.state.addItem);
     const m = item.m || 0;
     const [x, y, z] = a.P;

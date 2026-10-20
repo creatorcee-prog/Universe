@@ -83,6 +83,11 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
 - (Done) Ocean Moon scenario (from a user's picture, the land made sea): Pelagia, a made-up ocean moon locked
   close to Rhodon, a cream-and-rose giant that spans ~34° of its sky; "Facing <planet>" in the Surface view
   for any locked moon (stands where the planet hangs ~25° up, by daylight); Pelagia in the book.
+- (Done) Mars's pinkish-white ground: its skylight came out brighter than the Sun and blue (the model's sky
+  average overweights the blue glow around the Sun); now capped by what the air can scatter down (with
+  headroom: Earth unchanged), butterscotch as measured. Placing a body while time runs: the tap point is held
+  relative to what it will orbit (it was fixed in space while the planet moved on, so the new body was flung).
+  IAS15's corrector stops at 1e-10 (~25% fewer force evaluations, same results over 50 years).
 - (Done) Wind per world (user: motion should follow wind speed): windOf() gives the wind near the ground and at
   cloud height (Earth 5/10 m/s, Venus 0.7/60 with its super-rotating deck, Mars 5/15, Titan 0.6/2.5; others
   from air density). Clouds drift with it (and Titan's heaps change shape at its pace), grass sways and bends

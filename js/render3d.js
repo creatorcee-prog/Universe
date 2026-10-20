@@ -1543,6 +1543,19 @@ export class Renderer3D {
       if (cl > 1e-9) ambG = c.map((v, i) => 0.5 * (v / cl) * al + 0.5 * g.amb[i]);
     }
     let amb = g ? ambG.map((v, i) => v * adapt * ambK * (ld[1][i] > 0 ? 1 : 0) + 0.004) : sunCol.map((v) => v * 0.04 * Math.max(0, sunUp) + 0.002);
+    // By day, no more skylight than the air can scatter down: of the sunlight it takes out of the beam,
+    // 1 - e^(-τ/μ), the share scattered rather than absorbed (single-scattering albedo, τ_scatter/τ_total), about
+    // 0.7 of it downward; with 2.5x headroom for the boost above (Earth's stays as it was). Mars's dusty sky
+    // otherwise lit the ground more than the Sun did, and blue, though its dust absorbs blue: its skylight is
+    // ~40% of the light at noon and butterscotch (Lemmon et al. 2004, Science 306, 1753).
+    if (g && optics && sunUp > 0.05) {
+      const mu = Math.max(sunUp, 0.1);
+      amb = amb.map((v, i) => {
+        const w = optics.tauE[i] > 0 ? optics.tauS[i] / optics.tauE[i] : 1;
+        const cap = 2.5 * ld[1][i] * adapt * mu * (1 - Math.exp(-optics.tauE[i] / mu)) * w * 0.7;
+        return Math.min(v, Math.max(cap, 0.004));
+      });
+    }
     // Under a thick overcast (Venus, Titan) nearly all light is the sky's: a uniform sky of radiance L gives
     // irradiance πL, so a surface of albedo A looks A times as bright as the sky above it (Venera's photos show
     // the ground plainly lit). Taken from the sky as it is shown (g.zen, already in screen units), and scaled for
