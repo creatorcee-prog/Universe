@@ -909,6 +909,12 @@ export class Renderer {
 
   // Comet coma and tails. Ice starts sublimating inside a few AU of a star; both tails point away from it,
   // the blue ion tail straight down-sun, the dust tail curving back along the orbit.
+  // Comet tails (two, as real comets show): the ion tail, CO+ blue, narrow and streaked, pointing straight away
+  // from the star (the solar wind carries the ions at ~400 km/s, so it hardly lags); and the dust tail,
+  // yellow-white, broad and curved, bending back along the orbit behind the comet (radiation pressure pushes
+  // grains out slowly, so older dust trails behind). Activity starts inside ~3-4 AU, where water ice sublimates,
+  // and grows as ~1/r² (production rates go as r^-2 to r^-4: A'Hearn et al. 1995), more for a larger nucleus.
+  // Lengths: Hale-Bopp's ion tail reached ~0.6 AU (~100 million km) near perihelion. The coma glows green (C2).
   drawCometTail(b, p) {
     if (this.hiddenAt(b.x, b.y, b.z, p.x, p.y, b)) return;   // (behind a world, or below the horizon)
     let star = null, best = 0;
@@ -919,18 +925,24 @@ export class Renderer {
     }
     if (!star) return;
     const dx = b.x - star.x, dy = b.y - star.y, dz = b.z - star.z;
-    const d = Math.hypot(dx, dy, dz);
-    const reach = 5 * Math.sqrt(Math.max(star.lum, 1e-3)); // AU at which activity starts, scaled by brightness
-    if (d > reach) return;
-    const act = Math.min(1, (reach - d) / (reach * 0.6));
-    const L = Math.min(1.2, (0.35 * reach) / Math.max(d, 0.05)) * act; // tail length in AU
+    const d = Math.hypot(dx, dy, dz), lum = Math.sqrt(Math.max(star.lum, 1e-3));
+    const re = d / lum;                         // distance scaled to the star's light (1 = Earth's sunlight)
+    const reach = 3.5;
+    if (re > reach) return;
+    const act = Math.min(1, ((reach - re) / (reach * 0.7)) ** 1.5);
+    const Rkm = Math.max(0.3, b.r * 1.495978707e8);
+    const size = Math.min(2.6, Math.sqrt(Rkm / 5));
+    const Lion = Math.min(1.1, (0.2 * size) / Math.max(re * re, 0.08)) * act * lum;
+    const Ldust = Lion * 0.55;
     const ux = dx / d, uy = dy / d, uz = dz / d;
     let vx = b.vx - star.vx, vy = b.vy - star.vy, vz = b.vz - star.vz;
+    // (the part of the motion across the radial direction: the way the dust tail bends back)
+    const vr = vx * ux + vy * uy + vz * uz;
+    vx -= vr * ux; vy -= vr * uy; vz -= vr * uz;
     const vl = Math.hypot(vx, vy, vz) || 1;
     vx /= vl; vy /= vl; vz /= vl;
     const { ctx, cam, dpr } = this;
     const tip = { x: 0, y: 0, s: 0 };
-    // The tail streams away behind the head: worlds nearer than the comet cut it off where they cross it.
     const zc = cam.project(b.x, b.y, b.z, tip);
     const front = this.occ.filter((o) => o.b !== b && o.sr !== Infinity && o.depth < zc);
     ctx.save();
@@ -941,36 +953,72 @@ export class Renderer {
       ctx.clip('evenodd');
     }
     ctx.globalCompositeOperation = 'lighter';
-    const tails = [
-      [ux, uy, uz, [150, 196, 255], 0.55, 1.0],
-      [ux * 0.8 - vx * 0.45, uy * 0.8 - vy * 0.45, uz * 0.8 - vz * 0.45, [255, 238, 210], 0.45, 0.7],
-    ];
-    for (const [tx, ty, tz, col, alpha, len] of tails) {
-      const tl = Math.hypot(tx, ty, tz) || 1;
-      if (cam.project(b.x + (tx / tl) * L * len, b.y + (ty / tl) * L * len, b.z + (tz / tl) * L * len, tip) <= 0) continue;
-      const ex = tip.x - p.x, ey = tip.y - p.y;
-      const el = Math.hypot(ex, ey);
-      if (el < 2) continue;
-      const nx = -ey / el, ny = ex / el;
-      const w0 = 1.5 * dpr, w1 = Math.max(3 * dpr, el * 0.12);
-      const g = ctx.createLinearGradient(p.x, p.y, tip.x, tip.y);
-      g.addColorStop(0, rgba(col, alpha * act * Math.min(1, (500 * dpr) / el)));
-      g.addColorStop(1, rgba(col, 0));
+    // A tail as a ribbon along a curve: centre points and half-widths (AU), brightness falling with distance.
+    const ribbon = (pts, col, alpha) => {
+      const sp = [];
+      for (const [x, y, z, w] of pts) {
+        if (cam.project(x, y, z, tip) <= 0) return;
+        sp.push([tip.x, tip.y, w * tip.s]);
+      }
+      const n = sp.length, el = Math.hypot(sp[n - 1][0] - sp[0][0], sp[n - 1][1] - sp[0][1]);
+      if (el < 2) return;
+      const fade = Math.min(1, (700 * dpr) / el);
+      // (one outline, left edge out and right edge back, filled once: no seams between pieces)
+      const L = [], R = [];
+      for (let k = 0; k < n; k++) {
+        const a = sp[Math.max(0, k - 1)], c = sp[Math.min(n - 1, k + 1)];
+        const ex = c[0] - a[0], ey = c[1] - a[1], l = Math.hypot(ex, ey) || 1, nx = -ey / l, ny = ex / l, w = Math.max(0.6 * dpr, sp[k][2]);
+        L.push([sp[k][0] + nx * w, sp[k][1] + ny * w]); R.push([sp[k][0] - nx * w, sp[k][1] - ny * w]);
+      }
+      const g = ctx.createLinearGradient(sp[0][0], sp[0][1], sp[n - 1][0], sp[n - 1][1]);
+      for (let k = 0; k <= 4; k++) g.addColorStop(k / 4, rgba(col, alpha * fade * (1 - k / 4) ** 1.6));
       ctx.fillStyle = g;
       ctx.beginPath();
-      ctx.moveTo(p.x + nx * w0, p.y + ny * w0);
-      ctx.lineTo(tip.x + nx * w1, tip.y + ny * w1);
-      ctx.lineTo(tip.x - nx * w1, tip.y - ny * w1);
-      ctx.lineTo(p.x - nx * w0, p.y - ny * w0);
-      ctx.closePath();
-      ctx.fill();
+      ctx.moveTo(L[0][0], L[0][1]);
+      for (let k = 1; k < n; k++) ctx.lineTo(L[k][0], L[k][1]);
+      for (let k = n - 1; k >= 0; k--) ctx.lineTo(R[k][0], R[k][1]);
+      ctx.closePath(); ctx.fill();
+    };
+    const N = 14;
+    // Dust: bends from the anti-star direction toward the trailing side, widening to ~1/4 of its length.
+    if (Ldust > 0) {
+      for (const [spread, a] of [[1, 0.16], [0.82, 0.18], [0.64, 0.2], [0.47, 0.24], [0.31, 0.28], [0.16, 0.32]]) {
+        const pts = [];
+        for (let k = 0; k <= N; k++) {
+          const t = k / N, bend = 0.75 * t;
+          let tx = ux - vx * bend, ty = uy - vy * bend, tz = uz - vz * bend;
+          const tl = Math.hypot(tx, ty, tz); tx /= tl; ty /= tl; tz /= tl;
+          const s = Ldust * t;
+          pts.push([b.x + tx * s, b.y + ty * s, b.z + tz * s, Ldust * (0.005 + 0.2 * t) * spread]);
+        }
+        ribbon(pts, [255, 236, 200], a * act);
+      }
+    }
+    // Ion tail: a bundle of fine streaks fanning a degree or two either side of straight out, drifting slowly.
+    if (Lion > 0) {
+      // (a second axis across the tail, to fan the streaks)
+      let qx = uy * vz - uz * vy, qy = uz * vx - ux * vz, qz = ux * vy - uy * vx;
+      const ql = Math.hypot(qx, qy, qz) || 1; qx /= ql; qy /= ql; qz /= ql;
+      const tt = performance.now() / 4000 + b.id;
+      for (let k = 0; k < 7; k++) {
+        const ph = k * 2.39996, ang = 0.035 * Math.sin(ph * 3.1 + tt * 0.7) * (k ? 1 : 0), ang2 = 0.02 * Math.cos(ph * 1.7 + tt * 0.5);
+        const len = Lion * (k ? 0.55 + 0.45 * ((Math.sin(ph * 5.3 + tt * 0.3) + 1) / 2) : 1);
+        const pts = [];
+        for (let i = 0; i <= N; i++) {
+          const t = i / N, s = len * t;
+          const tx = ux + (qx * ang + vx * ang2) * t, ty = uy + (qy * ang + vy * ang2) * t, tz = uz + (qz * ang + vz * ang2) * t;
+          pts.push([b.x + tx * s, b.y + ty * s, b.z + tz * s, Lion * (k ? 0.0025 : 0.006) * (0.4 + t)]);
+        }
+        ribbon(pts, [120, 170, 255], (k ? 0.22 : 0.5) * act);
+      }
     }
     // Up close the coma surrounds the camera; fade it so it doesn't wash out the view.
-    const cr = Math.max(4 * dpr, 0.01 * L * p.s);
+    const cr = Math.max(4 * dpr, 0.006 * Lion * p.s);
     const near = Math.min(1, (60 * dpr) / cr);
     const coma = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, cr * 2.5);
-    coma.addColorStop(0, rgba([235, 245, 255], 0.9 * act * near));
-    coma.addColorStop(1, rgba([150, 200, 255], 0));
+    coma.addColorStop(0, rgba([225, 255, 235], 0.85 * act * near));
+    coma.addColorStop(0.35, rgba([120, 230, 170], 0.35 * act * near));
+    coma.addColorStop(1, rgba([90, 200, 160], 0));
     ctx.fillStyle = coma;
     ctx.fillRect(p.x - cr * 2.5, p.y - cr * 2.5, cr * 5, cr * 5);
     ctx.restore();
