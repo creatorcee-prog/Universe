@@ -219,7 +219,9 @@ on the phone.
    transcoder shipped offline and compressed-texture support in the WebGPU emulation, a large job for what the
    swap-in/out already buys; precomputed normal maps add nothing over the smooth slopes now.) 4. Sharper planets without running out of memory: higher-resolution maps (artifact files up to 15 MB), 16-bit
    heights and precomputed normal maps; compressed KTX2/Basis (ASTC on iPhone) instead of raw 8K (~180 MB each).
-5. Volumetric galaxies: a density field per galaxy core (bulge, disc, spiral arms, dust lanes), marched at
+5. (Done, differently: GALGLOW_VS splats the galaxy star particles as soft ~1.6 kpc Gaussians into a quarter-
+   resolution buffer, light adding up and disc dust adding optical depth, composited over the scene; it follows
+   the collision's tails, which a fixed density field per core could not) 5. Volumetric galaxies: a density field per galaxy core (bulge, disc, spiral arms, dust lanes), marched at
    quarter resolution like the nebula; particle stars on top (the Galaxy Collision scenario).
 6. Seamless descent: (A) an animated descent zooming the globe and crossfading into the surface view;
    (B) a quadtree LOD globe from orbit to ground (the largest job; last).

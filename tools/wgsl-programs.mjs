@@ -9,4 +9,5 @@ export const PROGRAMS = [
   ['down', S.FULL_VS, S.DOWN_FS], ['up', S.FULL_VS, S.UP_FS], ['comp', S.FULL_VS, S.COMPOSITE_FS], ['pixel', S.FULL_VS, S.PIXEL_FS],
   ['surfsky', S.FULL_VS, S.SURFACE_SKY_FS], ['terrain', S.TERRAIN_VS, S.TERRAIN_FS], ['ring', S.DISK_VS, S.RING_FS], ['field', S.FULL_VS, S.TEMP_FIELD_FS], ['gen', S.FULL_VS, S.GEN_FS], ['surfcloud', S.FULL_VS, S.SURFACE_CLOUD_FS], ['weather', S.FULL_VS, S.WEATHER_FS],
   ['nebula', S.FULL_VS, S.NEBULA_FS], ['blit', S.FULL_VS, S.BLIT_FS],
+  ['galglow', S.GALGLOW_VS, S.GALGLOW_FS, true], ['galcomp', S.FULL_VS, S.GALCOMP_FS],
 ];

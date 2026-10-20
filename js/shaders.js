@@ -2606,6 +2606,55 @@ void main() {
 `;
 
 // A lower-resolution layer stretched over the view (premultiplied colour and coverage).
+// Galaxies' diffuse light (render3d.js drawGalaxyGlow): each star particle, standing for ~25 million suns,
+// splatted as a soft Gaussian ~1.2 kpc wide into a quarter-resolution buffer, so together they blend into the
+// smooth glow of a galaxy's disc, bulge and arms, and of the tidal tails a collision throws out (a fixed density
+// field around each core could not follow those). Colour adds up as light; disc particles also carry dust,
+// adding up as optical depth (alpha).
+export const GALGLOW_VS = HEAD + `
+layout(location = 0) in vec3 aPos;     // relative to the eye
+layout(location = 1) in vec3 aCol;     // its light
+layout(location = 3) in float aShade;  // its dust
+uniform mat4 uProj;
+uniform mat3 uView;
+uniform float uF, uSize, uMaxPx;
+out vec3 vCol;
+out float vDust;
+void main() {
+  vec3 vp = uView * aPos;
+  gl_Position = uProj * vec4(vp, 1.0);
+  float px = 2.0 * uSize * uF / max(-vp.z, 1e-30);
+  gl_PointSize = clamp(px, 1.0, uMaxPx);
+  // (surface brightness does not change with distance; too small to matter, a splat is left to the stars)
+  float on = smoothstep(0.4, 1.5, px) * (vp.z < 0.0 ? 1.0 : 0.0);   // (quarter-resolution pixels)
+  vCol = aCol * on;
+  vDust = aShade * on;
+}
+`;
+export const GALGLOW_FS = HEAD + `
+in vec3 vCol;
+in float vDust;
+out vec4 outColor;
+void main() {
+  vec2 pc = gl_PointCoord * 2.0 - 1.0;
+  float r2 = dot(pc, pc);
+  if (r2 > 1.0) discard;
+  float g = exp(-r2 * 4.0);
+  outColor = vec4(vCol * g, vDust * g);
+}
+`;
+// Its composite: the light added, the dust's optical depth turned into how much of what lies behind it hides
+// (premultiplied: the scene times 1 - a, plus the light).
+export const GALCOMP_FS = HEAD + `
+in vec2 vUV;
+uniform sampler2D uTex;
+out vec4 outColor;
+void main() {
+  vec4 t = texture(uTex, vUV);
+  outColor = vec4(t.rgb, 1.0 - exp(-t.a));
+}
+`;
+
 export const BLIT_FS = HEAD + `
 in vec2 vUV;
 uniform sampler2D uTex;

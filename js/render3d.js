@@ -1,9 +1,9 @@
 import { PK } from './physics.js';
 import { isLuminous, tempToRGB, schwarzschild } from './bodies.js';
 import { transientLum } from './stellar.js';
-import { EARTH_MASS } from './units.js';
+import { EARTH_MASS, KPC_AU } from './units.js';
 import { starCatalog, bvToTemp, GAL_N, GAL_C } from './stars.js';
-import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS, RIM_FS, TERRAIN_VS, TERRAIN_FS, RING_FS, CLOUD_FS, GEN_FS, SURFACE_CLOUD_FS, WEATHER_FS, NEBULA_FS, BLIT_FS } from './shaders.js';
+import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, GALGLOW_VS, GALGLOW_FS, GALCOMP_FS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS, RIM_FS, TERRAIN_VS, TERRAIN_FS, RING_FS, CLOUD_FS, GEN_FS, SURFACE_CLOUD_FS, WEATHER_FS, NEBULA_FS, BLIT_FS } from './shaders.js';
 import { atmosphereOptics, giantOptics, setOpticsUniforms, stretchOptics, atmosphereTop, shellTop, groundLight } from './optics.js';
 import { heatOutput } from './thermal.js';
 import { earthMap, moonMap } from './geography.js';
@@ -482,7 +482,7 @@ export class Renderer3D {
     this.gen = ++contextGen;
     canvas.addEventListener('webglcontextrestored', () => {
       this.gen = ++contextGen;
-      this.mapTex = new Map(); this.dTex = null; this.nightTex = null; this.tMesh = null; this.rMesh = null; this.shTarget = null; this.gMats = null; this.sea = null; this.seaT = null; this.post = null; this.genMaps = null; this.noiseTex = null; this.cloudRTs = null; this.skyLayer = null; this.nebRT = null;
+      this.mapTex = new Map(); this.dTex = null; this.nightTex = null; this.tMesh = null; this.rMesh = null; this.shTarget = null; this.gMats = null; this.sea = null; this.seaT = null; this.post = null; this.genMaps = null; this.noiseTex = null; this.cloudRTs = null; this.skyLayer = null; this.nebRT = null; this.galRT = null; this.galSet = null;
       this.init(); this.lost = false;
     });
     this.init();
@@ -499,6 +499,8 @@ export class Renderer3D {
     this.pPoints = this.program(POINTS_VS, POINTS_FS);
     this.pLines = this.program(LINES_VS, LINES_FS);
     this.pSky = this.program(SKY_VS, SKY_FS);
+    this.pGalGlow = this.program(GALGLOW_VS, GALGLOW_FS);
+    this.pGalComp = this.program(FULL_VS, GALCOMP_FS);
     // Level-of-detail spheres; the last (very fine) one is only used for the ground in the surface view.
     this.spheres = [sphere(16, 12), sphere(40, 28), sphere(96, 64), sphere(400, 260)].map((g) => {
       const vao = gl.createVertexArray();
@@ -961,6 +963,62 @@ export class Renderer3D {
     gl.bindVertexArray(this.quad);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.disable(gl.BLEND);
+  }
+
+  // Galaxies' diffuse light and dust (GALGLOW_VS): the star particles splatted soft and wide into a
+  // quarter-resolution buffer, composited over the scene. Only when there are galaxy stars in the world.
+  drawGalaxyGlow() {
+    const gl = this.gl, world = this.world, cam = this.cam;
+    let n = 0;
+    for (let i = 0; i < world.np; i++) if (world.pk[i] === PK.STAR_GOLD || world.pk[i] === PK.STAR_BLUE) n++;
+    if (!n || this.surface) return;
+    const set = (this.galSet ||= this.dynamicSet());
+    this.ensure(set, n);
+    const tx = cam.tx + cam.ox, ty = cam.ty + cam.oy, tz = cam.tz + cam.oz;
+    let k = 0;
+    for (let i = 0; i < world.np; i++) {
+      const kind = world.pk[i];
+      if (kind !== PK.STAR_GOLD && kind !== PK.STAR_BLUE) continue;
+      set.pos[k * 3] = world.px[i] - tx; set.pos[k * 3 + 1] = world.py[i] - ty; set.pos[k * 3 + 2] = world.pz[i] - tz;
+      const c = PARTICLE_RGB[kind], g = kind === PK.STAR_GOLD ? 0.05 : 0.05;
+      set.col[k * 3] = c[0] * g; set.col[k * 3 + 1] = c[1] * g; set.col[k * 3 + 2] = c[2] * g;
+      // (dust in the disc, on a third of its particles, so lanes follow the arms)
+      set.shade[k] = kind === PK.STAR_BLUE && world.pid[i] % 3 === 0 ? 0.11 : 0;
+      set.size[k] = 0;
+      k++;
+    }
+    set.n = k;
+    this.upload(set);
+    const W = this.sceneW, H = this.sceneH, w = Math.max(16, Math.ceil(W / 4)), h = Math.max(16, Math.ceil(H / 4));
+    if (!this.galRT || this.galRT.w !== w || this.galRT.h !== h) {
+      if (this.galRT) { gl.deleteTexture(this.galRT.tex); gl.deleteFramebuffer(this.galRT.fbo); }
+      this.galRT = this.makeTarget(w, h);
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.galRT.fbo);
+    gl.viewport(0, 0, w, h);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.disable(gl.DEPTH_TEST);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE);
+    const p = this.pGalGlow, u = p.u;
+    gl.useProgram(p.p);
+    gl.uniformMatrix4fv(u.uProj, false, this.P);
+    gl.uniformMatrix3fv(u.uView, false, this.V);
+    gl.uniform1f(u.uF, this.F / 4);
+    gl.uniform1f(u.uSize, 0.8 * KPC_AU);
+    gl.uniform1f(u.uMaxPx, 160);
+    gl.bindVertexArray(set.vao);
+    gl.drawArrays(gl.POINTS, 0, set.n);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFB);
+    gl.viewport(0, 0, W, H);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.useProgram(this.pGalComp.p);
+    this.bindTex(0, this.galRT.tex, this.pGalComp.u.uTex);
+    gl.bindVertexArray(this.quad);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.blendFunc(gl.ONE, gl.ONE);
+    gl.enable(gl.DEPTH_TEST);
   }
 
   // The cloud deck seen from the ground (SURFACE_CLOUD_FS), into a quarter-resolution buffer the sky reads.
@@ -2045,6 +2103,7 @@ export class Renderer3D {
     gl.disable(gl.CULL_FACE);
     for (const g of glows) g();
     this.drawParticles(true);
+    this.drawGalaxyGlow();
     gl.depthMask(true);
     gl.disable(gl.BLEND);
     if (this.post) this.finish();
