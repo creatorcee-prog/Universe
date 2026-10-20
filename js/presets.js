@@ -92,6 +92,29 @@ const PLANETS = [
   ['Neptune', 30.06992276, 0.00859048, 1.77004347, -55.12002969, 44.96476227, 131.78422574, 6836527.10058, 24622, 'gas', [84, 124, 222], [60, 92, 190], [140, 180, 255]],
 ];
 
+// Their rates per Julian century (same table): ȧ, ė, İ, L̇, ϖ̇, Ω̇. The Solar System starts at today's date
+// (epochNow), the elements carried forward from J2000 with these.
+const RATES = {
+  Mercury: [0.00000037, 0.00001906, -0.00594749, 149472.67411175, 0.16047689, -0.12534081],
+  Venus: [0.00000390, -0.00004107, -0.00078890, 58517.81538729, 0.00268329, -0.27769418],
+  Earth: [0.00000562, -0.00004392, -0.01294668, 35999.37244981, 0.32327364, 0.0],
+  Mars: [0.00001847, 0.00007882, -0.00813131, 19140.30268499, 0.44441088, -0.29257343],
+  Jupiter: [-0.00011607, -0.00013253, -0.00183714, 3034.74612775, 0.21252668, 0.20469106],
+  Saturn: [-0.00125060, -0.00050991, 0.00193609, 1222.49362201, -0.41897216, -0.28867794],
+  Uranus: [-0.00196176, -0.00004397, -0.00242939, 428.48202785, 0.40805281, 0.04240589],
+  Neptune: [0.00026291, 0.00005105, 0.00035372, 218.45945325, -0.32241464, -0.00508664],
+  Pluto: [-0.00031596, 0.00005170, 0.00004818, 145.20780515, -0.04062942, -0.01183482],
+};
+// Julian years from J2000 (2000 January 1, 12:00 TT ~ UTC) to now (window.__EPOCH, a Date.parse-able string,
+// fixes it for tests).
+const J2000_MS = Date.UTC(2000, 0, 1, 12);
+export function epochNow() {
+  const fixed = typeof window !== 'undefined' && window.__EPOCH;
+  return ((fixed ? Date.parse(fixed) : Date.now()) - J2000_MS) / (365.25 * 86400e3);
+}
+// An orbit's mean anomaly carried forward by dt years along the unperturbed orbit about the Sun.
+const advanceM = (M, a, dt) => M + (360 * dt) / Math.pow(a, 1.5);
+
 const DAY_HOURS = { Mercury: 1407.6, Venus: -5832.5, Earth: 23.93, Mars: 24.62, Jupiter: 9.93, Saturn: 10.66, Uranus: -17.24, Neptune: 16.11 };
 
 // Orbit from mean longitude L, longitude of perihelion ϖ and node Ω: ω = ϖ − Ω, M = L − ϖ.
@@ -228,7 +251,12 @@ const COMP_KEYS = { Io: 'Io', Europa: 'Europa', Ganymede: 'Ganymede', Callisto: 
 function solarSystem(world, { belts = true, moon = true, moons = true } = {}) {
   const s = world.addBody(sun());
   const made = {};
-  for (const [name, a, e, i, L, w, O, gm, rkm, kind, color, band, atmo] of PLANETS) {
+  // Where everything is today: the clock shows the date from here (ui.js).
+  const dt = epochNow(), T = dt / 100;
+  world.epoch = J2000_MS + dt * 365.25 * 86400e3;
+  const now = (name, el) => el.map((v, k) => v + RATES[name][k] * T);
+  for (const [name, ...row] of PLANETS) {
+    const [a, e, i, L, w, O] = now(name, row.slice(0, 6)), [gm, rkm, kind, color, band, atmo] = row.slice(6);
     // With the Moon simulated separately, Earth's own mass goes here and the pair shares the barycentre orbit.
     const b = makeBody({ name, kind, m: massFromGM(gm), r: km(rkm), color, band, atmo });
     b.dayH = DAY_HOURS[name]; // sidereal rotation period (NASA fact sheets)
@@ -237,14 +265,14 @@ function solarSystem(world, { belts = true, moon = true, moons = true } = {}) {
   // Pluto: Standish's earlier table (J2000); system GM 975.5 km³/s² (Pluto plus Charon).
   const pluto = makeBody({ name: 'Pluto', kind: 'rocky', m: massFromGM(975.5), r: km(1188), color: [214, 190, 160] });
   pluto.dwarf = true; pluto.round = true;
-  made.Pluto = orbitLW(world, s, pluto, 39.48211675, 0.24882730, 17.14001206, 238.92903833, 224.06891629, 110.30393684);
+  made.Pluto = orbitLW(world, s, pluto, ...now('Pluto', [39.48211675, 0.24882730, 17.14001206, 238.92903833, 224.06891629, 110.30393684]));
   pluto.minor = true; pluto.host = s;
   // Ceres and the other dwarf planets: JPL Small-Body Database orbits (2026 solutions, mean anomaly carried
   // back to J2000 along the unperturbed orbit).
   for (const [name, a, e, i, O, w, M, gm, rkm, color, dayH, tiltDeg] of DWARFS) {
     const b = makeBody({ name, kind: 'rocky', m: massFromGM(gm), r: km(rkm), color, compKey: name === 'Ceres' ? 'Ceres' : 'kbo' });
     b.dayH = dayH; b.tiltDeg = tiltDeg; b.round = true; b.dwarf = true;
-    made[name] = orbit(world, s, b, a, e, i, O, w, M);
+    made[name] = orbit(world, s, b, a, e, i, O, w, advanceM(M, a, dt));
     b.minor = true; b.host = s;
   }
   if (moons) addMoons(world, made);
@@ -252,18 +280,19 @@ function solarSystem(world, { belts = true, moon = true, moons = true } = {}) {
   for (const [name, a, e, i, O, w, M, rkm] of COMETS) {
     const r = rkm * 1e3, mass = (4 / 3) * Math.PI * r * r * r * 500 / 1.98847e30;
     const c = makeBody({ name, kind: 'rocky', comet: true, compKey: 'comet', m: name.startsWith('67P') ? 1.0e13 / 1.98847e30 : mass, r: km(rkm), color: [196, 204, 214] });
-    orbit(world, s, c, a, e, i, O, w, M);
+    orbit(world, s, c, a, e, i, O, w, advanceM(M, a, dt));
     c.minor = true; c.host = s;
   }
   for (const [name, a, e, i, O, w, M, rkm, kg, dayH, color, compKey] of VISITED) {
     const v = makeBody({ name, kind: 'rocky', compKey, m: kg / 1.98847e30, r: km(rkm), color });
     v.dayH = dayH;
-    orbit(world, s, v, a, e, i, O, w, M);
+    orbit(world, s, v, a, e, i, O, w, advanceM(M, a, dt));
     v.minor = true; v.host = s;
   }
-  // Halley's real orbit (retrograde, i = 162°), placed shortly before perihelion so its tail is on show.
+  // Halley's real orbit (retrograde, i = 162°), where it is today: perihelion 1986 February 9 (JD 2446470.5),
+  // a 75.3-year orbit, so past aphelion (December 2023) and coming back for 2061.
   const halley = makeBody({ name: "Halley's Comet", kind: 'rocky', comet: true, m: 1.1e-16, r: km(5.5), color: [196, 204, 214] });
-  orbit(world, s, halley, 17.83, 0.967, 162.3, 58.4, 111.3, 357);
+  orbit(world, s, halley, 17.83, 0.967, 162.3, 58.4, 111.3, advanceM(0, 17.83, dt + 13.894));
   if (moon) {
     // The Earth row above is the Earth-Moon barycentre: give Earth its own mass, then split the pair.
     made.Earth.m = EARTH_MASS;
@@ -272,7 +301,8 @@ function solarSystem(world, { belts = true, moon = true, moons = true } = {}) {
     // e 0.0549, i 5.145°, Ω 125.0445°, ϖ 83.3532°, L 218.3165°. Mean elements already include the Sun's
     // perturbations, so the starting (osculating) semi-major axis is calibrated, 381,815 km, so the
     // simulated mean sidereal month matches the measured 27.32166 days (mean distance stays ~384,400 km).
-    orbitLW(world, made.Earth, m, km(LUNAR_A), 0.0549, 5.145, 218.3165, 83.3532, 125.0445, true);
+    // (carried to today with Meeus's mean rates per century: L 481267.881°, ϖ 4069.014°, Ω −1934.136°)
+    orbitLW(world, made.Earth, m, km(LUNAR_A), 0.0549, 5.145, 218.3165 + 481267.88123421 * T, 83.3532 + 4069.0137287 * T, 125.0445 - 1934.1362891 * T, true);
     // It rides on Earth (minors.js: the pair's centre of mass moves in the main integrator, the Moon on its
     // Kepler orbit about Earth, kicked by the Sun's and planets' tides), so its 27-day month no longer sets the
     // step for every planet: the Solar System runs ~2x faster at the same accuracy.
