@@ -2963,8 +2963,24 @@ float tfbm(vec3 p, int oct) {
   return s;
 }
 float hg(float c, float g) { float g2 = g * g; return (1.0 - g2) / pow(1.0 + g2 - 2.0 * g * c, 1.5); }
-// Density 0..1 at P (km, planet-centred) with z the height within the layer (0 base .. 1 top).
-float dens(vec3 P, float z) {
+// Cellular (Worley) noise, inverted: 1 at the random feature points of a unit lattice, falling toward 0
+// between them. Its rounded cells are the billows of a cumulus (Schneider, "The real-time volumetric
+// cloudscapes of Horizon Zero Dawn", SIGGRAPH 2015; Guerrilla's Nubis).
+float billow(vec3 x) {
+  vec3 i = floor(x), f = fract(x);
+  float d = 1.0;
+  for (int z = -1; z <= 1; z++) for (int y = -1; y <= 1; y++) for (int k = -1; k <= 1; k++) {
+    vec3 g = vec3(float(k), float(y), float(z)), c = i + g;
+    vec3 o = vec3(hash(c), hash(c + 17.3), hash(c + 41.9));
+    vec3 r = g + o - f;
+    d = min(d, dot(r, r));
+  }
+  return 1.0 - sqrt(d);
+}
+float remap(float v, float a, float b, float c, float d) { return c + (v - a) / (b - a) * (d - c); }
+// Density 0..1 at P (km, planet-centred) with z the height within the layer (0 base .. 1 top). fine: the
+// billows too (they cost 27 hashes; the march toward the Sun does without them).
+float dens(vec3 P, float z, bool fine) {
   // Cells about 4 km across (cumulus is ~1 km, gathered in fields), in fields and clear spells ~30 km wide.
   // Wind about 15 m/s (P is in km, uTime in seconds).
   vec3 w = (P + vec3(uTime * 0.015, 0.0, uTime * 0.006)) * 0.22;
@@ -2976,7 +2992,10 @@ float dens(vec3 P, float z) {
   float prof = smoothstep(0.0, 0.07, z) * (1.0 - smoothstep(top * 0.55, top, z));
   vec3 Pw = P + vec3(uTime * 0.015, 0.0, uTime * 0.006);
   float det = tnoise(Pw * 1.4 + vec3(0.0, uTime * 0.01, 0.0)) * 0.65 + tnoise(Pw * 3.2) * 0.35;
-  return clamp(base * prof * 1.4 - 0.45 * det * (1.0 - 0.6 * base), 0.0, 1.0);
+  // Billowing edges: the cells (~1 km, and ~0.4 km) eat into the cloud's outskirts, more at its base (wispy
+  // below, cauliflower above), leaving rounded heaps rather than smooth blobs.
+  if (fine) det = mix(det, 1.0 - (0.65 * billow(Pw * 1.1) + 0.35 * billow(Pw * 2.6 + 4.0)), 0.6);
+  return clamp(base * prof * 1.4 - 0.45 * det * (1.0 - 0.6 * base) * (1.2 - 0.4 * z), 0.0, 1.0);
 }
 void main() {
   vec3 dv = normalize(vec3((vUV.x * 2.0 - 1.0) * uTan.x, (vUV.y * 2.0 - 1.0) * uTan.y, -1.0));
@@ -3019,7 +3038,7 @@ void main() {
     float t = tIn + (float(i) + jit) * ds;
     vec3 P = up * r0 + d * t;
     float z = (length(P) - 1.0 - zb) / uCloudH.y;
-    float rho = dens(P * Rkm, z);
+    float rho = dens(P * Rkm, z, true);
     if (rho <= 0.002) continue;
     // Toward the Sun through the cloud above this point.
     float od = 0.0;
@@ -3027,10 +3046,14 @@ void main() {
       vec3 Q = P + sun * lstep * float(k * k);
       float zq = (length(Q) - 1.0 - zb) / uCloudH.y;
       if (zq > 1.0) break;
-      od += dens(Q * Rkm, zq) * SIG * 0.35 * float(2 * k - 1);
+      od += dens(Q * Rkm, zq, false) * SIG * 0.35 * float(2 * k - 1);
     }
-    float beer = exp(-od), powder = 1.0 - exp(-od * 2.0 - 0.15);
-    vec3 L = sunL * beer * mix(1.0, powder, 0.5) * (0.55 + ph) + skyL * (0.45 + 0.55 * z);
+    // Light scattered more than once reaches deep into a cloud: three octaves, each with weaker extinction,
+    // phase and strength (Wrenninge et al. 2013; Hillaire, "Physically based sky, atmosphere and cloud
+    // rendering in Frostbite", 2016), so thick cloud is bright inside instead of flat grey.
+    float powder = 1.0 - exp(-od * 2.0 - 0.15);
+    float ms = (exp(-od) * (0.55 + ph) + 0.5 * exp(-od * 0.5) * (0.55 + 0.5 * ph) + 0.25 * exp(-od * 0.25) * 0.55) * 0.8;
+    vec3 L = sunL * ms * mix(1.0, powder, 0.5) + skyL * (0.45 + 0.55 * z);
     float a = 1.0 - exp(-rho * SIG * ds * Rkm);
     C += Tr * a * L;
     Tr *= 1.0 - a;
