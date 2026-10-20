@@ -23,6 +23,8 @@ const STRIP_K = 1.33;
 const TDE_N = 2800;
 const MAX_STEPS = 3000; // body substeps per frame
 const MAX_ATTRACTORS = 24; // bodies that pull on particles
+const GPU_MIN = 200; // particles from which they step on the GPU (fewer: not worth the round trip)
+const GPU_WORK = 3e6; // sub-steps a frame the GPU is given at most, before they coarsen
 const PRIORITY = { rocky: 0, gas: 1, star: 2, wd: 3, ns: 4, bh: 5, core: 6 };
 
 const rand = Math.random;
@@ -67,6 +69,10 @@ export class World {
     this.pvx = new Float64Array(PCAP); this.pvy = new Float64Array(PCAP); this.pvz = new Float64Array(PCAP);
     this.pm = new Float64Array(PCAP);
     this.ptl = new Float64Array(PCAP); // local dynamical timescale from the previous frame
+    this.phost = new Int32Array(PCAP).fill(-1); // id of the body pulling hardest on it last frame (gpustep.js)
+    this.plag = new Uint8Array(PCAP); // 1: a frame behind the bodies, its step still on the GPU (drawn carried by lagShift)
+    this.lagShift = null;
+    this.gpu = null; // a GpuStepper, when the browser has WebGL2 (main.js): particles step on the GPU
     this.pid = new Uint32Array(PCAP); // stable id (survives the swap on removal; used by the gravity worker)
     this.nextPid = 1;
     this.pk = new Uint8Array(PCAP);
@@ -140,7 +146,7 @@ export class World {
     const i = this.np++;
     this.px[i] = x; this.py[i] = y; this.pz[i] = z;
     this.pvx[i] = vx; this.pvy[i] = vy; this.pvz[i] = vz;
-    this.pm[i] = m; this.pk[i] = kind; this.ptl[i] = 0; this.pid[i] = this.nextPid++;
+    this.pm[i] = m; this.pk[i] = kind; this.ptl[i] = 0; this.pid[i] = this.nextPid++; this.phost[i] = -1; this.plag[i] = 0;
     return i;
   }
 
@@ -163,11 +169,14 @@ export class World {
     if (i === j) return;
     this.px[i] = this.px[j]; this.py[i] = this.py[j]; this.pz[i] = this.pz[j];
     this.pvx[i] = this.pvx[j]; this.pvy[i] = this.pvy[j]; this.pvz[i] = this.pvz[j];
-    this.pm[i] = this.pm[j]; this.pk[i] = this.pk[j]; this.ptl[i] = this.ptl[j]; this.pid[i] = this.pid[j];
+    this.pm[i] = this.pm[j]; this.pk[i] = this.pk[j]; this.ptl[i] = this.ptl[j]; this.pid[i] = this.pid[j]; this.phost[i] = this.phost[j]; this.plag[i] = this.plag[j];
   }
 
   clearParticles() {
     this.np = 0;
+    if (this.gpu) this.gpu.job = null;   // (a step still on the GPU belongs to the old scene)
+    this.ringRev = (this.ringRev || 0) + 1;
+    this.lagShift = null;
     this.nr = 0;
     this.pending.length = 0;
     this.ringOuter.clear();
@@ -177,6 +186,7 @@ export class World {
   // This keeps planetary rings stable at any time speed for almost no cost.
   addRingParticle(host, radius, phase, ux, uy, uz, wx, wy, wz, kind, m = 0) {
     if (this.nr >= RCAP) return;
+    this.ringRev = (this.ringRev || 0) + 1;   // (the renderer re-reads the rings: render3d.js ringBuffer)
     const i = this.nr++;
     this.ringOuter.set(host, Math.max(this.ringOuter.get(host) || 0, radius));
     this.rHost[i] = host; this.rRad[i] = radius; this.rPhase[i] = phase; this.rk[i] = kind; this.rm[i] = m;
@@ -211,6 +221,7 @@ export class World {
       this.ringPosition(i, tmp);
       this.addParticle(tmp[0], tmp[1], tmp[2], tmp[3], tmp[4], tmp[5], this.rm[i], this.rk[i]);
       const j = --this.nr;
+      this.ringRev = (this.ringRev || 0) + 1;
       if (i !== j) {
         this.rHost[i] = this.rHost[j]; this.rRad[i] = this.rRad[j]; this.rPhase[i] = this.rPhase[j];
         this.rk[i] = this.rk[j]; this.rm[i] = this.rm[j];
@@ -954,6 +965,55 @@ export class World {
     this.finishAbsorb(touched);
   }
 
+  // The GPU's turn (gpustep.js): collect last frame's job, then send this frame's. Returns false to leave the
+  // frame to the CPU (too few particles to be worth the trip, or the GPU could not take it).
+  stepParticlesGPU(att, steps, t0, span) {
+    const gpu = this.gpu, got = gpu.collect(this, t0);
+    if (got && got.length) {
+      // (the particles are where they were as this frame began; the bodies have moved on: a crater's place
+      // is found from where the body was then)
+      const at0 = new Map();
+      for (let a = 0; a < att.length; a++) at0.set(att[a].id, a * 4);
+      const order = [];
+      for (let k = 0; k < got.length; k += 2) order.push([got[k], got[k + 1]]);
+      order.sort((p, q) => q[0] - p[0]);
+      const touched = new Set();
+      for (const [i, b0] of order) {
+        const b = this.resolve(b0);
+        if (this.shedBy(i, b)) continue;
+        if (b) {
+          const q = at0.get(b.id);
+          if (q !== undefined && this.cp[q + 3] !== 0) { this.px[i] += b.x - this.cp[q]; this.py[i] += b.y - this.cp[q + 1]; this.pz[i] += b.z - this.cp[q + 2]; }
+          this.absorbParticle(i, b, touched);
+        }
+        this.removeParticle(i);
+      }
+      this.finishAbsorb(touched);
+    }
+    const np = this.np;
+    if (np < GPU_MIN) { this.lagShift = null; return false; }
+    const na = att.length, cap2 = new Float64Array(na), soft2 = new Float64Array(na);
+    let mask = 0;
+    for (let a = 0; a < na; a++) {
+      const c = captureRadius(att[a]);
+      cap2[a] = c * c;
+      soft2[a] = att[a].soft * att[a].soft + 1e-30;
+      const k = att[a].kind;
+      if (k === 'bh' || k === 'ns' || k === 'wd') mask |= 1 << a;
+    }
+    // Sub-steps coarsen when the GPU would have too many to take, and refine again below that (as the CPU's do
+    // when they fall behind). (Not by how long the answer took: the GPU is drawing the frames too, and a wait
+    // for that is no reason to step particles coarser.)
+    let pK = this.pKg || 0.08, work = 0;
+    for (let i = 0; i < np; i++) {
+      const tl = this.ptl[i] > 0 ? this.ptl[i] : span;
+      work += Math.min(1024, Math.max(1, 2 ** Math.ceil(Math.log2(span / (pK * tl)))));
+    }
+    this.pKg = work > GPU_WORK ? Math.min(0.6, pK * 1.3) : work < GPU_WORK * 0.3 ? Math.max(0.08, pK / 1.15) : pK;
+    if (!gpu.issue(this, att, steps, t0, span, cap2, soft2, mask, pK)) { this.lagShift = null; return false; }
+    return true;
+  }
+
   // Particles born during this frame's substeps are integrated from their birth time to the frame's end
   // (against the bodies' end-of-frame positions, which is accurate because the gap is under one frame).
   flushPending() {
@@ -1028,6 +1088,7 @@ export class World {
   }
 
   stepParticles(att, steps, t0, span) {
+    if (this.gpu && this.gpu.ok && span > 0 && this.stepParticlesGPU(att, steps, t0, span)) return;
     const np = this.np;
     if (np === 0 || span <= 0) return;
     const na = att.length, stride = na * 4;

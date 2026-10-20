@@ -9,6 +9,7 @@ import { Renderer } from './render.js';
 import { Renderer3D } from './render3d.js';
 import { GPULayer } from './gpu.js';
 import { GLonGPU } from './glgpu.js';
+import { GpuStepper } from './gpustep.js';
 import { Input } from './input.js';
 import { Sound } from './audio.js';
 import { UI } from './ui.js';
@@ -18,7 +19,7 @@ import { atmosphereOptics } from './optics.js';
 const SETTINGS_KEY = 'universe-pocket-settings';
 
 function loadSettings() {
-  const defaults = { trails: true, labels: true, grid: true, stars: true, trailsRelative: true, collisions: true, sound: true, music: true, uiSound: true, soundSilent: false, bassBoost: false, sharp: false, perf: false, gpuRings: false, webgpu: false, v: 4, view: 'realistic', bloom: true, flare: true, brightness: 'enhanced', tone: 'classic', rocks: true, trailColor: 'body', orbits: false, trueSize: false, magnetic: false, allTemp: false, allGrav: false };
+  const defaults = { trails: true, labels: true, grid: true, stars: true, trailsRelative: true, collisions: true, sound: true, music: true, uiSound: true, soundSilent: false, bassBoost: false, sharp: false, perf: false, gpuRings: false, webgpu: false, v: 4, view: 'realistic', bloom: true, flare: true, brightness: 'enhanced', tone: 'classic', rocks: true, trailColor: 'body', orbits: false, trueSize: false, magnetic: false, allTemp: false, allGrav: false, gpuParticles: true };
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
     // v2: interface sounds were off in v1 while the sound set was being replaced; the new set is on.
@@ -36,6 +37,9 @@ class App {
     this.world = new World();
     this.cam = new Camera();
     this.settings = loadSettings();
+    // Particles step on the GPU where WebGL2 allows (Settings can turn it off: then on the CPU, as before).
+    this.gpuStep = new GpuStepper();
+    if (this.gpuStep.ok && this.settings.gpuParticles !== false) this.world.gpu = this.gpuStep;
     this.renderer = new Renderer(this.canvas, this.world, this.cam, this.settings);
     this.zones = new Set(); // heat sources showing their temperature zones
     this.gzones = new Set(); // bodies showing their gravity zones
@@ -927,7 +931,7 @@ class App {
     }
     const q = this.r3d && this.renderer.overlay ? ` · res ${Math.round((this.r3d.quality ?? 1) * 100)}%${this.r3d.samples ? ' AA' : ''}` : '';
     const api = this.r3d && this.renderer.overlay ? (this.r3d.webgpu ? ' · WebGPU' : ' · WebGL') : '';
-    el.textContent = `${Math.round(1 / p.dt)} fps (tap to test) · physics ${p.ph.toFixed(1)} ms (bodies ${p.parts[0].toFixed(1)}, moons ${p.parts[1].toFixed(1)}, particles ${p.parts[2].toFixed(1)}, other ${p.parts[3].toFixed(1)}) · drawing ${p.dr.toFixed(1)} ms${q}${api} · ${this.world.bodies.length} bodies, ${this.world.np + this.world.nr} particles · build ${window.__BUILD__ || 'dev'}`;
+    el.textContent = `${Math.round(1 / p.dt)} fps (tap to test) · physics ${p.ph.toFixed(1)} ms (bodies ${p.parts[0].toFixed(1)}, moons ${p.parts[1].toFixed(1)}, particles ${p.parts[2].toFixed(1)}${this.world.gpu && this.world.lagShift ? ` on the GPU, waiting ${(this.gpuStep.waitMs || 0).toFixed(1)}` : ''}, other ${p.parts[3].toFixed(1)}) · drawing ${p.dr.toFixed(1)} ms${q}${api} · ${this.world.bodies.length} bodies, ${this.world.np + this.world.nr} particles · build ${window.__BUILD__ || 'dev'}`;
   }
 
   frame(now) {

@@ -1,9 +1,9 @@
 import { PK } from './physics.js';
 import { isLuminous, tempToRGB, schwarzschild } from './bodies.js';
 import { transientLum } from './stellar.js';
-import { EARTH_MASS, KPC_AU } from './units.js';
+import { G, EARTH_MASS, KPC_AU } from './units.js';
 import { starCatalog, bvToTemp, GAL_N, GAL_C } from './stars.js';
-import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, SKY_FS, SKY_VS, GALGLOW_VS, GALGLOW_FS, GALCOMP_FS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS, RIM_FS, TERRAIN_VS, TERRAIN_FS, RING_FS, CLOUD_FS, GEN_FS, SURFACE_CLOUD_FS, WEATHER_FS, NEBULA_FS, BLIT_FS, CUT_FS } from './shaders.js';
+import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, RING_POINTS_VS, SKY_FS, SKY_VS, GALGLOW_VS, GALGLOW_FS, GALCOMP_FS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS, RIM_FS, TERRAIN_VS, TERRAIN_FS, RING_FS, CLOUD_FS, GEN_FS, SURFACE_CLOUD_FS, WEATHER_FS, NEBULA_FS, BLIT_FS, CUT_FS } from './shaders.js';
 import { atmosphereOptics, giantOptics, setOpticsUniforms, stretchOptics, atmosphereTop, shellTop, groundLight } from './optics.js';
 import { heatOutput } from './thermal.js';
 import { interiorOf } from './interior.js';
@@ -510,6 +510,8 @@ export class Renderer3D {
     this.pSprite = this.program(SPRITE_VS, SPRITE_FS);
     this.pDisk = this.program(DISK_VS, DISK_FS);
     this.pPoints = this.program(POINTS_VS, POINTS_FS);
+    // (ring particles placed on the GPU: WebGL only; the WebGPU renderer places them on the CPU)
+    if (!this.webgpu) { try { this.pRingPts = this.program(RING_POINTS_VS, POINTS_FS); } catch (e) { this.pRingPts = null; } }
     this.pLines = this.program(LINES_VS, LINES_FS);
     this.pSky = this.program(SKY_VS, SKY_FS);
     this.pGalGlow = this.program(GALGLOW_VS, GALGLOW_FS);
@@ -1016,7 +1018,8 @@ export class Renderer3D {
     for (let i = 0; i < world.np; i++) {
       const kind = world.pk[i];
       if (kind !== PK.STAR_GOLD && kind !== PK.STAR_BLUE) continue;
-      set.pos[k * 3] = world.px[i] - tx; set.pos[k * 3 + 1] = world.py[i] - ty; set.pos[k * 3 + 2] = world.pz[i] - tz;
+      const sh = world.lagShift && world.plag[i] ? world.lagShift.get(world.phost[i]) : null;   // (see buildParticles)
+      set.pos[k * 3] = world.px[i] - tx + (sh ? sh[0] : 0); set.pos[k * 3 + 1] = world.py[i] - ty + (sh ? sh[1] : 0); set.pos[k * 3 + 2] = world.pz[i] - tz + (sh ? sh[2] : 0);
       const c = PARTICLE_RGB[kind], g = kind === PK.STAR_GOLD ? 0.05 : 0.05;
       set.col[k * 3] = c[0] * g; set.col[k * 3 + 1] = c[1] * g; set.col[k * 3 + 2] = c[2] * g;
       // (dust in the disc, on a third of its particles, so lanes follow the arms)
@@ -3057,6 +3060,7 @@ export class Renderer3D {
     const gl = this.gl;
     const set = glowPass ? this.dynGlow : this.dyn;
     if (!glowPass) this.buildParticles();
+    if (!glowPass && this.ringDraw) this.drawRingPoints();
     if (set.n === 0) return;
     this.upload(set);
     const p = this.pPoints, u = p.u;
@@ -3071,6 +3075,63 @@ export class Renderer3D {
     gl.uniform1f(u.uLogDepthFC, this.logFC);
     gl.bindVertexArray(set.vao);
     gl.drawArrays(gl.POINTS, 0, set.n);
+  }
+
+  // Ring particles on the GPU (RING_POINTS_VS): their orbits sit in a buffer, rewritten only when the rings
+  // change, or to move the epoch on (their phases are kept as phase + ω (t − epoch) for single precision).
+  ringBuffer(hostSlot) {
+    const gl = this.gl, world = this.world, n = world.nr;
+    let R = this.ringBuf;
+    if (!R) {
+      R = this.ringBuf = { vao: gl.createVertexArray(), buf: gl.createBuffer(), rev: -1, epoch: 0, n: 0, wmax: 0, cap: 0 };
+      gl.bindVertexArray(R.vao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, R.buf);
+      const st = 44;
+      gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 4, gl.FLOAT, false, st, 0);
+      gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, st, 16);
+      gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 3, gl.FLOAT, false, st, 28);
+      gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 1, gl.FLOAT, false, st, 40);
+      gl.bindVertexArray(null);
+    }
+    const t = world.t;
+    if (R.rev === world.ringRev && R.n === n && t >= R.epoch && R.wmax * (t - R.epoch) < 2000 && R.slots === hostSlot) return R;
+    const D = new Float32Array(n * 11);
+    let wmax = 0;
+    for (let i = 0; i < n; i++) {
+      const h = world.rHost[i], r = world.rRad[i], w = Math.sqrt((G * h.m) / (r * r * r)), o = i * 11, b = i * 6;
+      if (w > wmax) wmax = w;
+      const hh = ((i * 2246822519) >>> 0) / 4294967296;
+      D[o] = r; D[o + 1] = (world.rPhase[i] + w * t) % (2 * Math.PI); D[o + 2] = world.rk[i]; D[o + 3] = 1.5e-7 + hh * hh * hh * 9e-7;
+      for (let c = 0; c < 6; c++) D[o + 4 + c] = world.rBasis[b + c];
+      D[o + 10] = hostSlot.has(h) ? hostSlot.get(h) : 0;
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, R.buf);
+    gl.bufferData(gl.ARRAY_BUFFER, D, gl.STATIC_DRAW);
+    Object.assign(R, { rev: world.ringRev, n, epoch: t, wmax, slots: hostSlot });
+    return R;
+  }
+
+  drawRingPoints() {
+    const gl = this.gl, d = this.ringDraw, p = this.pRingPts, u = p.u;
+    const R = this.ringBuffer(d.slots);
+    gl.useProgram(p.p);
+    gl.uniformMatrix4fv(u.uProj, false, this.P);
+    gl.uniformMatrix3fv(u.uView, false, this.V);
+    gl.uniform1f(u.uF, this.F);
+    gl.uniform1f(u.uMinPx, 1.1 * this.dpr);
+    gl.uniform1f(u.uMaxPx, 64 * this.dpr);
+    gl.uniform1f(u.uT, this.world.t - R.epoch);
+    gl.uniform3fv(u.uHostPos, d.pos);
+    gl.uniform3fv(u.uHostL, d.light);
+    gl.uniform1fv(u.uHostGM, d.gm);
+    gl.uniform1fv(u.uHostR, d.r);
+    gl.uniform1fv(u.uHostOn, d.on);
+    gl.uniform3fv(u.uKindCol, this.kindCol || (this.kindCol = (() => { const a = new Float32Array(48); for (const k in PARTICLE_RGB) a.set(PARTICLE_RGB[k], k * 3); return a; })()));
+    gl.uniform1i(u.uGlow, 0);
+    gl.uniform3fv(u.uLight, this.particleLight || [0, 0, 1]);
+    gl.uniform1f(u.uLogDepthFC, this.logFC);
+    gl.bindVertexArray(R.vao);
+    gl.drawArrays(gl.POINTS, 0, R.n);
   }
 
   buildParticles() {
@@ -3114,8 +3175,16 @@ export class Renderer3D {
     const sc = [0, 0, 0], LQ = 0.5 / Math.log(40), L15 = Math.log(2.25);
     // (point sizes in CSS pixels, only partly scaled up on dense screens: a 3× phone would fill 9× the pixels)
     const dpk = Math.min(this.dpr, 1.6);
+    // Particles still a frame behind (their step on the GPU: gpustep.js) are carried along with their hosts.
+    const lag = world.lagShift, plag = world.plag, phost = world.phost;
+    let lastH = -2, sh = null;
     for (let i = 0; i < world.np; i++) {
       if (sb && (px[i] - sb.x) ** 2 + (py[i] - sb.y) ** 2 + (pz[i] - sb.z) ** 2 > reach2) continue;
+      let ox = 0, oy = 0, oz = 0;
+      if (lag && plag[i]) {
+        if (phost[i] !== lastH) { lastH = phost[i]; sh = lag.get(lastH) || null; }
+        if (sh) { ox = sh[0]; oy = sh[1]; oz = sh[2]; }
+      }
       const m = pm[i];
       const h = ((i * 2654435761) >>> 0) / 4294967296;
       // Chunk radius from its mass at rock density; massless belt particles get 30-120 km.
@@ -3131,7 +3200,7 @@ export class Renderer3D {
         sc[0] = b; sc[1] = b * (0.95 - 0.72 * t); sc[2] = b * (0.62 - 0.5 * Math.sqrt(t));
         col = sc;
       }
-      add(px[i] - tx, py[i] - ty, pz[i] - tz, pk[i], size, 1, i, col);
+      add(px[i] + ox - tx, py[i] + oy - ty, pz[i] + oz - tz, pk[i], size, 1, i, col);
     }
     // Ring debris: shadowed where the planet blocks the Sun.
     const tmp = [0, 0, 0, 0, 0, 0];
@@ -3141,7 +3210,27 @@ export class Renderer3D {
     const skip = this.surface ? this.surface.body : null;
     // Far from a ring the smooth ring sheet stands in for its particles.
     const far = new Map();
-    for (let i = 0; i < world.nr; i++) {
+    // On the GPU when it can (RING_POINTS_VS): here only each ringed planet's place, light and whether its
+    // particles show.
+    this.ringDraw = null;
+    if (this.pRingPts && world.nr && world.ringOuter.size <= 8) {
+      const slots = this.ringBuf && this.ringBuf.slots && [...world.ringOuter.keys()].every((h) => this.ringBuf.slots.has(h)) ? this.ringBuf.slots : new Map([...world.ringOuter.keys()].map((h, k) => [h, k]));
+      const d = { slots, pos: new Float32Array(24), light: new Float32Array(24), gm: new Float32Array(8), r: new Float32Array(8), on: new Float32Array(8) };
+      for (const [h, k] of slots) {
+        if (!h.alive) continue;
+        const ri = this.ringInfo && this.ringInfo.get(h);
+        const isFar = !!ri && Math.hypot(h.x - this.ex, h.y - this.ey, h.z - this.ez) > 1.25 * ri.rout;
+        d.on[k] = h === skip || (this.gpuHosts && this.gpuHosts.has(h)) || isFar ? 0 : 1;
+        if (!d.on[k]) continue;
+        const L = this.lightsFor(h).primary, hl = L ? [L.dx / L.d, L.dy / L.d, L.dz / L.d] : [0, 1, 0];
+        if (!this.particleLight) this.particleLight = this.viewOf(hl[0], hl[1], hl[2]);
+        d.pos.set([h.x - tx, h.y - ty, h.z - tz], k * 3);
+        d.light.set(hl, k * 3);
+        d.gm[k] = G * h.m; d.r[k] = h.r;
+      }
+      this.ringDraw = d;
+    }
+    for (let i = 0; i < (this.ringDraw ? 0 : world.nr); i++) {
       const host = world.rHost[i];
       if (host === skip || (this.gpuHosts && this.gpuHosts.has(host))) continue;   // drawn by the WebGPU layer
       let f = far.get(host);

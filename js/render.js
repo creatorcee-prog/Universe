@@ -637,8 +637,10 @@ export class Renderer {
     for (const k in PARTICLE_RGB) paths[k] = new Path2D();
     const sz = 1.3 * this.dpr;
     const px = world.px, py = world.py, pz = world.pz, pk = world.pk;
+    const lag = world.lagShift;
     for (let i = 0; i < world.np; i++) {
-      if (cam.project(px[i], py[i], pz[i], p) <= 0) continue;
+      const sh = lag && world.plag[i] ? lag.get(world.phost[i]) : null;   // (a frame behind: render3d buildParticles)
+      if (cam.project(px[i] + (sh ? sh[0] : 0), py[i] + (sh ? sh[1] : 0), pz[i] + (sh ? sh[2] : 0), p) <= 0) continue;
       if (p.x < -2 || p.y < -2 || p.x > W || p.y > H) continue;
       paths[pk[i]].rect(p.x, p.y, sz, sz);
     }

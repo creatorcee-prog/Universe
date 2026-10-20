@@ -225,7 +225,7 @@ export class UI {
       r.addEventListener('change', () => { if (r.checked) { app.setView(r.value); this.toast({ realistic: 'Realistic view', classic: 'Classic view', pixel: 'Pixel view' }[r.value]); } });
     }
     this.onView(app.settings.view);
-    for (const key of ['bloom', 'flare', 'rocks', 'trails', 'labels', 'grid', 'stars', 'trailsRelative', 'collisions', 'orbits', 'magnetic', 'allTemp', 'allGrav', 'trueSize', 'sound', 'music', 'uiSound', 'soundSilent', 'bassBoost', 'sharp', 'perf', 'gpuRings', 'webgpu']) {
+    for (const key of ['bloom', 'flare', 'rocks', 'trails', 'labels', 'grid', 'stars', 'trailsRelative', 'collisions', 'orbits', 'magnetic', 'allTemp', 'allGrav', 'trueSize', 'sound', 'music', 'uiSound', 'soundSilent', 'bassBoost', 'sharp', 'perf', 'gpuRings', 'webgpu', 'gpuParticles']) {
       const el = $('set-' + key);
       el.checked = !!app.settings[key];
       el.addEventListener('change', () => this.toggleSetting(key, el.checked));
@@ -495,6 +495,13 @@ export class UI {
     if (key === 'collisions') this.app.world.collisions = s.collisions;
     if (key === 'webgpu') this.app.useWebGPU(s.webgpu).then(() => this.checkGPU());
     if (key === 'gpuRings') this.checkGPU();
+    if (key === 'gpuParticles') {
+      // (back on the CPU: first take the step still on the GPU, so no particle is left a frame behind)
+      const w = this.app.world, g = this.app.gpuStep;
+      if (!s.gpuParticles && w.gpu) { w.gpu.collect(w, w.t); w.lagShift = null; w.gpu = null; }
+      else if (s.gpuParticles && g && g.ok) w.gpu = g;
+      if (s.gpuParticles && !(g && g.ok)) this.toast('This browser cannot run particles on the GPU (no WebGL 2): they stay on the CPU.', true);
+    }
     this.app.saveSettings();
   }
 

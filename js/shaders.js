@@ -2558,6 +2558,48 @@ void main() {
 }
 `;
 
+// Ring particles, placed on the GPU: each rides a circular orbit about its planet at its own Kepler speed
+// (as World.ringPosition), lit or in the planet's shadow; drawn with POINTS_FS like the rest. (Up to 8
+// ringed planets at once; render3d.js falls back to placing them on the CPU otherwise.)
+export const RING_POINTS_VS = HEAD + `
+layout(location = 0) in vec4 aR;     // orbit radius (AU), phase at the epoch, material, chunk radius (AU)
+layout(location = 1) in vec3 aU;     // the orbit's plane
+layout(location = 2) in vec3 aW;
+layout(location = 3) in float aHost; // slot of its planet
+uniform mat4 uProj;
+uniform mat3 uView;
+uniform float uF, uMinPx, uMaxPx, uT;          // uT: years since the epoch
+uniform vec3 uHostPos[8], uHostL[8];           // planet centre (from the camera); towards its sun
+uniform float uHostGM[8], uHostR[8], uHostOn[8];
+uniform vec3 uKindCol[16];
+out vec3 vCol;
+out float vShade;
+out float vPx;
+flat out float vSeed;
+out float vW, vDepthR;
+` + LOGDEPTH_V + `
+void main() {
+  int h = int(aHost);
+  if (uHostOn[h] < 0.5) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); gl_PointSize = 0.0; vFragDepth = 1.0; return; }
+  float r = aR.x, w = sqrt(uHostGM[h] / (r * r * r)), th = aR.y + w * uT;
+  vec3 rel = (cos(th) * aU + sin(th) * aW) * r;
+  // in the planet's shadow: behind it from its sun, within its radius of the line through it
+  float along = dot(rel, uHostL[h]);
+  vShade = along < 0.0 && dot(rel, rel) - along * along < uHostR[h] * uHostR[h] ? 0.0 : 1.0;
+  float v = 0.82 + 0.36 * fract(float(gl_VertexID + 7) * 0.61803);
+  vCol = uKindCol[int(aR.z)] * v;
+  vec3 vp = uView * (uHostPos[h] + rel);
+  gl_Position = uProj * vec4(vp, 1.0);
+  float px = 2.0 * aR.w * uF / max(-vp.z, 1e-30);
+  vPx = px;
+  gl_PointSize = clamp(px, uMinPx, uMaxPx);
+  vSeed = fract(float(gl_VertexID) * 0.6180339887) * 97.0;
+  vW = gl_Position.w;
+  vDepthR = aR.w * min(1.0, gl_PointSize / max(px, 1e-6));
+  vFragDepth = 1.0 + gl_Position.w * ` + DEPTH_K + `;
+}
+`;
+
 export const POINTS_FS = HEAD + NOISE + `
 in vec3 vCol;
 in float vShade;
