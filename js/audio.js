@@ -15,40 +15,40 @@
 
 // Every place a sound plays (slot), what sets it off, and the file it plays (assets/audio/<file>.mp3). The
 // sound board (tools/sound-board.html, published as its own page) lists these and lets the files be swapped;
-// its choices are copied back here.
+// its choices are copied back here (the user's picks of 20 October 2026; the cosmic and ambience slots unchanged).
 export const SLOTS = [
   // [slot, group, what plays it, file]
-  ['tap', 'Interface', 'Any button or switch with no sound of its own', 'ui-click'],
-  ['select', 'Interface', 'Selecting an object', 'ui-click'],
-  ['pause', 'Interface', 'Pause / play', 'ui-click'],
-  ['speed', 'Interface', 'Faster / slower buttons', 'ui-click'],
-  ['view-band', 'Interface', 'Choosing a spectrum (visible, infrared, UV, X-ray)', 'ui-click'],
-  ['option', 'Interface', 'Choosing an option in a row (view, quality, ...)', 'ui-click'],
-  ['star-type', 'Interface', 'Picking a star type in the star builder', 'ui-click'],
-  ['setting', 'Interface', 'Turning a setting on or off', 'ui-click'],
-  ['open-panel', 'Interface', 'Opening a panel (Scenarios, Create, Settings, ...)', 'ui-sequence'],
-  ['close-panel', 'Interface', 'Closing a panel', 'ui-click'],
-  ['tab', 'Interface', 'Switching a tab in the info panel', 'ui-sequence'],
-  ['tool', 'Interface', 'Choosing a tool', 'ui-sequence'],
+  ['tap', 'Interface', 'Any button or switch with no sound of its own', 'ui-se-tone'],
+  ['select', 'Interface', 'Selecting an object', 'ui-scifi-click'],
+  ['pause', 'Interface', 'Pause / play', 'ui-click-soft'],
+  ['speed', 'Interface', 'Faster / slower buttons', 'ui-glitch'],
+  ['view-band', 'Interface', 'Choosing a spectrum (visible, infrared, UV, X-ray)', 'ui-affirm'],
+  ['option', 'Interface', 'Choosing an option in a row (view, quality, ...)', 'ui-confirm-02'],
+  ['star-type', 'Interface', 'Picking a star type in the star builder', 'ui-confirm-02'],
+  ['setting', 'Interface', 'Turning a setting on or off', 'ui-se-tone'],
+  ['open-panel', 'Interface', 'Opening a panel (Scenarios, Create, Settings, ...)', 'ui-accept-soft'],
+  ['close-panel', 'Interface', 'Closing a panel', 'ui-accept-soft-b'],
+  ['tab', 'Interface', 'Switching a tab in the info panel', 'ui-glitch'],
+  ['tool', 'Interface', 'Choosing a tool', 'ui-se-tone'],
   ['notice', 'Interface', 'A notice pops up', 'ui-hint'],
-  ['photo-mode', 'Interface', 'Photo mode on', 'ui-hint'],
-  ['scenario', 'Actions', 'Loading a scenario', 'ui-affirm'],
-  ['place-object', 'Actions', 'Placing a new object', 'ui-sequence'],
-  ['place-dust', 'Actions', 'Spraying a dust cloud', 'ui-sequence'],
-  ['rings', 'Actions', 'Adding rings to a world', 'ui-affirm'],
+  ['photo-mode', 'Interface', 'Photo mode on', 'ui-glitch'],
+  ['scenario', 'Actions', 'Loading a scenario', 'ui-pack2-5'],
+  ['place-object', 'Actions', 'Placing a new object', 'ui-se-tone'],
+  ['place-dust', 'Actions', 'Spraying a dust cloud', 'ui-se-tone'],
+  ['rings', 'Actions', 'Adding rings to a world', 'ui-se-tone'],
   ['delete', 'Actions', 'Deleting an object', 'ui-glitch'],
-  ['descent', 'Actions', 'Starting the descent to a surface', 'ui-affirm'],
-  ['land', 'Actions', 'Arriving in the Surface view', 'ui-affirm'],
-  ['leave-surface', 'Actions', 'Leaving the Surface view', 'ui-click'],
-  ['challenge-done', 'Actions', 'Completing a challenge', 'ui-affirm'],
-  ['no-surface', 'Not possible', 'Surface view refused (gas world, wrong view)', 'ui-glitch'],
-  ['nothing-to-lock', 'Not possible', 'Lock-on with nothing selected', 'ui-glitch'],
-  ['no-paint', 'Not possible', 'Painting refused (not a rocky world, wrong view)', 'ui-glitch'],
-  ['missed', 'Not possible', 'A tool missed (hold on an object)', 'ui-glitch'],
-  ['denied', 'Not possible', 'The simulation refused something', 'ui-glitch'],
-  ['transform', 'Simulation', 'An object changes kind (star to giant, planet to star, ...)', 'confirm7'],
+  ['descent', 'Actions', 'Starting the descent to a surface', 'ui-data-point-01'],
+  ['land', 'Actions', 'Arriving in the Surface view', 'ui-data-point-05'],
+  ['leave-surface', 'Actions', 'Leaving the Surface view', 'ui-data-point-01'],
+  ['challenge-done', 'Actions', 'Completing a challenge', 'ui-pack2-5'],
+  ['no-surface', 'Not possible', 'Surface view refused (gas world, wrong view)', 'ui-accept-soft-b'],
+  ['nothing-to-lock', 'Not possible', 'Lock-on with nothing selected', 'ui-accept-soft-b'],
+  ['no-paint', 'Not possible', 'Painting refused (not a rocky world, wrong view)', 'ui-accept-soft-b'],
+  ['missed', 'Not possible', 'A tool missed (hold on an object)', 'ui-accept-soft-b'],
+  ['denied', 'Not possible', 'The simulation refused something', 'ui-sound-off'],
+  ['transform', 'Simulation', 'An object changes kind (star to giant, planet to star, ...)', 'ui-button-13'],
   ['transform-rumble', 'Simulation', 'Low rumble under that change', 'rumble4'],
-  ['complete', 'Simulation', 'Something finishes (an orbit closes, a merger settles)', 'complete'],
+  ['complete', 'Simulation', 'Something finishes (an orbit closes, a merger settles)', 'ui-swipe-soft'],
   ['impact', 'Cosmic', 'An impact (bigger: louder, deeper, longer)', 'rumble1'],
   ['swallow', 'Cosmic', 'A star or black hole swallows something', 'rumble4'],
   ['tidal', 'Cosmic', 'A world torn apart by tides', 'rumble4'],
@@ -69,8 +69,13 @@ const FILE_GAIN = { 'ui-click': 0.8, 'ui-sequence': 0.95, 'ui-hint': 1.15, 'ui-a
   rumble1: 1, rumble4: 1, rumbleloop: 1, decay: 1, 'amb-engine': 1, 'amb-wind': 1 };
 
 // Background music: shuffled, each track fading in and out, with 30 s of silence between tracks.
-const MUSIC = ['music-relax-beat', 'music-drone', 'music-vastness', 'music-space', 'music-valley-sunset',
-  'music-gamma-study', 'music-meditation', 'music-binaural-528', 'music-binaural-14hz', 'music-drifting-away', 'music-binaural-marlowe', 'music-binaural-mountain'];
+// file -> title (as supplied; Settings lists them and can play any one)
+export const MUSIC_TITLES = {
+  'music-relax-beat': 'Relax Beat', 'music-drone': 'Drone', 'music-vastness': 'Vastness', 'music-space': 'Space', 'music-valley-sunset': 'Valley Sunset',
+  'music-gamma-study': 'Gamma Binaural Beats (study)', 'music-meditation': 'Meditation Background', 'music-binaural-528': 'Meditation Binaural 8 Hz / 528 Hz',
+  'music-binaural-14hz': 'Binaural Wave 14 Hz', 'music-drifting-away': 'Drifting Away', 'music-binaural-marlowe': 'Binaural Beats (Marlowe)', 'music-binaural-mountain': 'Binaural Beats (The Mountain)',
+};
+const MUSIC = Object.keys(MUSIC_TITLES);
 const FADE_IN = 6, FADE_OUT = 8, GAP_MS = 30000, MUSIC_LEVEL = 0.5;
 
 // Inlined sounds (single-file build) become blob: URLs, which audio players stream and seek properly.
@@ -199,7 +204,8 @@ export class Sound {
   nextTrack() {
     if (!this.mEl || this.settings.music === false) { this.mState = 'idle'; return; }
     clearTimeout(this.mTimer);
-    const el = this.mEl, name = this.pickTrack();
+    const el = this.mEl, name = this.mForce || this.pickTrack();
+    this.mForce = null;
     el.src = streamUrl(name);
     this.mState = 'playing';
     this.mTrack = name;
@@ -208,6 +214,14 @@ export class Sound {
     this.mGain.gain.setValueAtTime(0, t);
     this.mGain.gain.linearRampToValueAtTime(1, t + FADE_IN);
     el.play().catch(() => { this.mState = 'idle'; }); // blocked: try again on the next tap
+  }
+
+  // Play one track now (Settings' track list), fading in as usual; the shuffle carries on after it.
+  playTrack(name) {
+    this.start();
+    if (!this.mEl || !MUSIC_TITLES[name]) return;
+    this.mForce = name;
+    this.nextTrack();
   }
 
   afterTrack() {

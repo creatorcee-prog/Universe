@@ -497,3 +497,12 @@ body:has(.sheet.open) .dock .readout, body:has(.sheet.open) .addbar { visibility
 .int-layers i { width: 10px; height: 10px; border-radius: 50%; background: var(--c); align-self: center; }
 .int-layers b { font-weight: 600; }
 .int-layers span { grid-column: 2; opacity: 0.75; }
+
+/* Settings → Background music: the track list (tap a track to play it) */
+.tracks { margin: 2px 0 8px; font-size: 13px; }
+.tracks summary { cursor: pointer; color: var(--muted); padding: 6px 0; }
+.tracks ol { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }
+.tracks li button { width: 100%; text-align: left; background: none; border: 0; color: inherit; font: inherit; padding: 6px 8px; display: flex; justify-content: space-between; gap: 8px; cursor: pointer; }
+.tracks li button:hover { background: rgba(255,255,255,.06); }
+.tracks li.now button { color: var(--accent, #6cf); }
+.tracks li.now button::after { content: 'playing'; font-size: 11px; opacity: .8; }

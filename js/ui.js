@@ -8,6 +8,7 @@ import { lifetime } from './stellar.js';
 import { atmosphereOptics } from './optics.js';
 import { interiorOf, formatPressure } from './interior.js';
 import { renderThumb, category } from './thumbs.js';
+import { MUSIC_TITLES } from './audio.js';
 import { STAR_TYPES, starFromType } from './stellar.js';
 import { CHALLENGES } from './challenges.js';
 
@@ -961,6 +962,22 @@ export class UI {
 
   challengeProgress(text) { $('chal-prog').textContent = text || ''; }
 
+  // Settings → Background music: every track, the one playing marked; tap one to play it.
+  renderTracks() {
+    const a = this.app.audio, list = $('track-list');
+    this.trackNow = a.mTrack + a.mState;
+    const ks = Object.keys(MUSIC_TITLES);
+    $('track-n').textContent = `(${ks.length})`;
+    list.replaceChildren(...ks.map((k) => {
+      const li = document.createElement('li'), b = document.createElement('button');
+      b.type = 'button'; b.textContent = MUSIC_TITLES[k];
+      if (k === a.mTrack && a.mState === 'playing') li.className = 'now';
+      b.addEventListener('click', () => { if (this.app.settings.music === false) { this.app.settings.music = true; const c = $('set-music'); if (c) c.checked = true; a.setMusic(true); } a.playTrack(k); });
+      li.append(b);
+      return li;
+    }));
+  }
+
   toast(text, big = false) {
     this.app.audio.ui('notice');
     const t = $('toast');
@@ -994,6 +1011,7 @@ export class UI {
       const ecl = sv.occ && sv.sunPower < 0.999 ? ` · eclipse: ${sv.sunPower <= 1e-4 ? 'total' : Math.round((1 - sv.sunPower) * 100) + '% of the Sun covered'}` : '';
       $('sv-readout').textContent = `${Math.abs(lat)}°${lat >= 0 ? 'N' : 'S'} · ${sv.localT ? Math.round(sv.localT) + ' K (' + Math.round(sv.localT - 273.15) + ' °C)' : ''} · Sun ${Math.round((sv.elev * 180) / Math.PI)}° ${sv.elev >= 0 ? 'above' : 'below'} the horizon · air ${p < 0.001 ? 'none' : p.toPrecision(2) + ' bar'}${ecl}${zoom > 1.05 ? ` · ${zoom.toFixed(zoom < 10 ? 1 : 0)}× zoom` : ''}`;
     }
+    if ($('track-list') && this.trackNow !== app.audio.mTrack + app.audio.mState) this.renderTracks();
     $('sim-time').textContent = formatDuration(app.world.t);
     // The Solar System scenario keeps the calendar: it starts at today's positions (presets.js epochNow).
     const yr = $('year'), ep = app.state.preset && app.state.preset.id === 'solar' && app.world.epoch;
