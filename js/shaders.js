@@ -99,6 +99,27 @@ vec4 mapTex(sampler2D s, vec3 d) {
   if (abs(gx2.x) + abs(gy2.x) < abs(gx.x) + abs(gy.x)) { gx = gx2; gy = gy2; }
   return textureGrad(s, uv, gx, gy);
 }
+// The same map read smoothly (cubic B-spline in 4 bilinear reads, Sigg & Hadwiger 2005) where it is magnified
+// (a texel wider than a pixel): an elevation map's slopes then change smoothly instead of jumping at every
+// texel, which drew close-up relief as blocks. Minified, the plain mipmapped read (no shimmer).
+vec4 mapTexSmooth(sampler2D s, vec3 d) {
+  vec2 uv = vec2(atan(-d.z, d.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(d.y, -1.0, 1.0)) / 3.14159265);
+  vec2 size = vec2(textureSize(s, 0));
+  vec2 uv2 = vec2(fract(uv.x + 0.5), uv.y);
+  vec2 gx = dFdx(uv), gy = dFdy(uv), gx2 = dFdx(uv2), gy2 = dFdy(uv2);
+  if (abs(gx2.x) + abs(gy2.x) < abs(gx.x) + abs(gy.x)) { gx = gx2; gy = gy2; }
+  float foot = max(length(gx * size), length(gy * size));          // texels per pixel
+  vec4 plain = textureGrad(s, uv, gx, gy);
+  if (foot > 1.0) return plain;
+  vec2 sp = uv * size - 0.5, f = fract(sp), c = floor(sp);
+  vec2 w0 = (1.0 - f) * (1.0 - f) * (1.0 - f) / 6.0, w1 = (4.0 - 6.0 * f * f + 3.0 * f * f * f) / 6.0;
+  vec2 w3 = f * f * f / 6.0, w2 = 1.0 - w0 - w1 - w3;
+  vec2 s0 = w0 + w1, s1 = w2 + w3;
+  vec2 o0 = (c - 0.5 + w1 / s0) / size, o1 = (c + 1.5 + w3 / s1) / size;
+  vec4 r = (textureLod(s, vec2(fract(o0.x), o0.y), 0.0) * s0.x + textureLod(s, vec2(fract(o1.x), o0.y), 0.0) * s1.x) * s0.y
+         + (textureLod(s, vec2(fract(o0.x), o1.y), 0.0) * s0.x + textureLod(s, vec2(fract(o1.x), o1.y), 0.0) * s1.x) * s1.y;
+  return mix(r, plain, smoothstep(0.5, 1.0, foot));
+}
 // Donor map (a real world's pattern borrowed by one without a map): brightness relative to its mean,
 // looked up in a turned frame.
 uniform sampler2D uDonor;
@@ -878,7 +899,7 @@ void main() {
       // Real elevation, where there is a height map: its slopes, in units of the radius.
       vec3 gradR = vec3(0.0);
       if (uHMapK > 0.5) {
-        float hR = mapTex(uHMap, uHRot * vObj).r * uHGlobe;
+        float hR = mapTexSmooth(uHMap, uHRot * vObj).r * uHGlobe;   // (smooth up close: no blocky facets)
         if (uOcean > 0.0) hR = max(hR, 0.0);        // the sea surface is flat over the sea floor
         gradR = sign(det) * (dFdx(hR) * r1 + dFdy(hR) * r2);
         // Long shadows near the terminator: walk toward the Sun over the elevation map. Ground rising above

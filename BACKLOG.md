@@ -213,7 +213,11 @@ on the phone.
 3. (Done: CLOUD_FS cloudDepth, 3 samples through the layer + 2 toward the Sun when a planet is over ~300 px;
    it shades flanks and undersides, the crisp field keeps the coverage) Depth in orbit clouds: a few ray-march steps through the cloud shell at quarter resolution when a planet
    fills the screen, reusing the surface-cloud density and lighting.
-4. Sharper planets without running out of memory: higher-resolution maps (artifact files up to 15 MB), 16-bit
+4. (Done in part: 4096 x 2048 maps of the Moon, Mars and Mercury (tools/make_maps_4k.py) swapped in only while
+   the world is over ~300 CSS px in radius or stood on, released below 150; elevation read through a cubic
+   B-spline where magnified (relief smooth up close, no texel blocks). Not done: KTX2/Basis: it needs a WASM
+   transcoder shipped offline and compressed-texture support in the WebGPU emulation, a large job for what the
+   swap-in/out already buys; precomputed normal maps add nothing over the smooth slopes now.) 4. Sharper planets without running out of memory: higher-resolution maps (artifact files up to 15 MB), 16-bit
    heights and precomputed normal maps; compressed KTX2/Basis (ASTC on iPhone) instead of raw 8K (~180 MB each).
 5. Volumetric galaxies: a density field per galaxy core (bulge, disc, spiral arms, dust lanes), marched at
    quarter resolution like the nebula; particle stars on top (the Galaxy Collision scenario).

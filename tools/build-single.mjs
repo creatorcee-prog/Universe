@@ -37,6 +37,7 @@ const mapDir = join(root, 'assets', 'maps');
 const maps = {};
 if (!external) for (const f of readdirSync(mapDir)) {
   const m = f.match(/^(.*)\.(jpg|png)$/);
+  if (m && m[1].endsWith('-4k')) continue;   // (the optional close-up maps: loaded from beside the page, or not at all)
   if (m) maps[m[1]] = `data:image/${m[2] === 'png' ? 'png' : 'jpeg'};base64,` + readFileSync(join(mapDir, f)).toString('base64');
 }
 js += `window.__MAPS__ = ${JSON.stringify(maps)};\n`;

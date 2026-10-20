@@ -60,7 +60,21 @@ function photoMap(b) {
   const p = PHOTO.find(([re, , , kind]) => re.test(b.name) && b.kind === kind);
   if (!p) return null;
   const img = loadImage(p[1], p[4]);
-  return img ? { mode: p[2], img, W: img.width, H: img.height, ver: 1 } : null;
+  return img ? { mode: p[2], img, W: img.width, H: img.height, ver: 1, file: p[1] } : null;
+}
+// Close-up maps (tools/make_maps_4k.py), 4096 x 2048: swapped in while the world is large on screen and
+// released when it is not, so at most one or two (~45 MB each on the GPU with mipmaps) are ever held.
+const HI_MAPS = new Set(['moon', 'mars', 'mercury']);
+function hiMap(sm, shownPx) {
+  if (!sm || !sm.img) return sm;
+  if (sm.hi) {
+    if (shownPx >= 150) return sm;
+    delete photoImg[sm.lo.file + '-4k'];   // (let the large image go; the browser keeps the file cached)
+    return sm.lo;
+  }
+  if (!HI_MAPS.has(sm.file) || shownPx < 300) return sm;   // (shownPx: the radius on screen, CSS pixels)
+  const img = loadImage(sm.file + '-4k');
+  return img ? { ...sm, img, W: img.width, H: img.height, ver: sm.ver + 1, hi: true, lo: sm } : sm;
 }
 // Donor maps: a world with no map of its own (one you create, or a random planetesimal) borrows the
 // brightness pattern of a real one of its type (cratered highlands, ice, dust, volcanic plains, small
@@ -2185,6 +2199,40 @@ export class Renderer3D {
     return { tau: best, dir };
   }
 
+  // The world's surface map on the GPU (texture unit 5), uploaded when it changes (a photo replacing its
+  // stand-in, a close-up map swapped in or out, painted rows).
+  syncMapTex(b) {
+    const gl = this.gl, sm = b.surfaceMap;
+    if (!sm) return;
+    let t = this.mapTex.get(b);
+    if (!t) {
+      t = { tex: gl.createTexture(), ver: -1 };
+      this.mapTex.set(b, t);
+      gl.bindTexture(gl.TEXTURE_2D, t.tex);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    }
+    gl.activeTexture(gl.TEXTURE5);
+    gl.bindTexture(gl.TEXTURE_2D, t.tex);
+    if (t.ver !== sm.ver || t.sm !== sm) {
+      if (sm.img) {
+        // Image maps are only ever shown whole, often small on screen: mipmapped against shimmer.
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, sm.img);
+        gl.generateMipmap(gl.TEXTURE_2D);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+        this.aniso(8);
+      } else if (t.ver < 0 || !sm.dirtyRows || t.W !== sm.W || t.sm !== sm) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, sm.W, sm.H, 0, gl.RGBA, gl.UNSIGNED_BYTE, sm.data);
+      else {
+        const [y0, y1] = sm.dirtyRows;
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y0, sm.W, y1 - y0 + 1, gl.RGBA, gl.UNSIGNED_BYTE, sm.data.subarray(y0 * sm.W * 4, (y1 + 1) * sm.W * 4));
+      }
+      sm.dirtyRows = null;
+      t.ver = sm.ver; t.W = sm.W; t.sm = sm; // (a new map object, e.g. a photo replacing its stand-in, is always re-uploaded)
+    }
+  }
+
   drawBody(b, now, glows) {
     const gl = this.gl, cam = this.cam;
     const [x, y, z] = this.rel(b);
@@ -2236,7 +2284,12 @@ export class Renderer3D {
     const crack = l.kind === 0 ? Math.max(0, Math.min(1, (tide.tau - 0.3) / 0.5)) : 0;
 
     // Standing on this body: draw the local terrain instead of the globe.
-    if (this.surface && this.surface.body === b && l.kind === 0) { this.drawTerrain(b, l, rot, lights, temp); return; }
+    if (this.surface && this.surface.body === b && l.kind === 0) {
+      // (standing on it: its close-up map, if it has one)
+      if (b.surfaceMap && (b.surfaceMap.hi || b.surfaceMap.img)) { b.surfaceMap = hiMap(b.surfaceMap, 1e9); this.syncMapTex(b); }
+      this.drawTerrain(b, l, rot, lights, temp);
+      return;
+    }
 
     const p = this.pBody, u = p.u;
     gl.useProgram(p.p);
@@ -2320,35 +2373,12 @@ export class Renderer3D {
       else if (!b.surfaceMap) b.surfaceMap = { mode: 2, W: 512, H: 256, data: (MOON_MAP ||= moonMap()).slice(), ver: 1, standIn: true };
     }
     if (!b.surfaceMap) b.surfaceMap = photoMap(b) || undefined;
+    if (b.surfaceMap && (b.surfaceMap.hi || b.surfaceMap.img)) b.surfaceMap = hiMap(b.surfaceMap, shownPx / Math.max(this.dpr || 1, 0.5));
     const sm = b.surfaceMap;
     if (sm) {
-      let t = this.mapTex.get(b);
-      if (!t) {
-        t = { tex: gl.createTexture(), ver: -1 };
-        this.mapTex.set(b, t);
-        gl.bindTexture(gl.TEXTURE_2D, t.tex);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      }
+      this.syncMapTex(b);
       gl.activeTexture(gl.TEXTURE5);
-      gl.bindTexture(gl.TEXTURE_2D, t.tex);
-      if (t.ver !== sm.ver || t.sm !== sm) {
-        if (sm.img) {
-          // Image maps are only ever shown whole, often small on screen: mipmapped against shimmer.
-          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, sm.img);
-          gl.generateMipmap(gl.TEXTURE_2D);
-          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-          this.aniso(8);
-        } else if (t.ver < 0 || !sm.dirtyRows || t.W !== sm.W || t.sm !== sm) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, sm.W, sm.H, 0, gl.RGBA, gl.UNSIGNED_BYTE, sm.data);
-        else {
-          const [y0, y1] = sm.dirtyRows;
-          gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y0, sm.W, y1 - y0 + 1, gl.RGBA, gl.UNSIGNED_BYTE, sm.data.subarray(y0 * sm.W * 4, (y1 + 1) * sm.W * 4));
-        }
-        sm.dirtyRows = null;
-        t.ver = sm.ver; t.W = sm.W; t.sm = sm; // (a new map object, e.g. a photo replacing its stand-in, is always re-uploaded)
-      }
+      gl.bindTexture(gl.TEXTURE_2D, this.mapTex.get(b).tex);
       gl.uniform1i(u.uMap, 5);
       gl.activeTexture(gl.TEXTURE0);
     }

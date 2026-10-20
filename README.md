@@ -153,6 +153,8 @@ Switch in the **View** panel.
   (Venus, Titan) super-rotates at ~100 m/s (Venus's clouds circle it in about 4 days). Two generations of
   cloud field crossfade every few days, so clouds form, shear and dissipate. Cover follows the climate
   model, so the weather changes as the planet warms, cools or loses its oceans.
+- **Close-up maps** (assets/maps/moon-4k.jpg, mars-4k.jpg, mercury-4k.jpg, built by `tools/make_maps_4k.py`
+  from the Solar System Scope 8k maps, CC BY 4.0): loaded only while one of these worlds is large on screen.
 - **Stars** (assets/maps/stars.png, built by `tools/make_stars.py`): the Yale Bright Star Catalogue, 5th
   revised edition (Hoffleit & Warren 1991; CDS catalogue V/50, public domain), the 9,096 stars to about
   magnitude 6.5, placed in the app's ecliptic J2000 frame; brightness from V magnitude, colour from B-V
