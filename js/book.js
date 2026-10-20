@@ -25,12 +25,12 @@ function portrait(kind, color, band, comet) {
 
 function kindFromKey(key) {
   if (key === 'nebula') return 'nebula';
-  if (['M', 'K', 'G', 'F', 'A', 'B', 'O'].includes(key)) return 'star';
+  if (['M', 'K', 'G', 'F', 'A', 'B', 'O', 'giant', 'supergiant', 'bhstar'].includes(key)) return 'star';
   return key;
 }
 
 const KEY_COLOR = {
-  M: [255, 170, 110], K: [255, 205, 150], G: [255, 240, 220], F: [250, 248, 255], A: [215, 228, 255], B: [180, 205, 255], O: [160, 190, 255],
+  M: [255, 170, 110], K: [255, 205, 150], giant: [255, 175, 120], supergiant: [255, 160, 110], bhstar: [255, 190, 140], G: [255, 240, 220], F: [250, 248, 255], A: [215, 228, 255], B: [180, 205, 255], O: [160, 190, 255],
   wd: [220, 230, 255], ns: [190, 220, 255], comet: [196, 204, 214], asteroid: [150, 140, 128], planetesimal: [170, 150, 130],
   terrestrial: [64, 118, 214], superearth: [120, 150, 120], icegiant: [90, 130, 220], gasgiant: [216, 182, 136], browndwarf: [150, 80, 60],
   moonsize: [180, 178, 172], smallrocky: [196, 110, 70],

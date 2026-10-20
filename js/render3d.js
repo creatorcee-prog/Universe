@@ -3,7 +3,7 @@ import { isLuminous, tempToRGB, schwarzschild } from './bodies.js';
 import { transientLum } from './stellar.js';
 import { G, EARTH_MASS, KPC_AU } from './units.js';
 import { starCatalog, bvToTemp, GAL_N, GAL_C } from './stars.js';
-import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, RING_POINTS_VS, SKY_FS, SKY_VS, GALGLOW_VS, GALGLOW_FS, GALCOMP_FS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS, RIM_FS, TERRAIN_VS, TERRAIN_FS, RING_FS, CLOUD_FS, GEN_FS, SURFACE_CLOUD_FS, WEATHER_FS, NEBULA_FS, BLIT_FS, CUT_FS } from './shaders.js';
+import { ATMO_FS, BODY_FS, BODY_VS, DISK_FS, DISK_VS, LINES_FS, LINES_VS, POINTS_FS, POINTS_VS, RING_POINTS_VS, SKY_FS, SKY_VS, GALGLOW_VS, GALGLOW_FS, GALCOMP_FS, SPRITE_FS, SPRITE_VS, FULL_VS, MILKYWAY_FS, DOWN_FS, UP_FS, COMPOSITE_FS, PIXEL_FS, SURFACE_SKY_FS, TEMP_FIELD_FS, RIM_FS, TERRAIN_VS, TERRAIN_FS, RING_FS, CLOUD_FS, GEN_FS, SURFACE_CLOUD_FS, WEATHER_FS, NEBULA_FS, BLIT_FS, CUT_FS, UPSAMPLE_FS } from './shaders.js';
 import { atmosphereOptics, giantOptics, setOpticsUniforms, stretchOptics, atmosphereTop, shellTop, groundLight } from './optics.js';
 import { heatOutput } from './thermal.js';
 import { interiorOf } from './interior.js';
@@ -997,8 +997,10 @@ export class Renderer3D {
     }
     gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
     gl.viewport(0, 0, W, H);
-    gl.useProgram(this.pBlit.p);
-    this.bindTex(0, this.nebRT.tex, this.pBlit.u.uTex);
+    const up = this.pUpsample || (this.pUpsample = this.program(FULL_VS, UPSAMPLE_FS));
+    gl.useProgram(up.p);
+    this.bindTex(0, this.nebRT.tex, up.u.uTex);
+    gl.uniform2f(up.u.uSize, w, h);
     gl.bindVertexArray(this.quad);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.disable(gl.BLEND);

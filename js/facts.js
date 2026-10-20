@@ -461,6 +461,39 @@ export const TYPES = {
     facts: ['Perhaps only 1 in 3 million main-sequence stars is O-type.', 'Their ultraviolet light lights up the nebulae around them.'],
     sources: [wiki('O-type_main-sequence_star'), wiki('Stellar_classification')],
   },
+  giant: {
+    title: 'Red giants',
+    text: 'A Sun-like star near the end of its life. Its core has run out of hydrogen and shrinks and heats, while hydrogen burning in a shell around it swells the outer layers to 10 to 200 times the Sun\'s size. Spread thin, the surface cools to 3,500 to 5,000 K: orange-red.',
+    facts: [
+      'The bigger a red giant grows, the cooler and redder its surface: the same light spread over more area (L = 4πR²σT⁴).',
+      'In about 5 billion years the Sun will become a red giant large enough to swallow Mercury and Venus, and perhaps Earth.',
+      'Arcturus and Aldebaran, two of the brightest stars in the sky, are red giants.',
+      'A red giant ends by puffing off its outer layers as a planetary nebula, leaving a white dwarf.',
+    ],
+    sources: [wiki('Red_giant'), wiki('Arcturus')],
+  },
+  supergiant: {
+    title: 'Supergiants',
+    text: 'Massive stars, 10 or more times the Sun\'s mass, in their last stages. Red supergiants (Betelgeuse, Antares) swell to hundreds or a thousand times the Sun\'s size at about 3,500 K; blue supergiants (Rigel, Deneb) are smaller but still huge, and hot. Most end as core-collapse supernovae.',
+    facts: [
+      'Placed where the Sun is, Betelgeuse would reach out past Mars, perhaps to Jupiter.',
+      'A massive star can cross between blue and red supergiant as its core changes what it burns.',
+      'Supernova 1987A came from a blue supergiant, which surprised astronomers who expected red ones to explode.',
+    ],
+    sources: [wiki('Supergiant'), wiki('Betelgeuse'), wiki('SN_1987A')],
+  },
+  bhstar: {
+    title: 'Black hole stars',
+    text: 'A black hole buried in a cocoon of gas so dense that it glows like the surface of a vast, cool star. Proposed in 2025 for JWST\'s "little red dots": compact red objects in the young universe whose light shows the sharp Balmer break of very dense gas, not of stars.',
+    facts: [
+      '"The Cliff", a little red dot 1.8 billion years after the Big Bang, has a Balmer break twice as strong as any population of stars can make (de Graaff et al. 2025, Astronomy & Astrophysics).',
+      'MoM-BH*-1, 660 million years after the Big Bang: a black hole of about 100,000 Suns inside an envelope the size of the Solar System (Naidu et al. 2025).',
+      'It shines by what the black hole swallows, not by fusion, near its Eddington limit: about 32,000 times the Sun\'s light for each solar mass.',
+      'Its surface is cool, roughly 4,000 to 5,000 K, so for that much light it must be enormous: hundreds to thousands of AU across.',
+      'A related, older idea is the "quasi-star" (Begelman et al. 2008): a black hole growing inside a giant star in the early universe.',
+    ],
+    sources: [['MPIA: "Black hole stars" (de Graaff et al. 2025)', 'https://www.mpia.de/news/science/2025-06-black-hole-stars'], ['Naidu et al. 2025: A "Black Hole Star" Reveals the Remarkable Gas-Enshrouded Hearts of the Little Red Dots', 'https://preprints.kavlimeetings.org/?p=222727'], wiki('Quasi-star')],
+  },
   wd: {
     title: 'White dwarfs',
     text: 'The dense, glowing cores left behind when Sun-like stars die. A white dwarf packs roughly the Sun\'s mass into a ball the size of Earth. It no longer fuses anything; it just cools over billions of years.',
@@ -501,6 +534,8 @@ export const TYPES = {
       'The Milky Way\'s central black hole, Sagittarius A*, has about 4 million solar masses and lies about 26,000 light-years away.',
       'The Event Horizon Telescope released the first image of a black hole, M87*, in 2019, and of Sagittarius A* in May 2022.',
       'When a star strays too close, tides shred it in a "tidal disruption event". About half the debris escapes and the rest falls back, as in this game\'s scenario.',
+      'A star that only grazes the tearing distance loses part of itself each pass: ASASSN-14ko flares every 114 days as its star is stripped piece by piece.',
+      'About 1 in 100 tidal disruptions launches jets at nearly light speed, as Swift J1644+57 did in 2011; it needs a fast-spinning hole.',
     ],
     sources: [['Event Horizon Telescope: Sagittarius A*', 'https://eventhorizontelescope.org/blog/astronomers-reveal-first-image-black-hole-heart-our-galaxy'], wiki('Tidal_disruption_event')],
   },
@@ -544,6 +579,8 @@ export function typeKey(b) {
       if (b.m > 13 * 9.5458e-4) return 'browndwarf';
       return me < 50 ? 'icegiant' : 'gasgiant';
     case 'star': {
+      if (b.bhStar) return 'bhstar';
+      if (b.giant > 0.05) return (b.m0 || b.m) >= 8 ? 'supergiant' : 'giant';
       const t = b.temp;
       return t < 3700 ? 'M' : t < 5200 ? 'K' : t < 6000 ? 'G' : t < 7500 ? 'F' : t < 10000 ? 'A' : t < 30000 ? 'B' : 'O';
     }
@@ -563,5 +600,5 @@ export const CONTENTS = [
   ['Dwarf planets and small bodies', ['Ceres', 'Pluto', 'Bennu', 'Ryugu', 'Arrokoth', "Halley's Comet"]],
   ['Beyond the Solar System', ['TRAPPIST-1', 'Pelagia', 'Elysia', 'Orion Nebula']],
   ['Deep history', ['Theia', 'Proto-Earth']],
-  ['Kinds of object', ['comet', 'asteroid', 'planetesimal', 'terrestrial', 'superearth', 'icegiant', 'gasgiant', 'browndwarf', 'M', 'K', 'G', 'F', 'A', 'B', 'O', 'wd', 'ns', 'bh', 'smbh', 'nebula', 'galaxy']],
+  ['Kinds of object', ['comet', 'asteroid', 'planetesimal', 'terrestrial', 'superearth', 'icegiant', 'gasgiant', 'browndwarf', 'M', 'K', 'G', 'F', 'A', 'B', 'O', 'giant', 'supergiant', 'bhstar', 'wd', 'ns', 'bh', 'smbh', 'nebula', 'galaxy']],
 ];

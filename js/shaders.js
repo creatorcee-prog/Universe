@@ -2505,7 +2505,7 @@ void main() {
   float lr = log(rs), om = 0.9 * pow(3.0 / rs, 1.5), ph = fract(uTime / 6.0), swirl = 0.0;
   for (int k = 0; k < 2; k++) {
     float p = fract(ph + 0.5 * float(k)), spin = ang + (p - 0.5) * 6.0 * om, sd = float(k) * 7.3 + floor(uTime / 6.0 + 0.5 * float(k)) * 2.1;
-    float n = vnoise(vec3(lr * 7.0, spin * 3.0, sd)) * 0.6 + vnoise(vec3(lr * 19.0, spin * 8.0, sd + 3.0)) * 0.4;
+    float n = vnoise(vec3(lr * 11.0, spin * 5.0, sd));   // (one octave: this disk can fill the screen)
     swirl += n * (1.0 - abs(2.0 * p - 1.0));
   }
   // Relativistic beaming: gas orbits at β = √(r_s / 2(r − r_s)) (half light speed at the innermost stable
@@ -2969,6 +2969,26 @@ in vec2 vUV;
 uniform sampler2D uTex;
 out vec4 outColor;
 void main() { outColor = texture(uTex, vUV); }
+`;
+
+// A low-resolution buffer enlarged smoothly: cubic B-spline filtering from four bilinear taps (Sigg & Hadwiger,
+// GPU Gems 2 ch. 20), so a quarter-resolution nebula shows no 4x4 blocks where plain bilinear would.
+export const UPSAMPLE_FS = HEAD + `
+in vec2 vUV;
+uniform sampler2D uTex;
+uniform vec2 uSize;   // the buffer's size in texels
+out vec4 outColor;
+void main() {
+  vec2 p = vUV * uSize - 0.5, f = fract(p), i = floor(p);
+  vec2 f2 = f * f, f3 = f2 * f;
+  vec2 w0 = (1.0 - 3.0 * f + 3.0 * f2 - f3) / 6.0, w1 = (4.0 - 6.0 * f2 + 3.0 * f3) / 6.0;
+  vec2 w2 = (1.0 + 3.0 * f + 3.0 * f2 - 3.0 * f3) / 6.0, w3 = f3 / 6.0;
+  vec2 g0 = w0 + w1, g1 = w2 + w3;
+  // (texel k's centre is at p = k, uv = (k + 0.5) / size; each tap lies between two texels, weighted)
+  vec2 h0 = (i - 0.5 + w1 / g0) / uSize, h1 = (i + 1.5 + w3 / g1) / uSize;
+  outColor = g0.y * (g0.x * texture(uTex, vec2(h0.x, h0.y)) + g1.x * texture(uTex, vec2(h1.x, h0.y)))
+           + g1.y * (g0.x * texture(uTex, vec2(h0.x, h1.y)) + g1.x * texture(uTex, vec2(h1.x, h1.y)));
+}
 `;
 
 // Generated terrain map of a world without a real one (render3d.js genStep): equirectangular, the same
