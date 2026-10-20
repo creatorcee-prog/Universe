@@ -104,7 +104,9 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
   pressure balance (Earth ~10 radii), the field squeezed on the wind side, drawn into a tail downwind; the
   star's field wound into Parker spirals (45° at 1 AU). Realistic brightness: following a star, the eye now
   adapts to its light (it adapted as if in the dark: a planet near Betelgeuse bloomed into a white blot).
-- TODO (user, added): zone views (gravity, temperature) for every object where visible; shattering destruction (match a user photo to ~80%); composition
+- (Done) Zone views for everything: Settings switches show temperature zones for every heat source and gravity
+  zones for the 40 heaviest bodies (each drawn where it is big enough to see), beside per-object ones.
+- TODO (user, added): shattering destruction (match a user photo to ~80%); composition
   info (core, mantle, crust) with a cutaway like the user's Earth cross-section.
 - (Done) The Solar System's Moon rides on Earth (minors.js partner): the pair's centre of mass in IAS15, the
   Moon on a Kepler orbit kicked by the Sun's and planets' tides, 128 kicks an orbit (matches a full N-body run

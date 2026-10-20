@@ -1,7 +1,7 @@
 import { G, EARTH_MASS, km } from './units.js';
 import { World, circularSpeed, captureRadius, PK } from './physics.js';
 import { makeBody, catalogItem, reclassify } from './bodies.js';
-import { thermalStep, localTemp } from './thermal.js';
+import { thermalStep, localTemp, tempZones } from './thermal.js';
 import { PRESETS, ring } from './presets.js';
 import { lifetime } from './stellar.js';
 import { Camera } from './camera.js';
@@ -18,7 +18,7 @@ import { atmosphereOptics } from './optics.js';
 const SETTINGS_KEY = 'universe-pocket-settings';
 
 function loadSettings() {
-  const defaults = { trails: true, labels: true, grid: true, stars: true, trailsRelative: true, collisions: true, sound: true, music: true, uiSound: true, soundSilent: false, bassBoost: false, sharp: false, perf: false, gpuRings: false, webgpu: false, v: 4, view: 'realistic', bloom: true, flare: true, brightness: 'enhanced', tone: 'classic', rocks: true, trailColor: 'body', orbits: false, trueSize: false, magnetic: false };
+  const defaults = { trails: true, labels: true, grid: true, stars: true, trailsRelative: true, collisions: true, sound: true, music: true, uiSound: true, soundSilent: false, bassBoost: false, sharp: false, perf: false, gpuRings: false, webgpu: false, v: 4, view: 'realistic', bloom: true, flare: true, brightness: 'enhanced', tone: 'classic', rocks: true, trailColor: 'body', orbits: false, trueSize: false, magnetic: false, allTemp: false, allGrav: false };
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
     // v2: interface sounds were off in v1 while the sound set was being replaced; the new set is on.
@@ -1051,7 +1051,12 @@ class App {
       set.delete(b);
       if (r && r.alive) set.add(r);
     }
-    const ui = { selected: this.state.selected, preview, surface: this.surface, zones: this.zones, gzones: this.gzones, laser: this.laser && this.laser.body ? this.laser : null };
+    // Zones for every object that has them (Settings), besides those chosen one by one; the renderer leaves out
+    // the ones too small to see. Gravity zones for the 40 heaviest bodies (dust and boulders have none worth drawing).
+    let zones = this.zones, gzones = this.gzones;
+    if (this.settings.allTemp) { zones = new Set(this.zones); for (const b of this.world.bodies) if (b.alive && tempZones(b)) zones.add(b); }
+    if (this.settings.allGrav) { gzones = new Set(this.gzones); for (const b of this.world.bodies.filter((x) => x.alive && x.kind !== 'nebula').sort((a, c) => c.m - a.m).slice(0, 40)) gzones.add(b); }
+    const ui = { selected: this.state.selected, preview, surface: this.surface, zones, gzones, laser: this.laser && this.laser.body ? this.laser : null };
     const tr = performance.now();
     // Rings drawn as GPU debris (Realistic view only; the Pixel view and the surface keep WebGL's). With the
     // WebGPU renderer the ring layer runs inside it (gpuEmb); with WebGL, on its own canvas over it (gpu).
