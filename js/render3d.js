@@ -677,6 +677,8 @@ export class Renderer3D {
       gl.uniform1f(this.pComp.u.uBloomK, bloom ? (this.hdr ? 0.32 : 0.22) : 0);
       gl.uniform3fv(this.pComp.u.uWB, this.whiteBalance());
       this.toneUniforms(this.pComp.u);
+      // (sharpening while the resolution is reduced to keep the frame rate: AMD's contrast-adaptive sharpening)
+      gl.uniform1f(this.pComp.u.uSharp, this.quality < 1 ? Math.min(1, (1 - this.quality) * 2.5) : 0);
       this.setFlare(this.pComp.u);
       this.fullscreen(this.pComp, null, p.W, p.H);
     }
@@ -1927,9 +1929,6 @@ export class Renderer3D {
     if (this.samples !== prevS) this.freePost(); // rebuilt at the next draw
   }
 
-  // Spin bodies (capped so fast time-warp doesn't strobe). Called by the main loop before the surface view
-  // places its camera, so the camera and the ground below it turn together (it used to run here, after the
-  // camera was set: the view lagged the ground by one frame's spin, which jittered with the frame time).
   // The planet a tidally locked moon keeps one face toward: the one closest in tidal terms (smallest
   // distance / cube root of mass). Null for a world that is not locked.
   tidalParent(world, b) {
@@ -1943,6 +1942,9 @@ export class Renderer3D {
     return par;
   }
 
+  // Spin bodies (capped so fast time-warp doesn't strobe). Called by the main loop before the surface view
+  // places its camera, so the camera and the ground below it turn together (it used to run here, after the
+  // camera was set: the view lagged the ground by one frame's spin, which jittered with the frame time).
   stepSpins(world, simDt, dtReal, now) {
     this.spunAt = now;
     for (const b of world.bodies) {

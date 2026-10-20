@@ -2904,12 +2904,27 @@ in vec2 vUV;
 uniform sampler2D uScene, uBloom;
 uniform float uBloomK;
 uniform vec3 uWB;            // white balance: the eye partly adapting to the light's colour (1 = none)
+uniform float uSharp;        // 0..1: contrast-adaptive sharpening, while the render resolution is reduced
 out vec4 outColor;
 ` + FLARE + `
+vec3 frameAt(vec2 uv) { return toneCurve((finite(texture(uScene, uv).rgb) + finite(texture(uBloom, uv).rgb) * uBloomK) * uWB); }
 void main() {
   vec3 c = finite(texture(uScene, vUV).rgb) + finite(texture(uBloom, vUV).rgb) * uBloomK;
   if (uFlare.z > 0.0) c += lensFlare(vUV);
-  outColor = vec4(toneCurve(c * uWB), 1.0);
+  vec3 e = toneCurve(c * uWB);
+  if (uSharp > 0.0) {
+    // Contrast-adaptive sharpening (AMD FidelityFX CAS, T. Lottes 2019), its 5-tap form: the neighbours'
+    // range sets how much to sharpen, little at strong edges (no halos), more in soft detail, so a frame
+    // rendered at 70-85% and enlarged keeps more of its texture.
+    vec2 px = 1.0 / vec2(textureSize(uScene, 0));
+    vec3 n = frameAt(vUV + vec2(0.0, px.y)), s = frameAt(vUV - vec2(0.0, px.y));
+    vec3 w = frameAt(vUV - vec2(px.x, 0.0)), ea = frameAt(vUV + vec2(px.x, 0.0));
+    vec3 mn = min(e, min(min(n, s), min(w, ea))), mx = max(e, max(max(n, s), max(w, ea)));
+    vec3 amp = sqrt(clamp(min(mn, 1.0 - mx) / max(mx, vec3(1e-4)), 0.0, 1.0));
+    vec3 wt = amp * (-1.0 / mix(8.0, 5.0, uSharp));
+    e = clamp((e + (n + s + w + ea) * wt) / (1.0 + 4.0 * wt), 0.0, 1.0);
+  }
+  outColor = vec4(e, 1.0);
 }
 `;
 

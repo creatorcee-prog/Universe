@@ -226,5 +226,7 @@ on the phone.
 6. (Stage A done: main.js startDescent/stepDescent, the camera swings over the landing place and dives in, fading
    through the entry colour into the surface view) 6. Seamless descent: (A) an animated descent zooming the globe and crossfading into the surface view;
    (B) a quadtree LOD globe from orbit to ground (the largest job; last).
-7. Keep the frame rate: temporal reprojection to recover sharpness at reduced resolution; test on the iPhone
+7. (Done, differently: contrast-adaptive sharpening (AMD CAS) in the composite while the resolution is reduced.
+   Temporal reprojection was not done: with planets, moons, particles and clouds all moving on their own, it
+   needs per-object motion vectors to avoid ghost trails, a renderer-wide change for this gain.) 7. Keep the frame rate: temporal reprojection to recover sharpness at reduced resolution; test on the iPhone
    after every step; regenerate the WebGPU shader translations after any shader edit.
