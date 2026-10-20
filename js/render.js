@@ -6,6 +6,7 @@ import { tempZones } from './thermal.js';
 import { gravZones } from './gravzones.js';
 import { atmosphereOptics } from './optics.js';
 import { fieldOf, fieldLines, parkerSpirals } from './magnetic.js';
+import { showersAt, radiantDir } from './events.js';
 
 const TRAIL_LEN = 360;
 
@@ -148,6 +149,7 @@ export class Renderer {
       if (this.settings.allGrav) this.drawGravityGrid(ui);
       this.drawZones(ui);
       this.drawBodies(now, ui);
+      if (ui.surface && world.epoch) this.drawMeteors(ui.surface, now);
       this.drawFlashes(now);
       if (ui.laser) this.drawLaser(ui.laser, now);
       if (ui.preview && !this.photo) this.drawPreview(ui.preview);
@@ -1021,6 +1023,62 @@ export class Renderer {
     coma.addColorStop(1, rgba([90, 200, 160], 0));
     ctx.fillStyle = coma;
     ctx.fillRect(p.x - cr * 2.5, p.y - cr * 2.5, cr * 5, cr * 5);
+    ctx.restore();
+  }
+
+  // Meteors from Earth's ground in the dated Solar System (js/events.js): each active shower's rate now (its ZHR on
+  // the day), times the sine of its radiant's height and the darkness of the sky, at the simulation's pace (time runs
+  // faster than real in the Surface view, so they come faster than an observer would count them). Each starts 10-70°
+  // from the radiant and streaks away from it; fast showers (Orionids, Leonids: 66-71 km/s) burn greenish white and
+  // briefly, slow ones yellower and longer. Brightness follows the steep spread of real showers: mostly faint.
+  drawMeteors(sv, now) {
+    const b = sv.body, w = this.world;
+    if (!b || !/^Earth$/.test(b.ident || b.name)) return;
+    const mt = this._mt || (this._mt = { t: w.t, now, list: [], at: 0, sh: [] });
+    const dtSim = Math.max(0, w.t - mt.t) * 3.15576e7, dtReal = Math.max(0, now - mt.now) / 1000;
+    mt.t = w.t; mt.now = now;
+    const ms = w.epoch + w.t * 365.25 * 86400e3;
+    if (now - mt.at > 1000) { mt.sh = showersAt(ms); mt.at = now; }
+    const up = sv.up, dark = Math.max(0, Math.min(1, (-(sv.elev || 0) - 0.1) / 0.21));
+    const dot = (a, c) => a[0] * c[0] + a[1] * c[1] + a[2] * c[2];
+    if (dark > 0 && dtReal > 0) {   // (at most one new meteor a frame, so no burst after a pause)
+      for (const { s, zhr } of mt.sh) {
+        const rd = radiantDir(s), alt = dot(rd, up);
+        if (alt <= 0.05) continue;
+        const expect = Math.min(0.35, (zhr * alt * dark * dtSim) / 3600);
+        if (Math.random() >= expect) continue;
+        // (a basis about the radiant; start θ from it, at a random bearing)
+        let e1 = [rd[1], -rd[0], 0]; const el = Math.hypot(...e1) || 1; e1 = e1.map((v) => v / el);
+        const e2 = [rd[1] * e1[2] - rd[2] * e1[1], rd[2] * e1[0] - rd[0] * e1[2], rd[0] * e1[1] - rd[1] * e1[0]];
+        const phi = Math.random() * 2 * Math.PI, th = (10 + Math.random() * 60) * Math.PI / 180;
+        const ax = [0, 1, 2].map((i) => e1[i] * Math.cos(phi) + e2[i] * Math.sin(phi));
+        const fast = s.v / 70, L = (6 + Math.random() * 18) * (0.6 + 0.6 * fast) * Math.PI / 180;
+        mt.n = (mt.n || 0) + 1;
+        mt.list.push({ rd, ax, th, L, t0: now, T: (0.35 + Math.random() * 0.7) * (1.3 - 0.6 * fast) * 1000 * (window.__meteorSlow || 1),   // (__meteorSlow: tests)
+          mag: Math.pow(Math.random(), 2.2), col: s.v > 55 ? [205, 255, 225] : s.v > 38 ? [240, 245, 255] : [255, 236, 190] });
+      }
+    }
+    if (!mt.list.length) return;
+    const { ctx, cam, dpr } = this, eye = [cam.tx + cam.ox, cam.ty + cam.oy, cam.tz + cam.oz], p = { x: 0, y: 0, s: 0 };
+    const dirAt = (m, a) => [0, 1, 2].map((i) => m.rd[i] * Math.cos(a) + m.ax[i] * Math.sin(a));
+    const proj = (d) => (dot(d, up) > 0.12 && cam.project(eye[0] + d[0], eye[1] + d[1], eye[2] + d[2], p) > 0 ? [p.x, p.y] : null);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    mt.list = mt.list.filter((m) => {
+      const k = (now - m.t0) / m.T;
+      if (k >= 1) return false;
+      const head = m.th + m.L * k, tail = m.th + m.L * Math.max(0, k - 0.45);
+      const a = proj(dirAt(m, head)), c = proj(dirAt(m, tail));
+      if (!a || !c) return true;
+      const fade = Math.sin(Math.PI * Math.min(1, k * 1.15)) * (0.35 + 0.65 * m.mag) * dark;
+      const g = ctx.createLinearGradient(c[0], c[1], a[0], a[1]);
+      g.addColorStop(0, rgba(m.col, 0));
+      g.addColorStop(1, rgba(m.col, Math.min(1, fade)));
+      ctx.strokeStyle = g; ctx.lineCap = 'round';
+      ctx.lineWidth = (0.8 + 1.8 * m.mag) * dpr;
+      ctx.beginPath(); ctx.moveTo(c[0], c[1]); ctx.lineTo(a[0], a[1]); ctx.stroke();
+      return true;
+    });
     ctx.restore();
   }
 

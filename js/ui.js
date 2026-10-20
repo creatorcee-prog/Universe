@@ -9,6 +9,7 @@ import { atmosphereOptics } from './optics.js';
 import { interiorOf, formatPressure } from './interior.js';
 import { renderThumb, category } from './thumbs.js';
 import { MUSIC_TITLES } from './audio.js';
+import { showersAt, upcoming } from './events.js';
 import { STAR_TYPES, starFromType } from './stellar.js';
 import { CHALLENGES } from './challenges.js';
 
@@ -228,6 +229,8 @@ export class UI {
       if (b.craft && b.minor) app.rideAlong(b); else app.enterSurface(b, 'day');
     });
     $('ride-chip').addEventListener('click', () => app.exitRide());
+    $('ev-watch').addEventListener('click', () => { $('event-card').hidden = true; if (this.skyNow) app.watchShower(this.skyNow); });
+    $('ev-close').addEventListener('click', () => { $('event-card').hidden = true; this.skyDismissed = this.skyNow && this.skyNow.name; });
     $('i-cutaway').addEventListener('click', () => {
       const b = app.state.selected;
       if (!b) return;
@@ -603,6 +606,7 @@ export class UI {
   openSheet(id) {
     this.closeSheets(true);
     this.app.audio.ui('open-panel');
+    if (id === 'sheet-sim') this.refreshSky();
     $(id).hidden = false;
     // Side panels on wide screens leave the simulation usable; phones get a modal sheet.
     $('scrim').hidden = false;
@@ -1088,6 +1092,42 @@ export class UI {
       if (k === a.mTrack && a.mState === 'playing') li.className = 'now';
       b.addEventListener('click', () => { if (this.app.settings.music === false) { this.app.settings.music = true; const c = $('set-music'); if (c) c.checked = true; a.setMusic(true); } a.playTrack(k); });
       li.append(b);
+      return li;
+    }));
+  }
+
+  // The dated Solar System's sky (js/events.js): a card for a meteor shower going on now, and the Simulation panel's
+  // list of what is coming (shower peaks, eclipses), each shower with a way to watch it from the ground.
+  skyCard() {
+    const app = this.app, w = app.world, card = $('event-card');
+    const dated = app.state.preset && app.state.preset.id === 'solar' && w.epoch;
+    if (!dated || app.surface || app.ride) { card.hidden = true; return; }
+    // (the real date: the card is about tonight, wherever the simulation's clock has run to)
+    const ms = (typeof window !== 'undefined' && window.__EPOCH) ? Date.parse(window.__EPOCH) : Date.now(), now = showersAt(ms).filter((x) => x.zhr >= 3)[0];
+    if (!now || this.skyDismissed === now.s.name) { card.hidden = true; return; }
+    const d = now.days, when = Math.abs(d) < 0.6 ? 'peak tonight' : d < 0 ? `peak in ${Math.round(-d)} day${Math.round(-d) === 1 ? '' : 's'}` : `peaked ${Math.round(d)} day${Math.round(d) === 1 ? '' : 's'} ago`;
+    $('ev-title').textContent = `The ${now.s.name} ${when}`;
+    $('ev-text').textContent = `About ${Math.max(1, Math.round(now.zhr))} meteors an hour now (up to ${now.s.zhr} at the peak) under a dark sky, from ${now.s.parent}, hitting the air at ${now.s.v} km/s.`;
+    this.skyNow = now.s;
+    card.hidden = false;
+  }
+
+  refreshSky() {
+    const app = this.app, w = app.world, box = $('sky-box');
+    const dated = app.state.preset && app.state.preset.id === 'solar' && w.epoch;
+    box.hidden = !dated;
+    if (!dated) return;
+    const ms = w.epoch + w.t * 365.25 * 86400e3, active = new Set(showersAt(ms).filter((x) => x.zhr >= 1).map((x) => x.s.name));
+    const fmt = (t) => new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+    $('sky-events').replaceChildren(...upcoming(ms, 120).slice(0, 7).map((e) => {
+      const li = document.createElement('li'), t = document.createElement('span'), x = document.createElement('span');
+      t.className = 'sky-date'; t.textContent = fmt(e.t); x.textContent = e.text;
+      li.append(t, x);
+      if (e.kind === 'shower' && active.has(e.s.name)) {
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Watch';
+        b.addEventListener('click', () => { this.closeSheets(); app.watchShower(e.s); });
+        li.append(b);
+      }
       return li;
     }));
   }

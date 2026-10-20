@@ -15,6 +15,7 @@ import { Sound } from './audio.js';
 import { UI } from './ui.js';
 import { Challenges } from './challenges.js';
 import { atmosphereOptics } from './optics.js';
+import { showersAt, upcoming, radiantDir } from './events.js';
 const $id = (id) => document.getElementById(id);
 const SAT_SIZE = (b) => b.r * 2 * 1.495978707e11;   // a spacecraft's size (m): presets.js gives it a radius of half
 
@@ -246,6 +247,19 @@ class App {
     }
   }
 
+  // Watch a meteor shower (js/events.js) from Earth: on the ground under its radiant at night, time at one minute
+  // a second (a 20-an-hour shower then shows one every three seconds or so).
+  watchShower(s) {
+    // (back to today if the simulation's clock has run away from it: the shower is tonight)
+    const real = window.__EPOCH ? Date.parse(window.__EPOCH) : Date.now();
+    const simMs = this.world.epoch ? this.world.epoch + this.world.t * 365.25 * 86400e3 : NaN;
+    if (!this.state.preset || this.state.preset.id !== 'solar' || !(Math.abs(simMs - real) < 2 * 86400e3)) this.loadPreset('solar');
+    const e = this.world.findByName('Earth');
+    if (!e) return;
+    this.enterSurface(e, { dir: radiantDir(s), shower: s.name }, true);
+    if (this.surface) { this.ui.setSpeed(60 / 3.15576e7); this.ui.toast(`${s.name}: meteors stream from the radiant in front of you. Time runs at a minute a second.`); }
+  }
+
   // Ride along with a spacecraft (the ISS's cupola view): the eye just behind and beside it in its orbit frame (along
   // the motion, away from the planet), looking ahead and down at the planet's horizon; drag to look around. Time
   // runs at real speed (a station circles Earth in 92 minutes; faster, the view would spin).
@@ -358,6 +372,15 @@ class App {
         sv.lon = Math.atan2(no[2], no[0]);
         sv.face = par;
       }
+      else if (sv.where && sv.where.dir) {
+        // Under a meteor shower's radiant (watchShower): 35° from the point it stands over, toward the night side,
+        // so it is ~55° up in a dark sky; facing it.
+        const ro = toO(sv.where.dir), ao = so.map((v) => -v), k = ao[0] * ro[0] + ao[1] * ro[1] + ao[2] * ro[2];
+        let q = [ao[0] - k * ro[0], ao[1] - k * ro[1], ao[2] - k * ro[2]], ql = Math.hypot(...q) || 1;
+        const c = Math.cos(0.61), s = Math.sin(0.61), no = [0, 1, 2].map((i) => ro[i] * c + (q[i] / ql) * s);
+        sv.lat = Math.asin(Math.max(-1, Math.min(1, no[1]))); sv.lon = Math.atan2(no[2], no[0]);
+        sv.faceDir = sv.where.dir;
+      }
       else {
         const sgn = sv.where === 'night' ? -1 : 1;
         sv.lat = Math.asin(Math.max(-1, Math.min(1, so[1] * sgn)));
@@ -375,6 +398,10 @@ class App {
         const sunToo = po[0] * so[0] + po[1] * so[1] + po[2] * so[2] > -0.3;
         keep = (lat, lon) => up(po, lat, lon) > 0.26 && (!sunToo || up(so, lat, lon) > 0.4);
       }
+      if (sv.where && sv.where.dir) {
+        const ro = toO(sv.where.dir), up = (d, lat, lon) => Math.cos(lat) * Math.cos(lon) * d[0] + Math.sin(lat) * d[1] + Math.cos(lat) * Math.sin(lon) * d[2];
+        keep = (lat, lon) => up(ro, lat, lon) > 0.55 && up(so, lat, lon) < -0.3;
+      }
       this.nearestLand(b, sv, 35, keep);
     }
     const no = [Math.cos(sv.lat) * Math.cos(sv.lon), Math.sin(sv.lat), Math.cos(sv.lat) * Math.sin(sv.lon)];
@@ -386,6 +413,13 @@ class App {
     if (nl < 1e-6) { north = toW([1, 0, 0]); nl = Math.hypot(...north); }
     north = north.map((v) => v / nl);
     const east = [north[1] * n[2] - north[2] * n[1], north[2] * n[0] - north[0] * n[2], north[0] * n[1] - north[1] * n[0]];
+    if (sv.faceDir) {
+      // (a direction to face: a shower's radiant, a little above the middle of the view)
+      const fv = sv.faceDir, dt = (a, c) => a[0] * c[0] + a[1] * c[1] + a[2] * c[2];
+      sv.yaw = Math.atan2(dt(fv, east), dt(fv, north));
+      sv.pitch = Math.max(0.05, Math.asin(Math.max(-1, Math.min(1, dt(fv, n)))) * 0.6);
+      sv.faceDir = null;
+    }
     if (sv.face) {
       // (once, on arriving: turn toward it, its centre a little above the middle of the view)
       const f0 = sv.face, fd = Math.hypot(f0.x - b.x, f0.y - b.y, f0.z - b.z), fv = [(f0.x - b.x) / fd, (f0.y - b.y) / fd, (f0.z - b.z) / fd];
@@ -478,6 +512,7 @@ class App {
 
   loadPreset(id) {
     if (this.ride) this.exitRide();
+    setTimeout(() => this.ui.skyCard(), 2500);   // (after the scenario's own notice)
     this.descent = null;   // (a descent under way ends with the scene)
     if (this.challenges && !this.challenges.starting && this.challenges.active) this.challenges.stop();   // (another scenario ends a challenge)
     this.impactSped = false;

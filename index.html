@@ -192,6 +192,10 @@
   <div id="fade" class="fade" aria-hidden="true"></div>
   <canvas id="snap" class="snap" aria-hidden="true"></canvas>
   <div id="toast" class="toast" hidden role="status"></div>
+  <section id="event-card" class="event-card" hidden aria-live="polite">
+    <div><b id="ev-title"></b><p id="ev-text"></p></div>
+    <div class="ev-btns"><button id="ev-watch" type="button">Watch from Earth</button><button id="ev-close" class="icon-btn small" type="button" aria-label="Dismiss"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  </section>
   <div id="perf" class="perf" hidden aria-live="off"></div>
   <div id="photo-hint" class="photo-hint" aria-hidden="true">Photo mode · tap the view to return</div>
   <nav id="photo-bar" class="photo-bar" aria-label="Photo mode overlays">
@@ -363,6 +367,10 @@
     <div class="sheet-head">
       <h2>Simulation</h2>
       <button class="icon-btn small" type="button" data-close aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div id="sky-box" hidden>
+      <h3 class="sheet-sub">In the sky</h3>
+      <ul id="sky-events" class="sky-events"></ul>
     </div>
     <div class="settings">
       <div class="field">

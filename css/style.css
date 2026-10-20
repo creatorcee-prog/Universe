@@ -687,3 +687,19 @@ input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 
 .info-head h2:has(.name-edit)::after { display: none; }
 .icon-btn.rename { width: 32px; height: 34px; }
 .icon-btn.rename svg { width: 16px; height: 16px; }
+
+/* Sky events (js/events.js): the card for a shower going on now, and the Simulation panel's list */
+.event-card { position: absolute; z-index: 5; left: max(12px, env(safe-area-inset-left, 0px)); bottom: calc(var(--dock-h, 90px) + 6px);
+  width: min(380px, calc(100% - 24px)); display: flex; gap: 10px; align-items: start; padding: 12px 12px 12px 14px;
+  background: var(--panel-solid); border: 1px solid var(--line-strong); box-shadow: inset 2px 0 0 var(--accent); }
+.event-card b { font-weight: 600; font-size: 15px; }
+.event-card p { margin: 3px 0 0; font-size: 13px; color: var(--muted); line-height: 1.4; }
+.ev-btns { display: flex; gap: 4px; align-items: center; flex: none; }
+.ev-btns #ev-watch { height: 34px; padding: 0 12px; border: 1px solid var(--accent); background: rgba(155,123,255,.14); color: var(--ink); font: 600 13px var(--font-ui); cursor: pointer; white-space: nowrap; }
+.ev-btns .icon-btn { background: none; border-color: transparent; }
+#app.photo .event-card, body:has(.sheet.open) .event-card { display: none; }
+.sky-events { list-style: none; margin: 0 0 10px; padding: 0; display: grid; }
+.sky-events li { display: grid; grid-template-columns: 92px 1fr auto; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+.sky-date { font: 500 12px var(--font-data); color: var(--muted); }
+.sky-events button { height: 30px; padding: 0 10px; border: 1px solid var(--accent); background: rgba(155,123,255,.12); color: var(--ink); font: 600 12px var(--font-ui); cursor: pointer; }
+@media (max-width: 430px) { .sky-events li { grid-template-columns: 74px 1fr auto; } }

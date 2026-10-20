@@ -13,7 +13,7 @@ Done items move to the README. (October 2026: the user cleared everything else; 
 - [ ] Realistic comet tails (dust tail curved along the orbit, straight blue ion tail pointing away from the Sun, growing inside ~3 AU).
 - [ ] Rename objects.
 - [x] Artificial satellites in their proper places, with NASA models, plus Voyager 1/2, New Horizons, Pioneers, Parker, LRO, MRO, Vanguard 1, and a ride-along view from the ISS.
-- [ ] Real-time events: e.g. tonight's meteor shower (annual showers by date, radiant, ZHR; maybe eclipses).
+- [x] Real-time events: e.g. tonight's meteor shower (annual showers by date, radiant, ZHR; maybe eclipses).
 
 ## Done (history)
 
