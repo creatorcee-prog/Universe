@@ -249,8 +249,8 @@ class App {
     }
   }
 
-  // Watch a meteor shower (js/events.js) from Earth: on the ground under its radiant at night, time at one minute
-  // a second (a 20-an-hour shower then shows one every three seconds or so).
+  // Watch a meteor shower (js/events.js) from Earth: on the ground under its radiant at night, time at four minutes
+  // a second (a 20-an-hour shower then shows one every second or so).
   watchShower(s) {
     // (back to today if the simulation's clock has run away from it: the shower is tonight)
     const real = window.__EPOCH ? Date.parse(window.__EPOCH) : Date.now();
@@ -259,7 +259,7 @@ class App {
     const e = this.world.findByName('Earth');
     if (!e) return;
     this.enterSurface(e, { dir: radiantDir(s), shower: s.name }, true);
-    if (this.surface) { this.ui.setSpeed(60 / 3.15576e7); this.ui.toast(`${s.name}: meteors stream from the radiant in front of you. Time runs at a minute a second.`); }
+    if (this.surface) { this.ui.setSpeed(240 / 3.15576e7); this.ui.toast(`${s.name}: meteors stream from the radiant in front of you. Time runs at four minutes a second, so they come about 240 times faster than you would see them.`); }
   }
 
   // A geomagnetic storm (js/live.js Kp): Earth from its night side, where the aurora ovals show.
@@ -434,7 +434,8 @@ class App {
       // (a direction to face: a shower's radiant, a little above the middle of the view)
       const fv = sv.faceDir, dt = (a, c) => a[0] * c[0] + a[1] * c[1] + a[2] * c[2];
       sv.yaw = Math.atan2(dt(fv, east), dt(fv, north));
-      sv.pitch = Math.max(0.05, Math.asin(Math.max(-1, Math.min(1, dt(fv, n)))) * 0.6);
+      // (the view's centre a little below it, so it shows clear of the panel and the meteors fanning out fill the frame)
+      sv.pitch = Math.max(0.05, Math.asin(Math.max(-1, Math.min(1, dt(fv, n)))) - 0.06);
       sv.faceDir = null;
     }
     if (sv.face) {

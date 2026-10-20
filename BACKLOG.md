@@ -16,6 +16,17 @@ Done items move to the README. (October 2026: the user cleared everything else; 
 - [x] Real-time events: e.g. tonight's meteor shower (annual showers by date, radiant, ZHR; maybe eclipses).
 - [x] Live feeds (GitHub Pages copy; the artifact's CSP blocks other hosts): CelesTrak elements + SGP4 for real satellite positions, NOAA SWPC Kp for aurora alerts and strength, JPL Horizons for probe positions if it allows browser requests; cached offline by the service worker, falling back to the built-in tables.
 
+- [x] Meteors not visible in the Surface view (user, 21 Oct): they started up to 70° from the radiant with the view aimed below it, so most were off-screen, and few, thin and faint. Now 8-40° out, the view just under the radiant, brighter with a glowing head, time at 4 min/s while watching (about one a second).
+- [ ] Seasons visible on every object that has them (axial tilt: ice caps and climate shifting with the year, on Mars, Earth, Titan, made-up worlds).
+- [ ] Delete the Galaxy Collision scenario (Milky Way vs Andromeda replaces it).
+- [ ] Scenarios panel: tabs for Scenarios and Challenges, and a sub-tab for black hole scenarios.
+- [ ] Delete the Jupiter's moons scenario.
+- [ ] Planet Formation doesn't form planets: check the time scale and the growth physics.
+- [ ] Empty scenario first in the list; delete Empty Star.
+- [ ] Historic events tab in Scenarios: the Chicxulub impact that killed the dinosaurs, etc.
+- [ ] Discord bot that notifies of events (user asked whether it's possible and what it could notify about).
+- [ ] "Allow for automation clicks" (to clarify with the user).
+
 ## Done (history)
 
 ## Earlier list (parked October 2026)

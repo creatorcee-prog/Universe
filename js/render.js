@@ -1045,17 +1045,19 @@ export class Renderer {
       for (const { s, zhr } of mt.sh) {
         const rd = radiantDir(s), alt = dot(rd, up);
         if (alt <= 0.05) continue;
-        const expect = Math.min(0.35, (zhr * alt * dark * dtSim) / 3600);
-        if (Math.random() >= expect) continue;
+        const boost = window.__meteorBoost || 1;   // (tests: more at once, to look at them)
+        const expect = Math.min(0.35 * boost, (zhr * alt * dark * dtSim * boost) / 3600);
+        for (let q = 0, nq = Math.floor(expect) + (Math.random() < expect % 1 ? 1 : 0); q < nq; q++) {
         // (a basis about the radiant; start θ from it, at a random bearing)
         let e1 = [rd[1], -rd[0], 0]; const el = Math.hypot(...e1) || 1; e1 = e1.map((v) => v / el);
         const e2 = [rd[1] * e1[2] - rd[2] * e1[1], rd[2] * e1[0] - rd[0] * e1[2], rd[0] * e1[1] - rd[1] * e1[0]];
-        const phi = Math.random() * 2 * Math.PI, th = (10 + Math.random() * 60) * Math.PI / 180;
+        const phi = Math.random() * 2 * Math.PI, th = (8 + Math.random() * 32) * Math.PI / 180;   // (most cross a view held near the radiant)
         const ax = [0, 1, 2].map((i) => e1[i] * Math.cos(phi) + e2[i] * Math.sin(phi));
         const fast = s.v / 70, L = (6 + Math.random() * 18) * (0.6 + 0.6 * fast) * Math.PI / 180;
         mt.n = (mt.n || 0) + 1;
         mt.list.push({ rd, ax, th, L, t0: now, T: (0.35 + Math.random() * 0.7) * (1.3 - 0.6 * fast) * 1000 * (window.__meteorSlow || 1),   // (__meteorSlow: tests)
           mag: Math.pow(Math.random(), 2.2), col: s.v > 55 ? [205, 255, 225] : s.v > 38 ? [240, 245, 255] : [255, 236, 190] });
+        }
       }
     }
     if (!mt.list.length) return;
@@ -1070,13 +1072,17 @@ export class Renderer {
       const head = m.th + m.L * k, tail = m.th + m.L * Math.max(0, k - 0.45);
       const a = proj(dirAt(m, head)), c = proj(dirAt(m, tail));
       if (!a || !c) return true;
-      const fade = Math.sin(Math.PI * Math.min(1, k * 1.15)) * (0.35 + 0.65 * m.mag) * dark;
+      const fade = Math.sin(Math.PI * Math.min(1, k * 1.15)) * (0.55 + 0.45 * m.mag) * dark;
       const g = ctx.createLinearGradient(c[0], c[1], a[0], a[1]);
       g.addColorStop(0, rgba(m.col, 0));
       g.addColorStop(1, rgba(m.col, Math.min(1, fade)));
       ctx.strokeStyle = g; ctx.lineCap = 'round';
-      ctx.lineWidth = (0.8 + 1.8 * m.mag) * dpr;
+      ctx.lineWidth = (1.3 + 2.4 * m.mag) * dpr;
       ctx.beginPath(); ctx.moveTo(c[0], c[1]); ctx.lineTo(a[0], a[1]); ctx.stroke();
+      // (the glowing head: the meteoroid itself, burning)
+      const hr = (2.5 + 5 * m.mag) * dpr, hg = ctx.createRadialGradient(a[0], a[1], 0, a[0], a[1], hr);
+      hg.addColorStop(0, rgba([255, 255, 255], Math.min(1, fade))); hg.addColorStop(1, rgba(m.col, 0));
+      ctx.fillStyle = hg; ctx.fillRect(a[0] - hr, a[1] - hr, hr * 2, hr * 2);
       return true;
     });
     ctx.restore();
