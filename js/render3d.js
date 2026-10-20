@@ -239,6 +239,9 @@ const LOOKS = {
   Neptune: { kind: 1, profile: 4, colA: c3(76, 112, 226), colB: c3(56, 88, 196), bands: 4, storm: [0.6, -0.5, 0.6, 0.12], colC: c3(62, 88, 140), atmo: c3(150, 195, 235), atmoK: 0.45, tilt: 28.3, day: 16.1 },
   Pluto: { colA: c3(214, 190, 160), colB: c3(140, 100, 76), craters: 0.3, tilt: 122.5, day: 153.3 },
   Io: { colA: c3(232, 214, 110), colB: c3(190, 140, 60), volc: 1, day: 42.5, locked: 1 },
+  // The Ocean Moon scenario (made up): a warm giant banded cream and rose, and its ocean moon, locked to it.
+  Rhodon: { kind: 1, profile: 1, colA: c3(252, 214, 192), colB: c3(234, 80, 118), bands: 8, storm: [0.85, 0.3, 0.2, 0.05], colC: c3(214, 96, 122), atmo: c3(250, 214, 200), atmoK: 0.25, tilt: 2, day: 10.6 },
+  Pelagia: { colA: c3(70, 110, 180), colB: c3(52, 84, 140), cloud: 0.55, ocean: 1, atmo: c3(140, 190, 255), atmoK: 0.8, day: 14.9, locked: 1 },
   Europa: { colA: c3(226, 218, 204), colB: c3(170, 130, 100), lineae: 1, day: 85.2, locked: 1 },
   Ganymede: { colA: c3(150, 140, 126), colB: c3(98, 88, 78), craters: 0.6, day: 171.7, locked: 1 },
   Callisto: { colA: c3(104, 94, 82), colB: c3(70, 62, 54), craters: 1, day: 400.5, locked: 1 },
@@ -1751,6 +1754,19 @@ export class Renderer3D {
   // Spin bodies (capped so fast time-warp doesn't strobe). Called by the main loop before the surface view
   // places its camera, so the camera and the ground below it turn together (it used to run here, after the
   // camera was set: the view lagged the ground by one frame's spin, which jittered with the frame time).
+  // The planet a tidally locked moon keeps one face toward: the one closest in tidal terms (smallest
+  // distance / cube root of mass). Null for a world that is not locked.
+  tidalParent(world, b) {
+    if (!this.look(b).locked) return null;
+    let par = null, best = Infinity;
+    for (const o of world.bodies) {
+      if (o === b || o.m <= b.m || o.kind === 'nebula') continue;
+      const k = Math.hypot(o.x - b.x, o.y - b.y, o.z - b.z) / Math.cbrt(o.m);
+      if (k < best) { best = k; par = o; }
+    }
+    return par;
+  }
+
   stepSpins(world, simDt, dtReal, now) {
     this.spunAt = now;
     for (const b of world.bodies) {
@@ -1758,14 +1774,8 @@ export class Renderer3D {
       let s = this.spin.get(b);
       if (!s) { s = { ang: seeded(b.id) * 6.28 }; this.spin.set(b, s); }
       if (l.locked) {
-        // Tidally locked: the same face (body +x, longitude 0) always points at the parent planet,
-        // the one closest in tidal terms (smallest distance / cube root of mass).
-        let par = null, best = Infinity;
-        for (const o of world.bodies) {
-          if (o === b || o.m <= b.m) continue;
-          const k = Math.hypot(o.x - b.x, o.y - b.y, o.z - b.z) / Math.cbrt(o.m);
-          if (k < best) { best = k; par = o; }
-        }
+        // Tidally locked: the same face (body +x, longitude 0) always points at the parent planet.
+        const par = this.tidalParent(world, b);
         if (par) { s.ang = Math.atan2(-(par.z - b.z), par.x - b.x); continue; }
       }
       const w = (Math.PI * 2) / Math.max(l.day * HOUR_YR, 1e-9);

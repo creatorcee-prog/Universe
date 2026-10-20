@@ -243,6 +243,20 @@ export const ENTRIES = {
     ],
     sources: [wiki('TRAPPIST-1'), ['Agol et al. 2021, Planet. Sci. J. 2, 1', 'https://doi.org/10.3847/PSJ/abd022'], ['Greene et al. 2023, Nature 618, 39', 'https://doi.org/10.1038/s41586-023-05951-7']],
   },
+  Pelagia: {
+    kicker: 'Imagined ocean moon',
+    where: 'This object is not in the current scenario. Load the Ocean Moon scenario to visit it.',
+    summary: 'A made-up moon, but built within physics: a world-wide ocean on a moon close around a giant planet, which hangs fixed in one part of its sky, a third of the sky wide. No moon of a planet beyond the Solar System has been confirmed yet; some may be habitable.',
+    stats: [['Radius', '5,600 km (0.88 Earths)'], ['Mass', '0.6 Earths'], ['Orbit', '245,000 km from Rhodon (3.4 of its radii)'], ['Month and day', 'about 15 hours (locked)'], ['Rhodon in its sky', 'about 34° wide'], ['Air', 'about 1 bar of nitrogen and oxygen, as on Earth']],
+    facts: [
+      'A moon this close to its planet turns once per orbit, keeping one face toward it (as our Moon does to Earth), so from that side the planet never rises or sets.',
+      'It orbits outside the Roche limit, about 1.5 planet radii for a rocky moon, inside which tides would pull it apart.',
+      'Its orbit is circular: Io, at 5.9 Jupiter radii, is the most volcanic body known because its orbit is kept slightly oval and the changing tides knead it.',
+      'A moon of a giant at 1 AU from a Sun-like star gets about as much sunlight as Earth, plus the giant\'s reflected light and, up close, a long eclipse each orbit.',
+      'Exomoon candidates have been reported around Kepler-1625b and Kepler-1708b, both moons as large as Neptune or more, not yet confirmed.',
+    ],
+    sources: [['Heller & Barnes 2013, Astrobiology 13, 18 (exomoon habitability)', 'https://doi.org/10.1089/ast.2012.0859'], ['Teachey & Kipping 2018, Sci. Adv. 4, eaav1784', 'https://doi.org/10.1126/sciadv.aav1784'], ['Kipping et al. 2022, Nat. Astron. 6, 367', 'https://doi.org/10.1038/s41550-021-01539-1'], wiki('Roche_limit')],
+  },
   'Orion Nebula': {
     kicker: 'Emission nebula · M42',
     where: 'This object is not in the current scenario. The Stellar Nursery scenario has a nebula like it.',
@@ -534,7 +548,7 @@ export const CONTENTS = [
   ['Planets', ['Mercury', 'Venus', 'Earth', 'Mars', 'Jupiter', 'Saturn', 'Uranus', 'Neptune']],
   ['Moons', ['Moon', 'Io', 'Europa', 'Ganymede', 'Callisto']],
   ['Dwarf planets and small bodies', ['Ceres', 'Pluto', 'Bennu', 'Ryugu', 'Arrokoth', "Halley's Comet"]],
-  ['Beyond the Solar System', ['TRAPPIST-1', 'Orion Nebula']],
+  ['Beyond the Solar System', ['TRAPPIST-1', 'Pelagia', 'Orion Nebula']],
   ['Deep history', ['Theia', 'Proto-Earth']],
   ['Kinds of object', ['comet', 'asteroid', 'planetesimal', 'terrestrial', 'superearth', 'icegiant', 'gasgiant', 'browndwarf', 'M', 'K', 'G', 'F', 'A', 'B', 'O', 'wd', 'ns', 'bh', 'smbh', 'nebula', 'galaxy']],
 ];

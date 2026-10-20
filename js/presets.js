@@ -364,6 +364,27 @@ export const PRESETS = [
     },
   },
   {
+    id: 'oceanmoon', name: 'Ocean Moon',
+    blurb: 'A moon covered by one ocean, close around a giant banded cream and rose. It keeps one face to the giant, so from that side the giant hangs in the same place in the sky, a third of the sky wide, while the Sun crosses it. Stand on Pelagia and choose "Facing Rhodon".',
+    speed: DAY_YR / 24,
+    camera: { follow: 'Pelagia', dist: km(5600 * 9), pitch: 0.15, yaw: 2.2 },
+    build(w) {
+      // Made up, within physics: a Jupiter-sized giant (1.6 Jupiter masses) at 1 AU from a Sun-like star; its
+      // moon, a little smaller than Earth with 18% water (a world-wide ocean) under Earth-like air, on a
+      // circular orbit at 3.4 giant radii: outside the Roche limit (~1.5 radii for rock), close enough that the
+      // giant spans ~34° of its sky, and circular so it is not tidally heated as Io is. It goes round in ~15
+      // hours, starting ~60° from the Sun's side of the giant, so from the side facing the giant both are up.
+      const s = w.addBody(sun());
+      const g = makeBody({ name: 'Rhodon', kind: 'gas', m: 1.6 * massFromGM(126686531.9), r: km(72000), color: [252, 214, 192], band: [234, 80, 118] });
+      orbit(w, s, g, 1.0, 0, 0, 0, 0, 0).host = s;
+      const m = makeBody({ name: 'Pelagia', kind: 'rocky', m: 0.6 * EARTH_MASS, r: km(5600), color: [70, 110, 180], atmo: [140, 190, 255], compKey: 'oceanworld',
+        comp: { iron: 0.2, rock: 0.62, water: 0.18, atm: { gases: { n2: 0.78, o2: 0.21, co2: 0.0004 } } } });
+      // (orbit's phase counts from the giant's own orbital position: 180° + 60° puts it on the Sun's side, 60° round)
+      orbit(w, g, m, km(72000 * 3.4), 0, 0, 0, 0, 240, true).host = g;
+      toBarycenter(w.bodies);
+    },
+  },
+  {
     id: 'saturn', name: 'Saturn\'s Rings',
     blurb: 'Saturn, its 63 named moons and its rings. With WebGPU on (Settings), the rings are 250,000 orbiting chunks, and up close a field of individual rocks. Zoom in to skim the ring plane.',
     speed: DAY_YR / 24,

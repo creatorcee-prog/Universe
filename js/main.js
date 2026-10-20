@@ -216,8 +216,28 @@ class App {
     if (sv.place) {
       sv.place = false;
       const so = toO(sun);
+      const par = sv.where === 'parent' ? this.r3d.tidalParent(this.world, b) : null;
       if (sv.where === 'north') { sv.lat = 1.3; sv.lon = 0; }
       else if (sv.where === 'south') { sv.lat = -1.3; sv.lon = 0; }
+      else if (par) {
+        // Facing the planet a locked moon keeps in its sky: 65° from the point right under it, partway toward
+        // the Sun and partway toward the pole, so the planet hangs ~25° up, the Sun is up behind you (when it is
+        // up there at all), and the planet's bands (its equator, the moon's orbital plane) lie slanted across
+        // the sky rather than upright as seen from the moon's own equator.
+        const pd = Math.hypot(par.x - b.x, par.y - b.y, par.z - b.z);
+        const po = toO([(par.x - b.x) / pd, (par.y - b.y) / pd, (par.z - b.z) / pd]);
+        const k = so[0] * po[0] + so[1] * po[1] + so[2] * po[2];
+        let q = [so[0] - k * po[0], so[1] - k * po[1], so[2] - k * po[2]], ql = Math.hypot(...q);
+        if (ql < 1e-6) { q = [-po[2], 0, po[0]]; ql = Math.hypot(...q) || 1; }
+        q = q.map((v) => v / ql);
+        const kp = po[1], pp = [-kp * po[0], 1 - kp * po[1], -kp * po[2]], pl = Math.hypot(...pp) || 1;   // toward the pole
+        q = q.map((v, i) => v * 0.64 + (pp[i] / pl) * 0.77); ql = Math.hypot(...q);
+        const c = Math.cos(1.13), s = Math.sin(1.13);
+        const no = [0, 1, 2].map((i) => po[i] * c + (q[i] / ql) * s);
+        sv.lat = Math.asin(Math.max(-1, Math.min(1, no[1])));
+        sv.lon = Math.atan2(no[2], no[0]);
+        sv.face = par;
+      }
       else {
         const sgn = sv.where === 'night' ? -1 : 1;
         sv.lat = Math.asin(Math.max(-1, Math.min(1, so[1] * sgn)));
@@ -225,7 +245,7 @@ class App {
         // Face the Sun's side of the sky on the day side, away from it at night.
         sv.yaw = 0;
       }
-      this.nearestLand(b, sv);
+      if (!par) this.nearestLand(b, sv);
     }
     const no = [Math.cos(sv.lat) * Math.cos(sv.lon), Math.sin(sv.lat), Math.cos(sv.lat) * Math.sin(sv.lon)];
     const n = toW(no);
@@ -236,6 +256,14 @@ class App {
     if (nl < 1e-6) { north = toW([1, 0, 0]); nl = Math.hypot(...north); }
     north = north.map((v) => v / nl);
     const east = [north[1] * n[2] - north[2] * n[1], north[2] * n[0] - north[0] * n[2], north[0] * n[1] - north[1] * n[0]];
+    if (sv.face) {
+      // (once, on arriving: turn toward it, its centre a little above the middle of the view)
+      const f0 = sv.face, fd = Math.hypot(f0.x - b.x, f0.y - b.y, f0.z - b.z), fv = [(f0.x - b.x) / fd, (f0.y - b.y) / fd, (f0.z - b.z) / fd];
+      const dt = (a, c) => a[0] * c[0] + a[1] * c[1] + a[2] * c[2];
+      sv.yaw = Math.atan2(dt(fv, east), dt(fv, north));
+      sv.pitch = Math.max(0.05, Math.asin(Math.max(-1, Math.min(1, dt(fv, n)))) * 0.75);
+      sv.face = null;
+    }
     const cp = Math.cos(sv.pitch), sp = Math.sin(sv.pitch), cy = Math.cos(sv.yaw), sy = Math.sin(sv.yaw);
     const f = [0, 1, 2].map((i) => cp * (cy * north[i] + sy * east[i]) + sp * n[i]);
     let r = [f[1] * n[2] - f[2] * n[1], f[2] * n[0] - f[0] * n[2], f[0] * n[1] - f[1] * n[0]];

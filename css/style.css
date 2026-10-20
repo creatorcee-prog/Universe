@@ -255,6 +255,7 @@ input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border-radius: 
 .surface-head button { height: 32px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255,255,255,.05); font-weight: 600; cursor: pointer; }
 .surface-where { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
 .surface-where button { height: 34px; border-radius: 10px; border: 1px solid var(--line); background: rgba(255,255,255,.03); font-size: 13px; font-weight: 600; cursor: pointer; padding: 0 4px; }
+.surface-where #sv-parent { grid-column: 1 / -1; }
 .surface-where button.on { border-color: var(--accent); color: var(--accent); background: rgba(255,184,92,.1); }
 .surface-readout { margin: 0; font: 500 12px var(--font-data); color: var(--muted); }
 #app.photo .surface-bar { display: none !important; }

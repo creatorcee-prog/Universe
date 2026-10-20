@@ -80,6 +80,10 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
   pixels). The sea: a wind sea of 20 directional wave trains (60 m to 0.2 m, deep-water speeds, in groups,
   crests bent) plus capillary ripples; trains finer than a few pixels fade (no sparkle), their slope kept
   as roughness that spreads the Sun's glitter into a path; the footprint exact from distance and angle.
+- (Done) Ocean Moon scenario (from a user's picture, the land made sea): Pelagia, a made-up ocean moon locked
+  close to Rhodon, a cream-and-rose giant that spans ~34° of its sky; "Facing <planet>" in the Surface view
+  for any locked moon (stands where the planet hangs ~25° up, by daylight); Pelagia in the book.
+- Next: FFT ocean (Tessendorf 2001), as in Xavier Bourry's WebGL ocean the user pointed to.
 - Next: the jagged edge of hills' shadows (shaded per vertex of the ring mesh); Earth's land up close.
 
 ## New list

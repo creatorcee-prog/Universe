@@ -354,6 +354,10 @@ export class UI {
     $('app').classList.toggle('on-surface', !!sv);
     if (!sv) return;
     $('sv-name').textContent = sv.body.name;
+    // A moon that keeps one face to its planet: a place facing it (the planet hangs fixed in that sky).
+    const par = this.app.r3d ? this.app.r3d.tidalParent(this.app.world, sv.body) : null;
+    $('sv-parent').hidden = !par;
+    if (par) $('sv-parent').textContent = `Facing ${par.name}`;
     document.querySelectorAll('[data-where]').forEach((b) => b.classList.toggle('on', b.dataset.where === sv.where));
   }
 
