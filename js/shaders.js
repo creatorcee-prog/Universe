@@ -268,6 +268,29 @@ vec2 cloudField(vec3 d, float cover, float seed, float px) {
     float cum = (1.0 - smoothstep(0.05, 0.42, cellC)) * smoothstep(0.56, 0.7, fbm(v * 9.0 + seed + 2.0, 4));
     cloud = max(cloud, cum * exp(-lat * lat / 0.1) * 0.55 * clamp(cover * 1.4, 0.0, 1.0) * smoothstep(80.0, 250.0, px));
   }
+  // Cloud types as seen from orbit (where the planet is large enough to show them):
+  //   marine stratocumulus over the cool subtropical oceans (~15-35° latitude): a honeycomb of cells ~50
+  //   km across, closed (cloudy cells, clear cracks) or open (clear cells ringed with cloud), in patches;
+  //   deep convection near the equator (the intertropical convergence zone): clusters of bright, round
+  //   storm anvils a few hundred km wide.
+  if (px > 60.0 && uDeck < 0.5) {
+    float sh = uWind * windAt(degrees(asin(clamp(d.y, -1.0, 1.0)))) * uCloudT;
+    vec3 v = vec3(d.x * cos(sh) - d.z * sin(sh), d.y, d.x * sin(sh) + d.z * cos(sh));
+    float fade = smoothstep(60.0, 160.0, px) * clamp(cover * 1.6, 0.0, 1.0);
+    float scZone = exp(-pow((lat - 0.42) / 0.13, 2.0)) * smoothstep(0.42, 0.6, fbm(v * 3.0 + seed + 21.0, 3));
+    if (scZone > 0.01) {
+      float cellS = crater(v * 130.0 + seed + floor(uCloudT / 3.0) * 2.3);
+      bool open = fbm(v * 2.0 + seed + 29.0, 2) > 0.5;
+      float sc = open ? smoothstep(0.32, 0.5, cellS) * 0.75 : smoothstep(0.62, 0.45, cellS) * 0.9;
+      cloud = max(cloud, sc * scZone * fade);
+    }
+    float itcz = exp(-pow((d.y - 0.06 * sin(atan(d.z, d.x) * 2.0)) / 0.09, 2.0));
+    if (itcz > 0.01) {
+      float cellA = crater(v * 16.0 + seed + floor(uCloudT / 2.0) * 1.7);
+      float anvil = (1.0 - smoothstep(0.08, 0.32, cellA)) * smoothstep(0.45, 0.62, fbm(v * 5.0 + seed + 33.0 + vec3(uCloudT * 0.03), 3));
+      cloud = max(cloud, anvil * itcz * fade);
+    }
+  }
   // Wind-stretched texture: cloud edges are torn into streaks and wisps along the flow (east-west).
   float sh2 = uWind * windAt(degrees(asin(clamp(d.y, -1.0, 1.0)))) * uCloudT;
   vec3 vw = vec3(d.x * cos(sh2) - d.z * sin(sh2), d.y, d.x * sin(sh2) + d.z * cos(sh2));
@@ -436,6 +459,7 @@ uniform int uOccN;
 uniform float uSunAng;     // angular radius of the light source seen from here (penumbra width)
 uniform float uGran;       // star convection-cell frequency (fewer, larger cells for bigger stars)
 uniform float uProfile;    // giant planets with measured band layouts: 1 Jupiter, 2 Saturn, 3 Uranus, 4 Neptune
+uniform float uTintBands;  // 1: a measured layout recoloured with this planet's own colours (uColA zones, uColB belts)
 uniform float uPx;         // the body's radius on screen (pixels): more detail octaves when it is large
 uniform float uAurora;     // 1 Earth-like (oxygen green/red), 2 giant planet (H2, violet-pink)
 out vec4 outColor;
@@ -613,7 +637,14 @@ void main() {
   float cityLand = 0.0, cityE = 1.0, cityIce = 0.0; // passed from the surface block to the night lights
 
   if (uKind == 1) {
-    float turb = fbm(vec3(vObj.x * 2.0, vObj.y * 7.0, vObj.z * 2.0) + uSeed, 5);
+    // Jets for a generic giant too: alternating with its bands, the cloud pattern carried by them (two copies at
+    // different ages, cross-faded, as for the measured giants below), on the weather's clock.
+    float gj = sin(vObj.y * uBands * 3.14159) * (1.0 - 0.5 * abs(vObj.y));
+    float gph = uCloudT / 2.0, gfa = fract(gph), gfb = fract(gph + 0.5), gwA = 1.0 - abs(2.0 * gfa - 1.0);
+    float gsA = gj * gfa * 0.2, gsB = gj * gfb * 0.2;
+    vec3 gvA = vec3(vObj.x * cos(gsA) - vObj.z * sin(gsA), vObj.y, vObj.x * sin(gsA) + vObj.z * cos(gsA));
+    vec3 gvB = vec3(vObj.x * cos(gsB) - vObj.z * sin(gsB), vObj.y, vObj.x * sin(gsB) + vObj.z * cos(gsB));
+    float turb = mix(fbm(vec3(gvB.x * 2.0, gvB.y * 7.0, gvB.z * 2.0) + uSeed, 5), fbm(vec3(gvA.x * 2.0, gvA.y * 7.0, gvA.z * 2.0) + uSeed, 5), gwA);
     float b = vObj.y * uBands + turb * 0.9;
     float band = 0.5 + 0.5 * sin(b * 6.2831853);
     float edgeW = 1.0 - abs(sin(b * 6.2831853));
@@ -633,14 +664,21 @@ void main() {
       // Flowing bands: each latitude slides with its jet (alternating east and west every ~7°, as on Jupiter and
       // Saturn), so neighbouring bands visibly shear past each other. A flow map: two copies at different ages,
       // cross-faded, each reset while it is faded out, so the shear never grows without limit.
+      // The clock is the weather's (uCloudT, days of simulated time, at most 0.4 a second): speeding time up
+      // speeds the jets, storms and ovals, and pausing stops them. Jets of ~100 m/s carry the clouds ~0.1 rad a
+      // day relative to each other on a Jupiter.
+      float tg = uCloudT;
       float jet = sin(radians(latD) * 26.0) * (1.0 - 0.5 * abs(vObj.y)) * tq;
-      float FT = 30.0, fph = uTime / FT, fa = fract(fph), fb = fract(fph + 0.5);
+      float FT = 2.0, fph = tg / FT, fa = fract(fph), fb = fract(fph + 0.5);
       float wA = 1.0 - abs(2.0 * fa - 1.0);
-      float shA = jet * fa * 0.12, shB = jet * fb * 0.12;     // radians of longitude over a cycle
+      float shA = jet * fa * 0.2, shB = jet * fb * 0.2;       // radians of longitude over a cycle
       vec3 vA = vec3(vObj.x * cos(shA) - vObj.z * sin(shA), vObj.y, vObj.x * sin(shA) + vObj.z * cos(shA));
       vec3 vB = vec3(vObj.x * cos(shB) - vObj.z * sin(shB), vObj.y, vObj.x * sin(shB) + vObj.z * cos(shB));
       if (cmap) col = mix(mapTex(uMap, vB).rgb, mapTex(uMap, vA).rgb, wA);
-      else if (uProfile < 2.5) col = bandTable(lp, uProfile);
+      else if (uProfile < 2.5) {
+        col = bandTable(lp, uProfile);
+        if (uTintBands > 0.5) { float lb = dot(col, vec3(0.3, 0.55, 0.15)); col = mix(uColB, uColA, smoothstep(0.45, 0.92, lb)) * (0.75 + 0.3 * lb); }
+      }
       else if (uProfile < 3.5) {
         // Uranus: almost featureless cyan haze; faint bands and a brighter polar hood.
         col = vec3(0.66, 0.86, 0.9) * (0.97 + 0.04 * sin(lp * 0.12)) + vec3(0.06, 0.05, 0.03) * smoothstep(55.0, 75.0, abs(lp));
@@ -662,7 +700,7 @@ void main() {
       int fo = int(dOct) + 1;
       vec3 w1 = vec3(fbm(fp + uSeed, fo), fbm(fp + uSeed + 5.2, fo), 0.0);
       vec3 w2 = vec3(fbm(fp + w1 * 3.0 + 1.7, fo), fbm(fp + w1 * 3.0 + 9.2, fo), 0.0);
-      float flow = fbm(fp + vec3(w2.x * 3.5, w2.y * 0.8, 0.0) + vec3(uTime * 0.006, 0.0, 0.0), fo + 1);
+      float flow = fbm(fp + vec3(w2.x * 3.5, w2.y * 0.8, 0.0) + vec3(tg * 0.05, 0.0, tg * 0.02), fo + 1);
       // Belts (dark) are torn by white turbulent rifts; zones (light) carry faint orange-brown filaments.
       float lum = dot(col, vec3(0.3, 0.55, 0.15));
       float belt = 1.0 - smoothstep(0.62, 0.84, lum);
@@ -674,7 +712,7 @@ void main() {
       col *= cmap ? 0.93 + 0.14 * flow : 0.88 + 0.26 * flow * (uProfile < 2.5 ? 1.0 : 0.4);
       col *= 0.97 + 0.06 * vnoise(vec3(sp.xy * 48.0, latD * 4.0) + uSeed);
       float grad = length(bandTable(lp + 0.6, uProfile) - bandTable(lp - 0.6, uProfile));
-      float eddy = fbm(vec3(sp.xy * 9.0, latD * 0.9) + uSeed + vec3(uTime * 0.01, 0.0, 0.0), 4);
+      float eddy = fbm(vec3(sp.xy * 9.0, latD * 0.9) + uSeed + vec3(tg * 0.08, 0.0, tg * 0.03), 4);
       if (uProfile < 2.5 && !cmap) col = mix(col, col * (0.8 + 0.4 * eddy), clamp(grad * 4.0, 0.0, 1.0) * tq);
       if (uProfile < 1.5 && !cmap) {
         // Festoons: dark blue-grey plumes hooking from the NEB's southern edge into the Equatorial Zone.
@@ -682,13 +720,38 @@ void main() {
         col = mix(col, vec3(0.37, 0.39, 0.45), fe * exp(-pow((latD - 5.5) / 2.2, 2.0)) * 0.6);
         // White ovals in the south temperate belt (and Oval BA, a little redder).
         for (int k = 0; k < 3; k++) {
-          float ol = 0.6 + 2.1 * float(k), olat = -33.0 + float(k) * 0.8;
+          // (drifting with the jet at their latitude)
+          float olat = -33.0 + float(k) * 0.8;
+          float ol = 0.6 + 2.1 * float(k) + sin(radians(olat) * 26.0) * 0.12 * tg;
           float dl = atan(sin(lon - ol), cos(lon - ol));
           float od = length(vec2(dl / 0.045, (latD - olat) / 1.6));
           vec3 oc = k == 1 ? vec3(0.86, 0.66, 0.58) : vec3(0.95, 0.94, 0.9);
           float sw = fbm(vec3(dl * 30.0, latD * 0.8, float(k)) + uSeed, 3);
           col = mix(col, oc, smoothstep(1.25, 0.35, od + 0.25 * (sw - 0.5)) * 0.75);
           col *= 1.0 - 0.1 * exp(-pow((od - 1.2) / 0.25, 2.0));
+        }
+      }
+      if (uProfile < 2.5) {
+        // Convective outbreaks: bright plumes erupting in the belts (seen on Jupiter every few weeks, and as
+        // Saturn's great white spots), each living a few days, carried by its jet, swelling and fading. One
+        // candidate per cell of 8° latitude by 30° longitude, a new draw each life.
+        float cl8 = floor((latD + 64.0) / 8.0), lc = -64.0 + (cl8 + 0.5) * 8.0;
+        float life = 3.0 + 3.0 * hash(vec3(cl8, 1.3, uSeed));
+        float gph = tg / life + hash(vec3(cl8, 2.7, uSeed)), gen = floor(gph), age = fract(gph);
+        float drift = sin(radians(lc) * 26.0) * tq * 0.12 * tg;
+        float lon2 = lon - drift;
+        float cj = floor(lon2 / 0.5236);
+        vec3 hc = vec3(cl8, cj, gen + uSeed);
+        if (abs(lc) < 50.0 && hash(hc) > 0.72) {
+          float plat = lc + (hash(hc + 3.1) - 0.5) * 5.0, plon = (cj + 0.25 + 0.5 * hash(hc + 5.7)) * 0.5236;
+          float dlo = atan(sin(lon2 - plon), cos(lon2 - plon)) * cos(radians(plat)) * 57.3;
+          vec2 d2 = vec2(dlo, latD - plat) / (1.6 + 2.2 * age);           // (degrees, swelling as it ages)
+          float sw = 1.8 * exp(-dot(d2, d2));
+          vec2 r2 = mat2(cos(sw), -sin(sw), sin(sw), cos(sw)) * d2;
+          float puff = exp(-dot(r2 * vec2(0.8, 1.2), r2 * vec2(0.8, 1.2)) * 1.4) * (0.75 + 0.5 * fbm(vec3(r2 * 2.5, gen), 3));
+          float env = sin(3.14159 * age) * (0.7 + 0.3 * hash(hc + 8.3));
+          col = mix(col, vec3(1.04, 1.02, 0.97), clamp(puff * env * 1.2, 0.0, 0.95));
+          col *= 1.0 - 0.09 * env * exp(-pow((length(d2) - 1.5) / 0.5, 2.0));   // the dark collar its downdrafts leave
         }
       }
       if (uProfile < 1.5) {
@@ -705,7 +768,7 @@ void main() {
       }
       col *= 0.94 + 0.12 * vnoise(vec3(vObj.x * 3.0, vObj.y * 46.0, vObj.z * 3.0) + uSeed);
       // Eddies and filaments where neighbouring jets shear past each other (band edges).
-      float eddy = fbm(vec3(vObj.x * 6.0, vObj.y * 24.0, vObj.z * 6.0) + turb * 2.5 + uSeed + vec3(uTime * 0.01, 0.0, 0.0), 5);
+      float eddy = fbm(vec3(vObj.x * 6.0, vObj.y * 24.0, vObj.z * 6.0) + turb * 2.5 + uSeed + vec3(uCloudT * 0.08, 0.0, 0.0), 5);
       col = mix(col, mix(uColA * 1.06, uColB * 0.78, step(0.52, eddy)), edgeW * 0.45 * smoothstep(0.38, 0.68, eddy) * uBandK);
     }
     if (uStorm.w > 0.0 && dot(vObj, normalize(uStorm.xyz)) > 0.0) {
@@ -716,7 +779,7 @@ void main() {
       vec3 north = cross(sd, east);
       vec2 uv = vec2(dot(vObj, east), dot(vObj, north)) / uStorm.w;
       float er = length(vec2(uv.x / 1.5, uv.y)); // GRS ~16,000 x 11,000 km (Juno, 2017-19)
-      float sw = 2.6 * (1.0 - smoothstep(0.0, 1.3, er));
+      float sw = 2.6 * (1.0 - smoothstep(0.0, 1.3, er)) + uCloudT * 1.1 * smoothstep(1.2, 0.6, er);   // (turning: ~6 days, as the GRS's rim)
       vec2 ruv = mat2(cos(sw), -sin(sw), sin(sw), cos(sw)) * uv;
       float swirlN = fbm(vec3(ruv * 5.0, uSeed), 4);
       float inside = smoothstep(1.05, 0.85, er);

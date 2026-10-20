@@ -193,6 +193,13 @@ on the phone.
 - Labels of bodies behind a nearer large disc (moons behind Saturn) are hidden.
 - Close-up rocks are 3D (fish-scale billboards remain only for sub-3-pixel rocks).
 
+- (Done) Cloud types from orbit too: honeycomb marine stratocumulus (open and closed cells) in the subtropics,
+  storm-anvil clusters along the equator; on the ground the types apply on every world with clouds.
+- (Done) Livelier giants: their jets, ovals, the Great Red Spot's turning and short-lived convective outbreaks
+  (bright plumes that swell and fade over days, carried by the jets) run on the weather's clock (sim time);
+  generic giants' bands flow with alternating jets; a measured layout can be recoloured (Rhodon).
+- Next: Rhodon to look more realistic (the user is finding a reference).
+
 ## Plan: towards SpaceEngine's look (from the user, ranked by visual payoff for the effort)
 1. (Done: the Yale Bright Star Catalogue, 9,096 stars, tools/make_stars.py -> assets/maps/stars.png, js/stars.js;
    the Milky Way panorama now in the true galactic frame) Real star sky: a real catalogue (~9,000 naked-eye stars; the full Hipparcos ~118,000 costs more) as a data
