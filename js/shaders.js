@@ -439,6 +439,13 @@ uniform int uKind;        // 0 rocky, 1 gas/ice giant, 2 star, 3 white dwarf / n
 uniform vec3 uColA, uColB, uColC;
 uniform vec3 uCutA, uCutB; // cutaway (CUT_FS): the wedge where both are positive is taken out (object frame)
 uniform float uCutOn;
+// A shattered world's piece (physics.js shatter): only its cell of the old surface is drawn (the cells: the
+// nearest of uSeeds, object frame); its edges glow molten, the crust beside them charred and veined with
+// cracks; the inside of the shell shows as molten rock. uShardGlow fades as the pieces cool and fly apart.
+uniform float uShardOn, uShardGlow;
+uniform int uShardIdx, uShardN;
+uniform vec3 uSeeds[9];
+float gSeam = 1.0;
 uniform float uSeed, uOcean, uCloud, uCraters, uLife, uBands, uVolc, uLineae, uSpots, uFacet;
 uniform float uDayNight;
 uniform float uBandK;    // band contrast // day-night temperature swing: large for airless worlds, small where air and oceans store heat
@@ -554,6 +561,27 @@ float lightTerm(vec3 N, vec3 L) {
 
 void main() {
   if (uCutOn > 0.5 && dot(vObj, uCutA) > 0.0 && dot(vObj, uCutB) > 0.0) discard;
+  if (uShardOn > 0.5) {
+    vec3 ud = normalize(vObj);
+    // (the cells' edges wander: warped by noise, so the cracks are jagged, not great circles)
+    ud = normalize(ud + 0.18 * (vec3(vnoise(ud * 5.0 + 3.0), vnoise(ud * 5.0 + 7.0), vnoise(ud * 5.0 + 11.0)) - 0.5));
+    float d1 = -2.0, d2 = -2.0; int i1 = 0;
+    for (int i = 0; i < 9; i++) {
+      if (i >= uShardN) break;
+      float dd = dot(ud, uSeeds[i]);
+      if (dd > d1) { d2 = d1; d1 = dd; i1 = i; } else if (dd > d2) d2 = dd;
+    }
+    if (i1 != uShardIdx) discard;
+    gSeam = d1 - d2;
+    if (!gl_FrontFacing) {
+      // inside: molten rock, brighter and yellower deeper in, slowly churning
+      float n = vnoise(vObj * 6.0 + uSeed) * 0.6 + vnoise(vObj * 17.0 + uSeed) * 0.4;
+      vec3 lava = mix(vec3(0.9, 0.18, 0.03), vec3(1.0, 0.75, 0.3), n);
+      outColor = vec4(lava * (0.5 + 1.8 * uShardGlow), 1.0);
+      ` + WRITE_DEPTH + `
+      return;
+    }
+  }
   vec3 V = normalize(-vViewPos);
   vec3 N = normalize(vN);
   float hsh = 1.0;   // sunlight left after the shadows the ground casts on itself (from its elevation map)
@@ -1254,6 +1282,16 @@ void main() {
   else if (uSpectrum == 1) outc = inferno(irWorld(T * (0.94 + 0.06 * mu) + uHeat * 400.0) * 0.97 + 0.02 * (h1n(vObj) - 0.5));
   else if (uSpectrum == 2) outc = uvTint(dot(outc, vec3(0.3, 0.55, 0.15)) * 0.6 + frozen * 0.3) * (0.15 + 0.85 * lightTerm(N, uL0));
   else if (uSpectrum == 3) outc = xrayTint(0.05 * lightTerm(N, uL0)) * 0.3;
+  if (uShardOn > 0.5) {
+    float charK = smoothstep(0.16, 0.0, gSeam);
+    // (cracks branching out from the breaks across the crust: red where thin, yellow-white in the widest)
+    float veins = pow(1.0 - abs(2.0 * vnoise(vObj * 11.0 + uSeed) - 1.0), 12.0) * smoothstep(0.5, 0.05, gSeam)
+                + 0.7 * pow(1.0 - abs(2.0 * vnoise(vObj * 27.0 + uSeed + 2.0) - 1.0), 16.0) * smoothstep(0.3, 0.0, gSeam)
+                + 0.5 * pow(1.0 - abs(2.0 * vnoise(vObj * 60.0 + uSeed + 5.0) - 1.0), 20.0) * smoothstep(0.15, 0.0, gSeam);
+    float rim = smoothstep(0.035, 0.0, gSeam);
+    outc *= mix(1.0, 0.12, charK * 0.9) * mix(1.0, 0.55, smoothstep(0.45, 0.1, gSeam));
+    outc += mix(vec3(0.85, 0.12, 0.03), vec3(1.0, 0.62, 0.18), smoothstep(0.3, 0.9, veins + rim)) * (rim * 2.6 + veins * 1.7) * uShardGlow;
+  }
   outColor = vec4(outc, 1.0);
   ` + WRITE_DEPTH + `
 }

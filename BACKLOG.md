@@ -110,7 +110,14 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
   are, centre temperature and pressure (PREM for Earth, InSight for Mars, Apollo for the Moon, MESSENGER, Juno,
   Cassini, Galileo; elsewhere built from the composition, P ~ M²/R⁴); a drawn cutaway in the Composition tab and
   a 3D cutaway (an orange-segment wedge taken out, CUT_FS ray-tracing the layered faces).
-- TODO (user, added): shattering destruction (match a user photo to ~80%); composition
+- (Done) Shattering destruction (user photos): impacts above the target's binding energy per kilogram
+  (Leinhardt & Stewart 2012 universal law: largest remnant 1 - Q_R/2Q*, super-catastrophic beyond 1.8 Q*)
+  break rocky worlds into 5-9 fragments (bodies, with gravity; slow ones fall back together, as runs show:
+  the largest regathers most of the mass within months) and massive hot debris and dust. While close, each
+  fragment is drawn as its cell of the old world (the parent's own look and map), seams molten, the crust charred
+  and veined with glowing cracks, the inside of the shell molten through the gaps; the camera follows the largest.
+  Zone buttons in the info panel now switch that kind of zone for every object (synced with Settings).
+- TODO (user, added, remainder): (none) (match a user photo to ~80%); composition
   info (core, mantle, crust) with a cutaway like the user's Earth cross-section.
 - (Done) The Solar System's Moon rides on Earth (minors.js partner): the pair's centre of mass in IAS15, the
   Moon on a Kepler orbit kicked by the Sun's and planets' tides, 128 kicks an orbit (matches a full N-body run

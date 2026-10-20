@@ -2492,6 +2492,17 @@ export class Renderer3D {
 
   drawBody(b, now, glows) {
     const gl = this.gl, cam = this.cam;
+    // A fragment of a shattered world, while the pieces are still close: drawn as its piece of the old world
+    // (the dead parent, placed so the piece sits where the fragment is; BODY_FS keeps only its cell).
+    const sh = b.shard;
+    if (sh && sh.parent && !this.shardCtx && this.world.t - sh.t0 < (sh.grace - sh.t0) * 1.6) {
+      const P = sh.parent, u = sh.seeds[sh.idx];
+      P.x = b.x - u[0] * sh.off; P.y = b.y - u[1] * sh.off; P.z = b.z - u[2] * sh.off; P.r = sh.R0;
+      const age = (this.world.t - sh.t0) / Math.max(sh.grace - sh.t0, 1e-12);
+      this.shardCtx = { idx: sh.idx, seeds: sh.seeds, glow: Math.max(0.15, 1 - 0.55 * age) };
+      try { this.drawBody(P, now, glows); } finally { this.shardCtx = null; }
+      return;
+    }
     const [x, y, z] = this.rel(b);
     const vp = this.viewOf(x, y, z);
     const depth = -vp[2];
@@ -2741,8 +2752,18 @@ export class Renderer3D {
       gl.uniform3fv(u.uCutA, toObj(cutA)); gl.uniform3fv(u.uCutB, toObj(cutB));
     }
     gl.uniform1f(u.uCutOn, cutInt ? 1 : 0);
+    const SC = this.shardCtx;
+    gl.uniform1f(u.uShardOn, SC ? 1 : 0);
+    if (SC) {
+      const so = new Float32Array(27);
+      SC.seeds.slice(0, 9).forEach((w, i) => so.set([0, 1, 2].map((k) => rot[k * 3] * w[0] + rot[k * 3 + 1] * w[1] + rot[k * 3 + 2] * w[2]), i * 3));
+      gl.uniform3fv(u.uSeeds, so); gl.uniform1i(u.uShardIdx, SC.idx); gl.uniform1i(u.uShardN, Math.min(9, SC.seeds.length));
+      gl.uniform1f(u.uShardGlow, SC.glow);
+      gl.disable(gl.CULL_FACE);   // (the inside of the shell shows through the gaps)
+    }
     gl.bindVertexArray(g.vao);
     gl.drawElements(gl.TRIANGLES, g.n, g.type, 0);
+    if (SC) { gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK); }
     if (cutInt) {
       const cp = this.pCut, cu = cp.u, t = Math.tan(this.cam.fov / 2);
       gl.useProgram(cp.p);
@@ -2765,7 +2786,7 @@ export class Renderer3D {
     }
 
     // The cloud layer: its own shell just above the ground, alpha-blended, under the atmosphere's glow.
-    if (!cutInt && cover > 0.001 && shownPx > 3 && !(this.surface && this.surface.body === b) && Math.hypot(x, y, z) > R * (1 + deckH) * 1.0005) {
+    if (!cutInt && !SC && cover > 0.001 && shownPx > 3 && !(this.surface && this.surface.body === b) && Math.hypot(x, y, z) > R * (1 + deckH) * 1.0005) {
       const lc = ld.map((v) => Array.from(v)), colC = l.colC || [0.95, 0.96, 1];
       glows.push(() => {
         const c = this.pCloud, cu = c.u;
@@ -2797,7 +2818,7 @@ export class Renderer3D {
       });
     }
     // Glows and other additive layers, drawn after all solid bodies.
-    if (!cutInt && (atmo || optics) && shownPx > 3 && !(this.surface && this.surface.body === b)) {
+    if (!cutInt && !SC && (atmo || optics) && shownPx > 3 && !(this.surface && this.surface.body === b)) {
       // Seen from afar a real atmosphere is thinner than a pixel (Earth's is 1% of its radius): stretch it to
       // stay about 2.5 pixels wide, keeping its colours (see stretchOptics). Close up it is drawn to scale.
       const thick = optics ? (atmosphereTop(optics) - 1) * shownPx : 0;

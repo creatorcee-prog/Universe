@@ -1,5 +1,5 @@
 import { G, C_AU_YR } from './units.js';
-import { reclassify, refresh, isLuminous } from './bodies.js';
+import { reclassify, refresh, isLuminous, makeBody } from './bodies.js';
 import { thermalStep, mergeThermal, finishMerge, accreteHeat, accreteMaterial } from './thermal.js';
 import { evolveStar, stellarDeath, transientLum } from './stellar.js';
 import { IAS15, IAS15_NODES } from './ias15.js';
@@ -317,6 +317,8 @@ export class World {
       for (let j = i + 1; j < n; j++) {
         const b = bs[j];
         if (!b.alive || !a.alive || b.kind === 'nebula') continue;
+        // (Fragments of one shattering pass through each other while they first fly apart.)
+        if (a.shard && b.shard && a.shard.id === b.shard.id && this.t < a.shard.grace) continue;
         const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
         const d2 = dx * dx + dy * dy + dz * dz;
         const lim = Math.max(a._reach + b._reach, a._roche, b._roche);
@@ -350,7 +352,7 @@ export class World {
           }
         }
         if (hit) {
-          this.merge(a, b);
+          if (!this.shatter(a, b)) this.merge(a, b);
           changed = true;
         }
       }
@@ -359,6 +361,71 @@ export class World {
       this.bodies = this.bodies.filter((b) => b.alive);
       this.dirty = true;
     }
+  }
+
+  // Catastrophic disruption. An impact's specific energy Q_R = ½ μ v² / M_total (μ the reduced mass) against
+  // what holds the two together, Q*_RD ≈ c (3/5) G M_total / R (the binding energy per kilogram, c ≈ 1.2 for
+  // the gravity regime: Leinhardt & Stewart 2012, ApJ 745, 79). Above it the largest piece left holds
+  // M_lr / M = 1 - Q_R / 2Q*_RD (to 1.8 Q*), then 0.1 (Q_R / 1.8 Q*)^-1.5 (super-catastrophic) — their universal
+  // law. The rest: 5-9 big fragments (real bodies, with gravity; slower than escape, they fall back together)
+  // and hot debris (massive particles). Rocky and icy worlds only (giants and stars merge or are torn apart).
+  // Returns true when it shattered them.
+  shatter(a, b) {
+    if (a.kind !== 'rocky' || b.kind !== 'rocky' || (a.shard && b.shard && a.shard.id === b.shard.id)) return false;
+    const M = a.m + b.m, mu = (a.m * b.m) / M;
+    const dvx = b.vx - a.vx, dvy = b.vy - a.vy, dvz = b.vz - a.vz, v2 = dvx * dvx + dvy * dvy + dvz * dvz;
+    const R0 = Math.cbrt(a.r ** 3 + b.r ** 3);
+    const QR = (0.5 * mu * v2) / M, Qs = 1.2 * 0.6 * G * M / R0;
+    if (!(QR > Qs)) return false;
+    const fLR = QR < 1.8 * Qs ? Math.max(0.05, 1 - QR / (2 * Qs)) : Math.max(0.02, 0.1 * Math.pow(QR / (1.8 * Qs), -1.5));
+    const big = a.m >= b.m ? a : b, imp = big === a ? b : a;
+    const cx = (a.x * a.m + b.x * b.m) / M, cy = (a.y * a.m + b.y * b.m) / M, cz = (a.z * a.m + b.z * b.m) / M;
+    const cvx = (a.vx * a.m + b.vx * b.m) / M, cvy = (a.vy * a.m + b.vy * b.m) / M, cvz = (a.vz * a.m + b.vz * b.m) / M;
+    // Where it was hit (from the big body's centre toward the impactor): the far side holds together best.
+    let nx = imp.x - big.x, ny = imp.y - big.y, nz = imp.z - big.z; const nl = Math.hypot(nx, ny, nz) || 1; nx /= nl; ny /= nl; nz /= nl;
+    const N = Math.max(5, Math.min(9, 5 + Math.round(QR / Qs)));
+    // Cells of the broken world: the biggest opposite the impact, the rest scattered (directions, unit).
+    const seeds = [[-nx, -ny, -nz]];
+    for (let k = 1; k < N; k++) {
+      let u = randUnit();
+      if (u[0] * nx + u[1] * ny + u[2] * nz < -0.5) u = u.map((x) => -x);   // (none crowding the big one)
+      seeds.push(u);
+    }
+    // Pieces falling off in size from the largest (as m_k ~ k^-1.2, roughly the fragment size distributions of
+    // impact simulations), at most ~72% of the mass in them; the rest is debris.
+    const largest = fLR * M;
+    let masses = seeds.map((_, k) => largest * Math.pow(k + 1, -1.2) * (k ? 0.75 + 0.5 * rand() : 1));
+    const sumF = masses.reduce((s, x) => s + x, 0);
+    if (sumF > 0.72 * M) { const k2 = (0.72 * M - largest) / (sumF - largest); masses = masses.map((x, k) => (k ? x * k2 : x)); }
+    const debrisM = M - masses.reduce((s, x) => s + x, 0);
+    const vesc = Math.sqrt((2 * G * M) / R0);
+    const id = (this.shardSeq = (this.shardSeq || 0) + 1);
+    const vfr = vesc * (0.35 + 0.45 * Math.min(2, QR / Qs - 1));
+    for (let k = 0; k < N; k++) {
+      const m = masses[k], u = seeds[k];
+      const f = makeBody({ kind: 'rocky', m, r: R0 * Math.cbrt(m / M), color: big.color, name: `${big.name} fragment ${k + 1}`, compKey: big.compKey });
+      if (big.comp) f.comp = { ...big.comp };
+      const off = 0.5 * R0, sp = vfr * (k === 0 ? 0.25 : 0.7 + 0.6 * rand());
+      f.x = cx + u[0] * off; f.y = cy + u[1] * off; f.z = cz + u[2] * off;
+      f.vx = cvx + u[0] * sp; f.vy = cvy + u[1] * sp; f.vz = cvz + u[2] * sp;
+      f.heat = 1.5;
+      // How to draw it while the pieces are still close (render3d: a piece of the old crust, its seams molten).
+      f.shard = { id, idx: k, seeds, R0, off, pid: big.id, parent: big, look: big.name.replace(/ \d+$/, ''), map: big.surfaceMap || null, t0: this.t, grace: this.t + (3 * R0) / Math.max(vfr, 1e-12), real0: performance.now() };
+      this.addBody(f);
+    }
+    // Debris: the rest as hot particles from the seams, from below to above escape speed.
+    const free = PCAP - this.np - this.pending.length, count = Math.min(free, 900);
+    for (let k = 0; k < count; k++) {
+      const u = randUnit(), rr = R0 * (0.85 + 0.2 * rand()), sp = vesc * (0.3 + 1.4 * rand() * rand());
+      this.spawnParticle(cx + u[0] * rr, cy + u[1] * rr, cz + u[2] * rr, cvx + u[0] * sp, cvy + u[1] * sp, cvz + u[2] * sp, debrisM / Math.max(1, count), k % 3 === 0 ? PK.DUST : rand() < 0.55 ? PK.HOT : PK.ROCK);
+    }
+    // (anything following the old world, the camera too, moves on to its largest piece)
+    const first = this.bodies[this.bodies.length - N];
+    a.alive = false; a.mergedInto = first; b.alive = false; b.mergedInto = first;
+    this.flashes.push({ x: big.x + nx * big.r, y: big.y + ny * big.r, z: big.z + nz * big.r, body: null, r: R0 * 3, born: performance.now(), life: 2500, color: [255, 200, 140] });
+    const pct = Math.round(fLR * 100);
+    this.events.push({ text: `${imp.name} shattered ${big.name}: the impact carried ${(QR / Qs).toFixed(1)}× the energy that held it together. It broke into ${N} pieces (the largest ${pct}% of the mass) and a cloud of hot debris; pieces slower than escape speed will fall back together.`, body: null, big: true, snd: 'impact', power: 1, at: [cx, cy, cz] });
+    return true;
   }
 
   merge(a, b) {

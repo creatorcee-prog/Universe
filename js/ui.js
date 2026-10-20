@@ -182,18 +182,17 @@ export class UI {
       this.toast(`Removed ${b.name}`);
     });
     $('btn-reset').addEventListener('click', () => { app.loadPreset(app.state.preset.id); this.closeSheets(); });
-    $('i-zones').addEventListener('click', () => {
-      const b = app.state.selected;
-      if (!b) return;
-      if (app.zones.has(b)) app.zones.delete(b); else app.zones.add(b);
+    // (Zone buttons switch that kind of zone for every object at once, the same as the Settings switches.)
+    const allZones = (key) => {
+      app.settings[key] = !app.settings[key];
+      (key === 'allTemp' ? app.zones : app.gzones).clear();
+      app.saveSettings();
+      const el = document.getElementById('set-' + key);
+      if (el) el.checked = app.settings[key];
       this.refreshInfo(true);
-    });
-    $('i-gzones').addEventListener('click', () => {
-      const b = app.state.selected;
-      if (!b) return;
-      if (app.gzones.has(b)) app.gzones.delete(b); else app.gzones.add(b);
-      this.refreshInfo(true);
-    });
+    };
+    $('i-zones').addEventListener('click', () => allZones('allTemp'));
+    $('i-gzones').addEventListener('click', () => allZones('allGrav'));
     $('i-rings').addEventListener('click', () => {
       const b = app.state.selected;
       if (!b || app.world.ringOuter.has(b)) return;
@@ -650,11 +649,11 @@ export class UI {
     const zb = $('i-zones'), canZone = !!tempZones(b);
     if (!canZone) app.zones.delete(b);
     zb.hidden = !canZone;
-    zb.classList.toggle('on', app.zones.has(b));
-    zb.textContent = app.zones.has(b) ? 'Hide temperature zones' : 'Show temperature zones';
+    zb.classList.toggle('on', !!app.settings.allTemp);
+    zb.textContent = app.settings.allTemp ? 'Hide all temperature zones' : 'Show all temperature zones';
     const gb = $('i-gzones');
-    gb.classList.toggle('on', app.gzones.has(b));
-    gb.textContent = app.gzones.has(b) ? 'Hide gravity zones' : 'Show gravity zones';
+    gb.classList.toggle('on', !!app.settings.allGrav);
+    gb.textContent = app.settings.allGrav ? 'Hide all gravity zones' : 'Show all gravity zones';
     const following = app.cam.follow === b;
     $('i-follow').textContent = following ? 'Unlock' : 'Lock view';
     $('i-follow').classList.toggle('on', following);
