@@ -3387,21 +3387,30 @@ float remap(float v, float a, float b, float c, float d) { return c + (v - a) / 
 // The blanket deck's base (Earth km above the ground) at wind-carried position w, and how strongly it is
 // creased there (0..1): strongly warped ridges that hang down as troughs, as in asperitas.
 // far: how much of the waves to keep (far off they are smaller than a pixel: smoothed toward their mean).
-vec2 blanketBase(vec3 w, float far) {
-  if (uFluff > 0.5) {
-    // Soft heaps: rounded cells (billows) at two sizes, ~4 and ~2 km, their undersides hanging lowest; they
-    // drift with the wind and slowly change shape (the pattern moves through its third axis with time).
-    vec3 q = w * 0.25 + vec3(0.0, uTime * 4e-4, 0.0) + 0.8 * vec3(tfbm(w * 0.04 + 3.0, 2), 0.0, tfbm(w * 0.04 + 8.0, 2));
-    // (the small heaps fade out sooner with distance than the big ones: past ~20 km they would only speckle)
-    float f2 = far * far * far;
-    float c = billow(q) * (1.0 - 0.35 * f2) + billow(q * 2.1 + 7.0) * 0.35 * f2;
-    float lump = smoothstep(0.15, 0.95, mix(0.55, c, far * far));
-    return vec2(2.4 - 0.8 * lump, lump);
-  }
+// Soft heaps (Titan's methane clouds; mammatus, which hang under storm anvils): rounded cells (billows) at two
+// sizes, ~4 and ~2 km, their undersides hanging lowest; they drift with the wind and slowly change shape (the
+// pattern moves through its third axis with time).
+vec2 fluffBase(vec3 w, float far) {
+  vec3 q = w * 0.25 + vec3(0.0, uTime * 4e-4, 0.0) + 0.8 * vec3(tfbm(w * 0.04 + 3.0, 2), 0.0, tfbm(w * 0.04 + 8.0, 2));
+  // (the small heaps fade out sooner with distance than the big ones: past ~20 km they would only speckle)
+  float f2 = far * far * far;
+  float c = billow(q) * (1.0 - 0.35 * f2) + billow(q * 2.1 + 7.0) * 0.35 * f2;
+  float lump = smoothstep(0.15, 0.95, mix(0.55, c, far * far));
+  return vec2(2.4 - 0.8 * lump, lump);
+}
+// Creased waves (asperitas).
+vec2 waveBase(vec3 w, float far) {
   vec3 q = w * 0.22 + 1.6 * vec3(tfbm(w * 0.05 + 3.0, 3), 0.0, tfbm(w * 0.05 + 8.0, 3));
   float r1 = 1.0 - abs(2.0 * tnoise(q) - 1.0), r2 = 1.0 - abs(2.0 * tnoise(q * 2.3 + 5.0) - 1.0);
   float ridge = mix(0.45, r1 * r1 * 0.75 + r2 * r2 * 0.25 * far, far);
   return vec2(2.3 - 1.4 * ridge, ridge);
+}
+// Titan's deck is all soft heaps, Venus's all waves; under storms, regions (~100 km) of each alternate.
+vec2 blanketBase(vec3 w, float far) {
+  float fl = uFluff > 0.5 ? 1.0 : uBlanket < 0.5 ? smoothstep(0.42, 0.58, tfbm(w * 0.004 + 51.0, 2)) : 0.0;
+  if (fl > 0.999) return fluffBase(w, far);
+  vec2 wave = waveBase(w, far);
+  return fl > 0.001 ? mix(wave, fluffBase(w, far), fl) : wave;
 }
 // Where each kind of cloud forms: broad regions (~100 km) of more convective or more layered weather, about
 // the climate's own tendency (uConv: warm, wet, unstable air) and its cover.

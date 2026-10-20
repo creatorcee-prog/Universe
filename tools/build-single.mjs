@@ -18,7 +18,7 @@ const out = args.find((a) => !a.startsWith('--')) || join(root, 'dist', 'pocket-
   const stale = PROGRAMS.filter(([, vs, fs]) => !WGSL[programKey(vs, fs)]).map(([n]) => n);
   if (stale.length) { console.error(`js/wgsl.js is out of date for: ${stale.join(', ')}. Run node tools/make_wgsl.mjs first.`); process.exit(1); }
 }
-const ORDER = ['units', 'bodies', 'stellar', 'thermal', 'gravzones', 'geography', 'ias15', 'tree', 'coagulate', 'minors', 'physics', 'moons', 'presets', 'camera', 'stars', 'render', 'shaders', 'optics', 'render3d', 'wgsl', 'glgpu', 'gpu', 'input', 'facts', 'book', 'thumbs', 'audio', 'challenges', 'ui', 'main'];
+const ORDER = ['units', 'bodies', 'stellar', 'thermal', 'gravzones', 'geography', 'ias15', 'tree', 'coagulate', 'minors', 'physics', 'moons', 'presets', 'camera', 'stars', 'optics', 'render', 'shaders', 'render3d', 'wgsl', 'glgpu', 'gpu', 'input', 'facts', 'book', 'thumbs', 'audio', 'challenges', 'ui', 'main'];
 
 // Each ES module becomes a function scope; imports read from a shared registry.
 // Build stamp (month-day hour:minute, UTC), shown in the performance readout and Settings.
@@ -45,6 +45,8 @@ for (const name of ORDER) {
   let src = readFileSync(join(root, 'js', name + '.js'), 'utf8');
   src = src.replace(/^import\s*\{([\s\S]*?)\}\s*from\s*['"]\.\/([\w-]+)\.js['"];?/gm, (_, names, mod) => {
     if (!ORDER.includes(mod)) throw new Error(`${name}.js imports unknown module ${mod}`);
+    // (a module must come after everything it imports, or the app fails at start in the single file only)
+    if (ORDER.indexOf(mod) > ORDER.indexOf(name)) throw new Error(`${name}.js imports ${mod}, which comes after it in ORDER`);
     return `const {${names}} = __m.${mod};`;
   });
   if (/^\s*import\s/m.test(src)) throw new Error(`${name}.js has an import the bundler cannot rewrite`);
