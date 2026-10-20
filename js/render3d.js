@@ -942,8 +942,23 @@ export class Renderer3D {
       if (-vp[2] < -b.r) continue;                                    // wholly behind the camera
       list.push([b, vp]);
     }
+    // Supernova remnants: expanding freely at the ejecta's speed for ~200 years, then slowed as the shell sweeps up
+    // more gas than it threw out (the Sedov-Taylor phase, radius ~ t^0.4); brightening over the first decades as
+    // the reverse shock heats the ejecta (Cas A, ~350 years old, is ~5 light-years across), fading over ~10^4 years.
+    for (const rm of world.remnants || []) {
+      const age = world.t - rm.t0;
+      if (!(age > 0)) continue;
+      const tST = 200, r = age < tST ? rm.v * age : rm.v * tST * Math.pow(age / tST, 0.4);
+      const glow = (0.35 + 0.65 * Math.min(1, age / 30)) * Math.exp(-age / 3e4);
+      const pseudo = { x: rm.x, y: rm.y, z: rm.z, r, id: Math.round(rm.seed * 1000), glow, rem: rm.type };
+      const vp = this.viewOf(...this.rel(pseudo));
+      if (-vp[2] < -r) continue;
+      list.push([pseudo, vp]);
+    }
     if (!list.length) return;
-    const w = Math.max(16, Math.ceil(W / 4)), h = Math.max(16, Math.ceil(H / 4));
+    // (Quarter resolution; half for a remnant, whose knots and filaments are fine.)
+    const div = list.some((e) => e[0].rem) ? 2 : 4;
+    const w = Math.max(16, Math.ceil(W / div)), h = Math.max(16, Math.ceil(H / div));
     if (!this.nebRT || this.nebRT.w !== w || this.nebRT.h !== h) {
       if (this.nebRT) { gl.deleteTexture(this.nebRT.tex); gl.deleteFramebuffer(this.nebRT.fbo); }
       this.nebRT = this.makeTarget(w, h);
@@ -967,6 +982,7 @@ export class Renderer3D {
       gl.uniform1f(u.uR, b.r);
       gl.uniform1f(u.uSeed, (b.id % 97) * 0.13);
       gl.uniform1f(u.uBright, b.glow === undefined ? 1 : b.glow);
+      gl.uniform1i(u.uRem, b.rem || 0);
       gl.bindVertexArray(this.quad);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     }
@@ -2223,7 +2239,7 @@ export class Renderer3D {
     if (ground) {
       this.bindSkyLayer();
       // Nebulae in the sky, behind its bodies, seen through the air like them.
-      if (world.bodies.some((x) => x.kind === 'nebula')) { this.drawNebulae(world, this.skyLayer.fbo, this.sceneW, this.sceneH); }
+      if (world.bodies.some((x) => x.kind === 'nebula') || (world.remnants && world.remnants.length)) { this.drawNebulae(world, this.skyLayer.fbo, this.sceneW, this.sceneH); }
       gl.enable(gl.DEPTH_TEST);
       gl.depthFunc(gl.LEQUAL);
     }
@@ -2965,7 +2981,8 @@ export class Renderer3D {
       const v = 0.82 + 0.36 * ((k * 0.61803) % 1);
       if (GLOW_KINDS.has(kind)) {
         glow.pos[ng * 3] = x; glow.pos[ng * 3 + 1] = y; glow.pos[ng * 3 + 2] = z;
-        const a = kind === PK.HOT ? 0.45 : kind >= PK.SN_H ? 1.1 : 0.55;
+        // (Supernova ejecta: faint knots once the remnant's own volume draws the shell; bright before it.)
+        const a = kind === PK.HOT ? 0.45 : kind >= PK.SN_H ? (world.remnants && world.remnants.length ? 0.3 : 1.1) : 0.55;
         glow.col[ng * 3] = c[0] * a * v; glow.col[ng * 3 + 1] = c[1] * a * v; glow.col[ng * 3 + 2] = c[2] * a * v;
         glow.size[ng] = kind === PK.HOT ? size : 0;
         glow.shade[ng] = 1;

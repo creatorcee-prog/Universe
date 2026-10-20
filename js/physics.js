@@ -76,6 +76,7 @@ export class World {
     this.pending = [];
     this.ringOuter = new Map(); // host body -> outer ring radius
     this.transients = []; // supernova light, fading
+    this.remnants = [];   // supernova remnants: expanding shells of ejecta (render3d drawNebulae)
     this.events = [];
     this.flashes = [];
     this.dirty = true;
@@ -1112,8 +1113,11 @@ export class World {
       this.dirty = true;
       this.flushPending();
     }
-    this.transients = this.transients.filter((t) => transientLum(t, this.t) > t.peak * 1e-4);
+    this.transients = this.transients.filter((t) => this.t - t.t0 < 0.1 || transientLum(t, this.t) > t.peak * 1e-4);   // (kept through its rise)
     for (const t of this.transients) { t.x += t.vx * dt; t.y += t.vy * dt; t.z += t.vz * dt; }
+    // (Remnants drift with their star's old velocity; after ~100,000 years they have merged into the gas around.)
+    this.remnants = this.remnants.filter((r) => this.t - r.t0 < 1e5);
+    for (const r of this.remnants) { r.x += r.vx * dt; r.y += r.vy * dt; r.z += r.vz * dt; }
   }
 
   // Trigger a star's death now (the "End of life" button).

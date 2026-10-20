@@ -92,7 +92,14 @@ Ideas parked for later, roughly in the order they were asked for. Done items mov
   at most eight at once.
 - (Done) Tidal locking: Motion tab shows what a body would lock to, how long its tides would take (Gladman et al.
   1996), how the braking works, the resonance caveat for oval orbits (Mercury 3:2), and a Lock/Unlock toggle.
-- TODO (user, added): better supernovae; magnetic field views.
+- (Done) Better supernovae (user references: Cas A by JWST, W49B by Chandra): a volumetric remnant
+  (NEBULA_FS uRem) for core-collapse and Type Ia: faint blast-wave rim, a lopsided broken shell of shocked
+  ejecta with knots and curling filaments, bubbles inside, a grey-violet dust haze; X-ray band in false colour
+  (iron magenta, silicon cyan, sulphur green) like W49B. Free expansion at the ejecta speed for ~200 years,
+  then Sedov-Taylor (r ~ t^0.4); brightens over decades, fades over ~10^4 years. Ejecta dots dimmed to knots.
+  Light curves: Type II-P plateau ~100 days then the cobalt-56 tail; Type Ia 19-day rise.
+- TODO (user, added): magnetic field views; shattering destruction (match a user photo to ~80%); composition
+  info (core, mantle, crust) with a cutaway like the user's Earth cross-section.
 - (Done) The Solar System's Moon rides on Earth (minors.js partner): the pair's centre of mass in IAS15, the
   Moon on a Kepler orbit kicked by the Sun's and planets' tides, 128 kicks an orbit (matches a full N-body run
   to ~0.05° after a year, ~0.6° after five). Its month no longer sets every planet's step: at 100x the Solar

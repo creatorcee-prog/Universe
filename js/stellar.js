@@ -113,7 +113,8 @@ export function stellarDeath(world, s, reason) {
   if (s.kind === 'wd') {
     // Type Ia: a carbon-oxygen white dwarf detonates completely.
     eject(world, s, s.m, [[SN.FE, 0.6, 6000, 11000], [SN.SI, 0.3, 8000, 13000], [SN.O, 0.1, 10000, 15000]], 3000, 0);
-    world.transients.push({ x: s.x, y: s.y, z: s.z, vx: s.vx, vy: s.vy, vz: s.vz, t0: world.t, peak: 5e9, decay: 0.08, temp: 11000 });
+    world.transients.push({ x: s.x, y: s.y, z: s.z, vx: s.vx, vy: s.vy, vz: s.vz, t0: world.t, peak: 5e9, decay: 0.08, temp: 11000, shape: 'Ia' });
+    if (world.remnants) world.remnants.push({ x: s.x, y: s.y, z: s.z, vx: s.vx, vy: s.vy, vz: s.vz, t0: world.t, v: kms(12000), type: 2, seed: Math.random() * 50 });
     flash(Math.max(s.r * 4000, 0.02), [255, 250, 235], 5000);
     s.alive = false; s.mergedInto = null;
     return `${s.name} detonated as a Type Ia supernova and was completely destroyed`;
@@ -133,7 +134,8 @@ export function stellarDeath(world, s, reason) {
   const rem = m0 < 20 ? 1.4 : Math.max(3, 0.25 * s.m);
   const ej = Math.max(0, s.m - rem);
   eject(world, s, ej, [[SN.H, 0.7, 6000, 12000], [SN.O, 0.15, 2000, 5000], [SN.SI, 0.08, 1500, 4000], [SN.FE, 0.07, 1000, 3000]], 3200, rem);
-  world.transients.push({ x: s.x, y: s.y, z: s.z, vx: s.vx, vy: s.vy, vz: s.vz, t0: world.t, peak: 1e9, decay: 0.12, temp: 9000 });
+  world.transients.push({ x: s.x, y: s.y, z: s.z, vx: s.vx, vy: s.vy, vz: s.vz, t0: world.t, peak: 3e8, decay: 0.12, temp: 9000, shape: s.giant || m0 < 25 ? 'IIP' : undefined });
+  if (world.remnants) world.remnants.push({ x: s.x, y: s.y, z: s.z, vx: s.vx, vy: s.vy, vz: s.vz, t0: world.t, v: kms(10000), type: 1, seed: Math.random() * 50 });
   flash(Math.max(s.r * 40, 0.02), [255, 240, 220], 6000);
   s.giant = 0;
   if (rem < 3) { s.kind = 'ns'; s.m = rem; s.r = km(12); s.temp = 600000; s.lum = 0.05; s.color = [190, 220, 255]; }
@@ -142,6 +144,23 @@ export function stellarDeath(world, s, reason) {
 }
 
 // Light from an explosion, fading over weeks to months.
+// Shapes from the observed light curves: Type II-P (a red supergiant's collapse, as Betelgeuse will be): a few
+// days' rise, a ~100-day plateau near 3x10^8 L☉ while the hydrogen envelope's recombination front recedes, a
+// drop within weeks onto the tail powered by cobalt-56 decay (0.07 M☉ of nickel-56, as SN 1987A made:
+// 1.45x10^43 erg/s per M☉ x e^(-t/111.3 d); Nadyozhin 1994). Type Ia: ~19 days' rise to ~5x10^9 L☉, then a
+// faster fall onto the same kind of tail with ~0.6 M☉ of nickel (Arnett 1982). Others: a plain exponential.
 export function transientLum(t, now) {
-  return t.peak * Math.exp(-(now - t.t0) / t.decay);
+  const age = now - t.t0, d = age * 365.25;
+  if (!(age >= 0)) return 0;
+  const tail = (mNi) => 1.45e43 * mNi * Math.exp(-d / 111.3) / 3.828e33;   // L☉
+  if (t.shape === 'IIP') {
+    const rise = Math.min(1, d / 8), plat = t.peak * (1 - 0.25 * Math.min(1, d / 100));
+    const drop = 1 / (1 + Math.exp((d - 110) / 6));
+    return Math.max(rise * plat * drop, d > 20 ? tail(0.07) : 0);
+  }
+  if (t.shape === 'Ia') {
+    if (d < 19) return t.peak * (d / 19) ** 2;
+    return Math.max(t.peak * Math.exp(-(d - 19) / 22), tail(0.6));
+  }
+  return t.peak * Math.exp(-age / t.decay);
 }

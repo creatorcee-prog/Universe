@@ -2684,7 +2684,82 @@ uniform float uR;        // radius (AU)
 uniform float uSeed;
 uniform float uBright;
 uniform int uBand;       // 0 visible, 1 infrared, 2 ultraviolet, 3 X-ray
+uniform int uRem;        // 0 a nebula; a supernova remnant: 1 core collapse, 2 Type Ia
 out vec4 outColor;
+// Cellular noise, inverted (1 at the cells' centres): round cavities.
+float billowR(vec3 x) {
+  vec3 i = floor(x), f = fract(x);
+  float dd = 1.0;
+  for (int z = -1; z <= 1; z++) for (int y = -1; y <= 1; y++) for (int k = -1; k <= 1; k++) {
+    vec3 g = vec3(float(k), float(y), float(z)), cc = i + g;
+    vec3 r = g + vec3(hash(cc), hash(cc + 17.3), hash(cc + 41.9)) - f;
+    dd = min(dd, dot(r, r));
+  }
+  return 1.0 - sqrt(dd);
+}
+// A supernova remnant in unit-sphere coordinates (1 = the blast wave). As Cassiopeia A shows it (Chandra, Hubble,
+// JWST; Milisavljevic & Fesen 2013): a thin, faint rim where the blast wave meets the surrounding gas; inside it,
+// the ejecta heated by the reverse shock in a bright, broken shell at ~0.6-0.75 of the radius, knots and
+// filaments drawn out radially into fingers (Rayleigh-Taylor), with cavities (bubbles) between; and cool dust
+// glowing in the infrared as a grey-violet smoke. Not a sphere: the explosion is lopsided.
+vec4 remnant(vec3 o, vec3 dw, float t0, float t1, vec3 sd) {
+  const int N = 80;
+  float dt = (t1 - t0) / float(N);
+  vec3 col = vec3(0.0);
+  float T = 1.0;
+  for (int i = 0; i < N; i++) {
+    vec3 p = o + dw * (t0 + (float(i) + 0.5) * dt);
+    float r = length(p);
+    if (r > 1.0) continue;
+    vec3 u = p / max(r, 1e-4);
+    // Lopsided: the shock and the ejecta shell lie farther out on some sides.
+    float lop = fbm(u * 1.3 + sd, 3) - 0.5;
+    float rs = 0.93 + 0.12 * lop, re = 0.68 + 0.16 * lop + 0.05 * (vnoise(u * 4.0 + sd + 3.0) - 0.5);
+    vec3 w = vec3(fbm(u * 3.0 + sd, 3), fbm(u * 3.0 + sd + 5.2, 3), fbm(u * 3.0 + sd + 9.7, 3)) - 0.5;
+    // The blast wave's rim: thin, faint, wispy.
+    float rim = exp(-pow((r - rs) / 0.03, 2.0)) * (0.35 + 0.65 * fbm(u * 7.0 + w * 2.0 + sd, 3));
+    // Ejecta: knots on the shell, stretched radially into fingers (the noise varies fast across, slowly along r),
+    // and a network of thin bright filaments (ridges); broken into patches.
+    float shell = smoothstep(re - 0.12, re - 0.01, r) * (1.0 - smoothstep(re + 0.01, re + 0.07, r));
+    // (In 3D, curling along the shell; stretched only a little along the radius: short fingers.)
+    vec3 pf = p * vec3(1.0) + u * 0.06 * sin(r * 40.0);
+    float knots = pow(vnoise(pf * 34.0 + w * 5.0 + sd), 4.0) * 1.6;
+    float fil = pow(1.0 - abs(2.0 * vnoise(pf * 15.0 + w * 3.0 + sd + 1.0) - 1.0), 14.0) * 1.3
+              + 0.8 * pow(1.0 - abs(2.0 * vnoise(pf * 36.0 + w * 5.0 + sd + 4.0) - 1.0), 16.0);
+    float patchy = smoothstep(0.38, 0.62, fbm(u * 2.2 + sd + 7.0, 3));
+    float ej = shell * (0.12 + 0.88 * patchy) * (knots * 2.4 + fil * 3.8);
+    // Oxygen-rich and silicon/iron-rich ejecta come out in different directions (Cas A's iron plumes).
+    float met = smoothstep(0.45, 0.7, fbm(u * 1.8 + sd + 11.0, 3));
+    float sul = smoothstep(0.5, 0.72, fbm(u * 2.6 + sd + 23.0, 3));   // (sulphur-rich patches)
+    // Cavities: the interior is mostly empty, with large bubbles bounded by thin walls.
+    float bub = r < re ? 1.0 - billowR(p * 2.6 + sd) : 0.0;   // (only inside the shell: it costs 27 hashes)
+    float inner = (1.0 - smoothstep(0.0, re, r)) * smoothstep(0.55, 0.8, bub) * 0.25;
+    // Dust: a smoky haze through the shell, warm in the infrared.
+    float dust = smoothstep(0.3, 0.75, fbm(p * 2.4 + w * 1.5 + sd + 2.0, 4)) * smoothstep(0.25, 0.7, r) * (1.0 - smoothstep(0.95, 1.05, r));
+    vec3 e;
+    float ext = dust * 1.5;
+    if (uBand == 3) {
+      // X-rays (as Chandra sees W49B or Cas A; false colour): hot gas everywhere inside the shock, iron in
+      // purple, silicon and sulphur in green and blue; the rim thin and bright.
+      vec3 xc = mix(mix(vec3(0.2, 0.7, 1.0), vec3(0.3, 0.9, 0.45), sul), vec3(1.0, 0.25, 0.95), met);
+      e = (xc * (shell * (0.4 + patchy * 1.2) * (0.6 + 0.8 * fil) + inner * 1.6 + dust * 0.3) + vec3(1.0, 0.55, 0.35) * rim * fil * 2.0 + vec3(0.6, 0.8, 1.0) * rim * 0.5) * 0.8;
+      ext = 0.0;
+    } else if (uBand == 1) {
+      e = vec3(1.0, 0.72, 0.5) * dust * 0.9 + vec3(1.0, 0.45, 0.3) * ej * 0.5;   // warm dust glows
+      ext *= 0.1;
+    } else if (uBand == 2) {
+      e = vec3(0.6, 0.75, 1.0) * (ej * 0.6 + rim * 1.2 + inner);
+    } else {
+      // Visible: hydrogen and sulphur (red, orange-pink), oxygen (teal) in the knots and filaments; the rim
+      // faint blue-white; the dust a dim grey-violet smoke, lit by the shell.
+      vec3 ejc = mix(mix(vec3(1.0, 0.36, 0.22), vec3(1.0, 0.55, 0.62), knots), vec3(0.3, 0.85, 0.85), met * 0.55);
+      e = ejc * ej + vec3(0.55, 0.62, 1.0) * rim * 0.35 + vec3(0.5, 0.46, 0.68) * dust * 0.5 + vec3(0.3, 0.25, 0.45) * inner;
+    }
+    col += T * e * dt * 2.0 * uBright;
+    T *= exp(-ext * dt);
+  }
+  return vec4(col, min(1.0, (1.0 - T) + dot(col, vec3(0.1))));
+}
 void main() {
   vec3 d = normalize(vec3((vUV.x * 2.0 - 1.0) * uTan.x, (vUV.y * 2.0 - 1.0) * uTan.y, -1.0));
   // Unit-sphere coordinates in the nebula's own (world-aligned) frame.
@@ -2694,6 +2769,7 @@ void main() {
   if (D <= 0.0) { outColor = vec4(0.0); return; }
   float q = sqrt(D), t0 = max(-b - q, 0.0), t1 = -b + q;
   if (t1 <= 0.0) { outColor = vec4(0.0); return; }
+  if (uRem > 0) { outColor = remnant(o, dw, t0, t1, vec3(uSeed * 17.0, uSeed * 31.0, uSeed * 7.0)); return; }
   const int N = 26;
   float dt = (t1 - t0) / float(N);
   vec3 sd = vec3(uSeed * 17.0, uSeed * 31.0, uSeed * 7.0);
