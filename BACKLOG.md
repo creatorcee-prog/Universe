@@ -17,11 +17,11 @@ Done items move to the README. (October 2026: the user cleared everything else; 
 - [x] Live feeds (GitHub Pages copy; the artifact's CSP blocks other hosts): CelesTrak elements + SGP4 for real satellite positions, NOAA SWPC Kp for aurora alerts and strength, JPL Horizons for probe positions if it allows browser requests; cached offline by the service worker, falling back to the built-in tables.
 
 - [x] Meteors not visible in the Surface view (user, 21 Oct): they started up to 70° from the radiant with the view aimed below it, so most were off-screen, and few, thin and faint. Now 8-40° out, the view just under the radiant, brighter with a glowing head, time at 4 min/s while watching (about one a second).
-- [ ] Seasons visible on every object that has them (axial tilt: ice caps and climate shifting with the year, on Mars, Earth, Titan, made-up worlds).
+- [x] Seasons visible on every object that has them: the snow line and warm belt follow the Sun's latitude (half as far: heat transport and lag); winter snow over colour maps (Earth's continents, Mars's CO2 frost to ~50°), mid-latitude leaves browning, the same on the ground.
 - [x] Delete the Galaxy Collision scenario (Milky Way vs Andromeda replaces it).
 - [x] Scenarios panel: tabs for Scenarios and Challenges, and a sub-tab for black hole scenarios.
 - [x] Delete the Jupiter's moons scenario.
-- [ ] Planet Formation doesn't form planets: check the time scale and the growth physics.
+- [x] Planet Formation doesn't form planets: shattering and splash used the 70x inflated radius (bodies bound ~150x too weakly), so most hits blew planetesimals apart. Now true radii (rPhys, 3 g/cm³) set binding and escape speed, and it runs at 20 yr/s: 160 -> 54 bodies in 2,000 yr, largest 4.5 Earth masses (Node test).
 - [x] Empty scenario first in the list (Empty Space: nothing at all); Empty Star deleted (kept hidden as 'lonestar' for the test tools).
 - [x] Historic events tab in Scenarios: Chicxulub (hits the Yucatán at 21.4°N 89.5°W), Shoemaker-Levy 9, Apophis 2029, the Moon-forming impact.
 - [ ] Discord bot that notifies of events (user asked whether it's possible and what it could notify about).

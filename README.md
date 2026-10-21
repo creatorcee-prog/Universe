@@ -542,7 +542,7 @@ Gravity is Newtonian plus a first-order relativistic correction:
 
 Galaxies are two softened
 mass points with test-particle disks, not self-gravitating dark-matter halos. Planetesimals in
-*Planet Formation* are given inflated radii so they collide on a watchable timescale.
+*Planet Formation* are given inflated radii so they collide on a watchable timescale (their true radii, `rPhys`, still set how hard they are to break apart and their escape speed).
 
 ## Data sources
 

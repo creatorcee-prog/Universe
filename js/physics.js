@@ -508,7 +508,10 @@ export class World {
     const M = a.m + b.m, mu = (a.m * b.m) / M;
     const dvx = b.vx - a.vx, dvy = b.vy - a.vy, dvz = b.vz - a.vz, v2 = dvx * dvx + dvy * dvy + dvz * dvz;
     const R0 = Math.cbrt(a.r ** 3 + b.r ** 3);
-    const QR = (0.5 * mu * v2) / M, Qs = 1.2 * 0.6 * G * M / R0;
+    // (strength from the real size: bodies drawn and colliding larger than they are, the planetesimals of Planet
+    // Formation, keep their true radius in rPhys; with the inflated one they would be bound ~150x too weakly)
+    const Rs = a.rPhys || b.rPhys ? Math.cbrt((a.rPhys || a.r) ** 3 + (b.rPhys || b.r) ** 3) : R0;
+    const QR = (0.5 * mu * v2) / M, Qs = 1.2 * 0.6 * G * M / Rs;
     if (!(QR > Qs)) return false;
     const fLR = QR < 1.8 * Qs ? Math.max(0.05, 1 - QR / (2 * Qs)) : Math.max(0.02, 0.1 * Math.pow(QR / (1.8 * Qs), -1.5));
     const big = a.m >= b.m ? a : b, imp = big === a ? b : a;
@@ -537,6 +540,7 @@ export class World {
     for (let k = 0; k < N; k++) {
       const m = masses[k], u = seeds[k];
       const f = makeBody({ kind: 'rocky', m, r: R0 * Math.cbrt(m / M), color: big.color, name: `${big.name} fragment ${k + 1}`, compKey: big.compKey });
+      if (a.rPhys || b.rPhys) { f.rPhys = Rs * Math.cbrt(m / M); f.noRoche = true; }
       if (big.comp) f.comp = { ...big.comp };
       const off = 0.5 * R0, sp = vfr * (k === 0 ? 0.25 : 0.7 + 0.6 * rand());
       f.x = cx + u[0] * off; f.y = cy + u[1] * off; f.z = cz + u[2] * off;
@@ -569,7 +573,7 @@ export class World {
     const M = s.m + o.m;
     const dvx = o.vx - s.vx, dvy = o.vy - s.vy, dvz = o.vz - s.vz;
     const vrel2 = dvx * dvx + dvy * dvy + dvz * dvz;
-    const rsum = s.r + o.r;
+    const rsum = (s.rPhys || s.r) + (o.rPhys || o.r);   // escape speed from the true surfaces (rPhys: drawn radius is inflated)
     const vesc2 = (2 * G * M) / Math.max(rsum, 1e-12);
     let nx = o.x - s.x, ny = o.y - s.y, nz = o.z - s.z;
     const nl = Math.hypot(nx, ny, nz) || 1;
@@ -653,6 +657,7 @@ export class World {
     s.vx = cvx; s.vy = cvy; s.vz = cvz;
     s.m = keep;
     s.r = r;
+    if (s.rPhys || o.rPhys) s.rPhys = Math.cbrt((s.rPhys || s.r) ** 3 + (o.rPhys || o.r) ** 3);
     // Two black holes: part of the mass leaves as gravitational waves, and the remnant recoils. Radiated
     // fraction: ~4.8% of the total for equal masses (numerical relativity), falling to the test-mass limit
     // 5.7%·η (the binding energy at the innermost stable orbit), fitted as 0.0572η + 0.539η². Recoil from

@@ -1767,6 +1767,7 @@ export class Renderer3D {
     gl.uniform1f(u.uLatSpan, th ? th.latSpan : 50);
     gl.uniform1f(u.uIce, th && th.ice > 0.003 ? 1 : 0);
     gl.uniform1f(u.uSnowLat, th ? (th.ice > 0.97 ? -0.3 : 1 - th.ice) : 1.3);
+    gl.uniform1f(u.uSeason, this.seasonOf(b, lights));
     gl.uniform1f(u.uBoil, th ? th.boil : 373);
     gl.uniform1f(u.uLapse, optics && optics.P > 0.1 ? 6.5 : 0);
     gl.uniform1f(u.uTime, now / 1000);
@@ -2542,6 +2543,14 @@ export class Renderer3D {
   }
 
   // The two brightest light sources seen from body b: view-space directions and colour * intensity.
+  // Sine of the Sun's latitude on b (its declination): how far the main star stands north of the equator.
+  seasonOf(b, lights) {
+    const P = lights && lights.primary;
+    if (!P || !P.d) return 0;
+    const R = this.bodyRotation(b);
+    return (R[3] * P.dx + R[4] * P.dy + R[5] * P.dz) / P.d;
+  }
+
   lightsFor(b) {
     const L = [];
     let flux = 0;
@@ -2870,6 +2879,7 @@ export class Renderer3D {
     this.bindShape(u, b);
     gl.uniform1f(u.uTemp, temp);
     gl.uniform1f(u.uSnowLat, snowLat);
+    gl.uniform1f(u.uSeason, this.seasonOf(b, lights));
     gl.uniform1f(u.uIce, th && th.ice > 0.003 ? 1 : 0);
     gl.uniform1f(u.uLatSpan, th ? th.latSpan : 50);
     gl.uniform1f(u.uBoil, th ? th.boil : 373);

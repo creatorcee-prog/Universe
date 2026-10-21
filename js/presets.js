@@ -767,14 +767,17 @@ export const PRESETS = [
   },
   {
     id: 'formation', name: 'Planet Formation',
-    blurb: '160 planetesimals around a young star collide and grow into a handful of planets.',
-    speed: 0.4,
+    blurb: '160 planetesimals around a young star collide and grow into a handful of planets. Sped up: real growth takes 10–100 million years; here the bodies are drawn (and collide) ~70× larger, so it takes a few thousand.',
+    speed: 20,
     camera: { follow: 'Young Sun', dist: 7, pitch: 0.95, yaw: 0 },
     build(w) {
       const s = w.addBody(sun('Young Sun', 2e6));
       for (let k = 0; k < 160; k++) {
         const a = 0.45 + Math.pow(rand(), 1.3) * 3.4;
         const p = makeBody({ kind: 'rocky', m: between(0.05, 0.4) * EARTH_MASS, r: 0.0035, name: 'Planetesimal ' + (k + 1) });
+        // Drawn (and collision) radius is inflated ~70x so they meet within minutes, not millions of years;
+        // rPhys is the true size of rock at 3 g/cm³ (7,800 km for an Earth mass), used for binding and escape speed.
+        p.rPhys = km(7800 * Math.cbrt(p.m / EARTH_MASS));
         p.noRoche = true;
         orbit(w, s, p, a, rand() * 0.04, rand() * 1.5, rand() * 360, rand() * 360);
       }

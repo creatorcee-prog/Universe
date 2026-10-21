@@ -471,6 +471,7 @@ uniform float uDayNight;
 uniform float uBandK;    // band contrast // day-night temperature swing: large for airless worlds, small where air and oceans store heat
 uniform float uTemp;      // surface temperature before day/night variation (K)
 uniform float uSnowLat;   // latitude (as sin) where ice caps begin
+uniform float uSeason;    // sine of the Sun's latitude on this world (+: northern summer)
 uniform float uIce;       // 1 when the thermal model says there is surface ice
 uniform float uLatSpan;   // equator-to-pole temperature difference (K)
 uniform float uBoil;      // boiling point of water at this surface pressure (K)
@@ -717,9 +718,12 @@ void main() {
 
   vec3 q = vObj * 1.7 + uSeed;
   float lat = abs(vObj.y);
+  // Seasons: the warm belt and the snow line follow the Sun's latitude, half as far (air and oceans carry
+  // heat poleward and lag the Sun by a month or so: Earth's warmest belt swings ~10-15°, its snow line ~20°).
+  float latS = abs(vObj.y - 0.5 * uSeason);
   float day = max(dot(N, uL0), 0.0);
   // Local temperature: day side warmer, poles cooler, plus impact and global heat.
-  float T = uTemp + uLatSpan * (0.33 - lat * lat) + uTemp * uDayNight * (sqrt(day) - 0.45);
+  float T = uTemp + uLatSpan * (0.33 - latS * latS) + uTemp * uDayNight * (sqrt(day) - 0.45);
   T += glow * 2600.0 + uHeat * 1700.0;
   vec3 col;
   float water = 0.0, frozen = 0.0, boiled = 0.0;
@@ -1139,9 +1143,16 @@ void main() {
     water = (1.0 - landMask) * (1.0 - frozen) * (1.0 - boiled) * (1.0 - scar);
     col = mix(seaCol, land, landMask);
     // Ice caps creep toward the equator as the planet cools.
-    float snow = smoothstep(uSnowLat, uSnowLat + 0.07, lat + 0.12 * (fbm(q * 3.0, 3) - 0.5));
-    // A colour map already shows the world's own ice (Mars's caps, Pluto's nitrogen plains).
-    col = mix(col, ice, snow * smoothstep(290.0, 268.0, T) * uIce * (cmapR ? 0.0 : 1.0));
+    // With the seasons: winter snow reaches toward the equator, summer caps shrink (sea ice moves half as far).
+    float sN = 0.12 * (fbm(q * 3.0, 3) - 0.5);
+    float snow = smoothstep(uSnowLat, uSnowLat + 0.07, mix(lat, latS, mix(0.5, 1.0, landMask)) + sN);
+    // A colour map already shows the world's own ice (Mars's caps, Pluto's nitrogen plains): only the winter's
+    // extra snow and frost go on top of it (Mars's CO2 frost reaches ~50° in winter: Piqueux et al. 2015).
+    if (cmapR) snow = 0.85 * max(0.0, snow - smoothstep(uSnowLat, uSnowLat + 0.07, lat + sN));   // (forests still show through)
+    // Winter: leaves fall and grass browns in the mid-latitudes of the winter hemisphere.
+    float wint = clamp((latS - lat) * 6.0, 0.0, 1.0) * smoothstep(0.4, 0.6, lat) * landMask * step(0.0, uLife - 0.001);
+    col = mix(col, vec3(dot(col, vec3(0.45, 0.4, 0.15))) * vec3(1.12, 0.98, 0.78), wint * 0.55 * smoothstep(0.0, 0.04, col.g - col.r));
+    col = mix(col, ice, snow * smoothstep(290.0, 268.0, T) * uIce);
     cityLand = landMask; cityE = e; cityIce = MP.b;
     // Mapped ice sheets (Greenland, Antarctica) and painted ice.
     col = mix(col, ice * (0.92 + 0.08 * rg2), (uMapMode < 1.5 ? 1.0 : 0.0) * smoothstep(0.35, 0.6, MP.b));
@@ -1710,7 +1721,7 @@ in vec3 vRockL;
 uniform vec3 uL0, uSunCol, uAmb;       // sun direction (view), sunlight reaching the ground, sky light
 uniform vec3 uEastV, uNorthV, uUpV;    // local axes in view space
 uniform vec3 uColA, uColB, uVeg;
-uniform float uLife, uTemp, uLatSpan, uIce, uBoil, uSeaOK, uLapse, uTime, uPxAng, uSnowLat;
+uniform float uLife, uTemp, uLatSpan, uIce, uBoil, uSeaOK, uLapse, uTime, uPxAng, uSnowLat, uSeason;
 uniform vec3 uFogExt;                  // ground-level extinction per metre (per channel)
 uniform float uFogH;                   // scale height of that haze (m)
 uniform vec3 uFogSun, uFogAnti, uSkyZen; // sky colour at the horizon toward / away from the sun, zenith
@@ -1852,8 +1863,9 @@ void main() {
   res = max(res, max(length(vec3(dFdx(vPlanar), dFdx(H))), length(vec3(dFdy(vPlanar), dFdy(H)))));
   bool water = uSeaOK > 0.5 && H < 0.0;
   float lat = abs(vDir.y);
-  // Temperature here: latitude, then air cooling with height (lapse rate).
-  float T = uTemp + uLatSpan * (0.33 - lat * lat) - uLapse * max(H, 0.0) * 0.001;
+  float latS = abs(vDir.y - 0.5 * uSeason);   // (seasons: as in the globe's shader)
+  // Temperature here: latitude and season, then air cooling with height (lapse rate).
+  float T = uTemp + uLatSpan * (0.33 - latS * latS) - uLapse * max(H, 0.0) * 0.001;
   vec3 col; vec3 N;
   vec3 rockBase = vec3(0.35, 0.33, 0.3);   // the local rock's colour (set by the ground below), for rocks
   float ssrA = 0.0;                      // reflection pass: how much of the mirrored frame this water pixel shows
@@ -2023,7 +2035,7 @@ void main() {
     // Snow: cold enough, and only on gentler slopes.
     // Snow: polar caps where the globe has them; on worlds with liquid water also wherever it is cold
     // enough (high peaks, winter latitudes).
-    float cap = smoothstep(uSnowLat, uSnowLat + 0.05, lat + 0.03 * (n1 - 0.5)) * uIce;
+    float cap = smoothstep(uSnowLat, uSnowLat + 0.05, latS + 0.03 * (n1 - 0.5)) * uIce;
     float cold = uSeaOK > 0.5 ? smoothstep(271.0, 262.0, T + 6.0 * (n1 - 0.5)) : 0.0;
     // Near the snow line, patches linger in hollows and on shaded ground instead of a uniform blanket.
     float hollow = smoothstep(0.55, 0.35, vnoise(vec3(pp / 90.0, 43.0)) * 0.7 + n1 * 0.3);
