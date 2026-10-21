@@ -19,6 +19,13 @@ export class Input {
     for (const ev of ['touchstart', 'touchmove', 'touchend']) canvas.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
     // iOS Safari: stop page-level pinch zoom and double-tap zoom.
     for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(ev, (e) => e.preventDefault());
+    // A click with no pointer press before it (a script's element.click(), or a tester sending mouse clicks
+    // only) still taps. (Real taps and clicks come as pointer events, and their own click is ignored here.)
+    canvas.addEventListener('click', (e) => {
+      if (performance.now() - (this.lastDown || -1e9) < 1000) return;
+      const [x, y] = this.pos(e);
+      this.tap(x, y);
+    });
   }
 
   pos(e) {
@@ -29,7 +36,9 @@ export class Input {
   down(e) {
     e.preventDefault();
     if (this.app.photo) { this.app.setPhoto(false); return; }
-    this.canvas.setPointerCapture?.(e.pointerId);
+    this.lastDown = performance.now();
+    // (Throws for a pointer the browser does not know, as with events made by a script: the press still counts.)
+    try { this.canvas.setPointerCapture?.(e.pointerId); } catch { /* script-made event */ }
     const [x, y] = this.pos(e);
     this.pointers.set(e.pointerId, { x, y, x0: x, y0: y, t0: performance.now() });
     this.app.interacted();
@@ -133,7 +142,8 @@ export class Input {
     if (!p) return;
     const [x, y] = this.pos(e);
     this.pointers.delete(e.pointerId);
-    if (this.mode === 'tap' && performance.now() - p.t0 < 400) this.tap(x, y);
+    // (A tap may be held a while: automated testers often take time between press and release.)
+    if (this.mode === 'tap' && performance.now() - p.t0 < 1500) this.tap(x, y);
     if (this.mode === 'add') this.app.addEnd(x, y);
     if (this.mode === 'laser') this.app.laserStop();
     if (this.pointers.size === 0) this.mode = 'idle';

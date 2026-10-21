@@ -17,6 +17,7 @@ import { Challenges } from './challenges.js';
 import { atmosphereOptics } from './optics.js';
 import { showersAt, upcoming, radiantDir } from './events.js';
 import { startLive } from './live.js';
+import { installAgentAPI } from './agent.js';
 const $id = (id) => document.getElementById(id);
 const SAT_SIZE = (b) => b.r * 2 * 1.495978707e11;   // a spacecraft's size (m): presets.js gives it a radius of half
 
@@ -71,6 +72,7 @@ class App {
     if (this.settings.webgpu || window.__TEST_WEBGPU) this.useWebGPU(true);
     this.loadPreset('solar');
     startLive(this);   // (live satellite elements and Kp, in the web copy: js/live.js)
+    installAgentAPI(this);   // (window.pocket for scripts and AI testers, and ?scenario= links: js/agent.js)
     this.last = performance.now();
     this.frame = this.frame.bind(this);
     document.getElementById('perf').addEventListener('click', () => this.startFpsTest());

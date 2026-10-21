@@ -18,6 +18,16 @@ collide two galaxies. All of it runs on real Newtonian N-body gravity, at true s
 No host? `npm run build` writes `dist/pocket-universe.html`, a single self-contained file that runs anywhere,
 including straight from the Files app in some browsers.
 
+## Scripts, AI testers and links
+
+The simulation is drawn on one canvas, which an agent reading the page can't see into, so the page offers
+`window.pocket` (call `pocket.help()`): `scenarios()`, `load(id)`, `bodies()`, `select(name)`, `focus(name)`,
+`where(name)` (screen position in CSS pixels, to tap), `tap(x, y)`, `speed(yearsPerSecond)`, `pause(bool)`,
+`tool(name)`, `view(name)`, `surface(name)`, `watch(showerName)` and `state()`. Taps also work when they come
+as script-made pointer events (the pointer capture used to throw for those), as bare clicks, or held up to
+1.5 s. Links open a scenario directly: `?scenario=solar&focus=Earth&speed=0.01&watch=Orionids`
+(`?view=<scenario id>` too).
+
 ## Controls
 
 | Gesture | Action |
